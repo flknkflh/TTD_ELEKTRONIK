@@ -49,6 +49,24 @@ type SignatureResult struct {
 	TimestampValid           bool     `json:"timestamp_valid"`
 	Warnings                 []string `json:"warnings"`
 	Errors                   []string `json:"errors,omitempty"`
+
+	// Reason and Contact are copied from the PDF signature dictionary (inside
+	// the signed byte range). The client puts "pqc-public-id:<id>" in Contact
+	// so the server can bind a submission to its reservation (§15.2, §15.3).
+	Reason  string `json:"reason,omitempty"`
+	Contact string `json:"contact,omitempty"`
+}
+
+// PublicIDPrefix marks the reservation id the client binds into the CMS
+// Contact attribute.
+const PublicIDPrefix = "pqc-public-id:"
+
+// PublicID returns the reservation id bound into this signature, or "".
+func (s SignatureResult) PublicID() string {
+	if len(s.Contact) > len(PublicIDPrefix) && s.Contact[:len(PublicIDPrefix)] == PublicIDPrefix {
+		return s.Contact[len(PublicIDPrefix):]
+	}
+	return ""
 }
 
 // Result is the shared verification JSON (Rencana V1 §11.3).
@@ -123,6 +141,8 @@ func VerifyPDF(pdf []byte, o Options) (*Result, error) {
 			TrustedChain:   s.TrustedChain,
 			Revoked:        s.Revoked,
 			TimestampValid: s.TimestampValid,
+			Reason:         s.Reason,
+			Contact:        s.Contact,
 			Warnings:       errStrings(s.Warnings),
 			Errors:         errStrings(s.Errors),
 		}

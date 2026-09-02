@@ -21,9 +21,9 @@ spike** (§10, §31, §32):
 | `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
 | `apps/android/` app | on-device spike (debug APK) + Kotlin wrapper; full app = M5 |
 | `tools/ca-admin/` | offline CA operator CLI (init/validate/issue/revoke/crl/show), tested — M2 done, HSM/encryption = M7 |
-| `server/` Receiver API | placeholder (M6) |
+| `server/` Receiver API | M6 slice 1: all §17 core routes on an in-memory store, strict submit verification, public verifier — tested; PostgreSQL/MinIO/Docker/MFA = slice 2 |
 | `pki/` | lab scripts + templates; production ceremony = M7 |
-| `deploy/` | lab Docker Compose = M6 |
+| `deploy/` | lab Docker Compose = M6 slice 2 |
 
 ## Crypto profile (§4)
 
@@ -46,7 +46,7 @@ core/            framework-independent Go: keys, enrollment, signing, verificati
   spike/         the M1 end-to-end proof, callable from any platform
 apps/windows/    Wails desktop client (UI = M4); today: pqcsign-cli spike
 apps/android/    Kotlin/Compose client + Go AAR (M5)
-server/          Receiver API (M6)
+server/          Receiver API — internal/{store,auth,api}; strict submit verify + public verifier
 tools/ca-admin/  offline CA operator CLI: init / validate / issue / revoke / crl / show
 pki/             CA templates, scripts, published public material
 deploy/          lab (Compose) and production recipes

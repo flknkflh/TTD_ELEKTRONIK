@@ -25,7 +25,14 @@
 * **M2** done: `tools/ca-admin` (`init/validate/issue/revoke/crl/show`) with
   the gate test — Root→Intermediate→device chain verifies, a revoked cert is
   rejected via a fresh ML-DSA-65 CRL, CA private keys stay out of any server.
-* Next: **M6** (Receiver API) then M3 hardening (parser fuzzing).
+* **M6 slice 1** done: `server/` receiver API — register/login (Argon2id +
+  HS256 JWT), device + CSR registry, admin cert issuance (chain + CSR-key
+  match), reservation, strict submit verification, public multipart verifier,
+  audit log. `api_test.go` covers the §25.4 rejections (tampered PDF, wrong
+  device cert, revoked cert, public-id mismatch, cross-account read) and
+  asserts there is no signing endpoint. **Slice 2**: PostgreSQL + MinIO +
+  Docker Compose, MFA/TOTP, refresh-token revocation, rate limiting.
+* Next: M6 slice 2, then M3 hardening (parser fuzzing).
 
 ## Per-release (M9)
 

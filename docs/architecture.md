@@ -29,7 +29,11 @@ signing endpoint (§17.5).
   * `spike` — the M1 end-to-end proof, one call, returns a metrics report.
 * **apps/windows** — `pqcsign-cli` today (M1). Wails UI at M4; DPAPI key wrapping at M4.
 * **apps/android** — M5. Consumes `pqcsign.aar` built from `core/mobilebridge` via gomobile.
-* **server** — M6. Receiver API only.
+* **server** — M6 slice 1 done. `internal/store` (types + in-memory impl,
+  Postgres in slice 2), `internal/auth` (Argon2id + HS256 JWT), `internal/api`
+  (all §17 core routes). Receiver-only: no endpoint signs a PDF. Submit runs
+  `core/verification` strictly + DB checks (cert registered to this
+  account+device, active, not revoked, public-id matches the reservation).
 * **tools/ca-admin** — M2 done: offline CLI for CSR validation, operator-
   assigned cert issuance, revocation ledger, ML-DSA-65 CRL publishing; keeps
   Root/Intermediate keys in its own dir, publishes only `public/`. M7 adds

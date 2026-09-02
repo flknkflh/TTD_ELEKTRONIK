@@ -1,7 +1,37 @@
-# Receiver API (planned — M6)
+# Receiver API (M6)
 
-The endpoint list below is copied from Rencana V1 §17 and is the contract the
-`server/` module will implement. Nothing here is built yet.
+Endpoint list from Rencana V1 §17. **M6 slice 1 is implemented** in
+`server/internal/api` on an in-memory store (`✔` below); the rest lands in
+slice 2 (PostgreSQL/MinIO/Docker, MFA/TOTP, refresh-token revocation, rate
+limiting).
+
+Implemented (`server/internal/api`, tested in `api_test.go`):
+
+```
+✔ POST /api/v1/auth/register          (lab; real deploys seed admins out of band)
+✔ POST /api/v1/auth/login
+✔ POST /api/v1/devices
+✔ GET  /api/v1/devices
+✔ POST /api/v1/devices/{device_id}/csr
+✔ GET  /api/v1/devices/{device_id}/certificate
+✔ POST /api/v1/devices/{device_id}/report-lost
+✔ POST /api/v1/signatures/reserve
+✔ PUT  /api/v1/signatures/{public_id}/document      (strict verify, §15.3)
+✔ GET  /api/v1/signatures/{public_id}
+✔ GET  /api/v1/signatures/{public_id}/download
+✔ GET  /api/v1/me/signatures
+✔ POST /api/v1/verify                               (public, multipart)
+✔ GET  /api/v1/public/signatures/{public_id}
+✔ GET  /api/v1/public/ca/root.crt | chain.pem | crl.pem
+✔ GET  /api/v1/admin/enrollments
+✔ POST /api/v1/admin/enrollments/{id}/certificate   (chain + CSR-key match check)
+✔ POST /api/v1/admin/certificates/{id}/revoke
+✔ POST /api/v1/admin/crl/import
+✔ GET  /api/v1/admin/audit-events
+```
+
+Slice 2: `auth/refresh`, `auth/logout`, `auth/mfa/*`,
+`admin/enrollments/{id}/approve`, `admin/enrollments/{id}/export`.
 
 ## Auth
 ```

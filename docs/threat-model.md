@@ -31,9 +31,18 @@ Full text: Rencana V1 §5, §24, §26, §29. This is the working checklist.
 
 ## Negative tests (§25.4, §26)
 
-Covered by `core/spike` today: tampered PDF rejected, wrong Root CA rejected,
-CSR with broken signature rejected, non-ML-DSA key rejected.
+Covered by `core/spike`: tampered PDF rejected, wrong Root CA rejected, CSR
+with broken signature rejected, non-ML-DSA key rejected.
 
-Pending (M6+): revoked cert rejected for new signatures, account/device
-mismatch rejected, reserve/submit replay rejected, path-traversal on upload,
-CRL-cache-stale warning surfaced to the user.
+Covered by `tools/ca-admin/castore_test.go`: revoked cert rejected via a fresh
+CRL; CSR subject cannot set the issued identity.
+
+Covered by `server/internal/api/api_test.go`: submit of a tampered PDF, a
+different device's certificate, a revoked certificate, or a mismatched
+public-id all rejected (422); a revoked device cert blocks new reservations;
+another account cannot read a signature record; `POST /api/v1/sign` and
+`/users/{id}/sign` do not exist.
+
+Pending (M6 slice 2 / M8): reserve/submit replay across restarts, symlink /
+path-traversal on upload + export, account switch while a device key is open,
+CRL-cache-stale warning surfaced in the client UI.
