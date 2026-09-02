@@ -12,14 +12,14 @@ below refer to it).
 ## Status
 
 This repository currently contains **M0 baseline + the M1 cross-platform
-spike foundation** (§10, §31, §32):
+spike** (§10, §31, §32):
 
 | Component | State |
 |---|---|
 | `core/` Go library — keygen, CSR, sign, verify, CRL | implemented, tested |
-| `apps/windows/` `pqcsign-cli` — M1 desktop spike | implemented, builds `.exe` |
-| `core/mobilebridge/` — gomobile-safe surface for the Android AAR | implemented (AAR build = M1 Android, pending) |
-| `apps/android/` | placeholder (M5) |
+| `apps/windows/` `pqcsign-cli` — M1 desktop spike | implemented, builds `.exe`, spike PASSES on windows/amd64 |
+| `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
+| `apps/android/` app | Kotlin wrapper skeleton only (M5) |
 | `server/` Receiver API | placeholder (M6) |
 | `pki/`, `tools/ca-admin/` | lab scripts + templates; production ceremony = M7 |
 | `deploy/` | lab Docker Compose = M6 |

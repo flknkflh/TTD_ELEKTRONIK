@@ -17,8 +17,10 @@
 
 ## Current state
 
-M0 done. M1 desktop half done (`pqcsign-cli spike` green, `.exe` builds).
-M1 Android (AAR build + on-device run) is the next task.
+M0 done. M1 desktop done (`pqcsign-cli spike` green, `.exe` builds). M1 Android
+AAR build done (`apps/android/build-aar.sh`, arm64/API29, all 5 bridge methods
+exported). Remaining for M1: run sign/verify on a physical arm64 device and
+record timing/memory + a capture proving no key leakage (§25.1).
 
 ## Per-release (M9)
 

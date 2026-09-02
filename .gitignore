@@ -24,6 +24,13 @@ spike-out/
 lab-pki/
 *.out
 
+# ---- Android build outputs (AAR is reproduced from source via build-aar.sh) ----
+apps/android/app/libs/*.aar
+apps/android/app/libs/*-sources.jar
+apps/android/app/libs/*.jar
+.gradle/
+apps/android/**/build/
+
 # ---- reference repository clones (studied, not vendored) ----
 research/pdfsign/
 research/pdfsigner/

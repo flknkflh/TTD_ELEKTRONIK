@@ -3,17 +3,27 @@
 Kotlin / Jetpack Compose client. The signing/verification engine is the Go
 `core` compiled to an AAR through gomobile, from `core/mobilebridge`.
 
-## M1 Android spike (next task, §10.2)
+## M1 Android spike — AAR build DONE (§10.2)
 
 ```sh
-go install golang.org/x/mobile/cmd/gomobile@<PINNED>   # pin after first success
-gomobile init
-
-cd core
-gomobile bind -target=android/arm64 \
-  -o ../apps/android/app/libs/pqcsign.aar \
-  ./mobilebridge
+export ANDROID_HOME=~/AppData/Local/Android/Sdk
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006
+./apps/android/build-aar.sh
 ```
+
+Produces `apps/android/app/libs/pqcsign.aar` (~6.3 MB): `jni/arm64-v8a/libgojni.so`
+plus `id.example.pqcsign.mobilebridge.Mobilebridge` with static native methods
+`generateKey`, `exportPublicKey`, `createCSR`, `signPDF`, `verifyPDF`. Pinned
+tool versions are in `build-aar.sh` and `docs/toolchain.md`.
+
+The AAR is a build output — reproduce it with the script, it is git-ignored.
+
+### Still pending (needs a physical arm64 device on `adb`)
+
+Run generate/sign/verify on the device; record time + memory; capture logcat
+and network traffic to prove no key material leaks (§25.1). If the bind ever
+fails on a platform API, fix portability in the `pdfsign` fork first — do not
+swap the algorithm.
 
 `mobilebridge` exposes only `[]byte` / `string` / `error`:
 
