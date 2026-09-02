@@ -38,7 +38,7 @@ object SigningEngine {
     /** Returns the shared verification JSON (Rencana V1 §11.3). */
     fun verifyPdf(pdf: ByteArray, rootPem: ByteArray, crlPem: ByteArray?): VerifyResult {
         val json = Mobilebridge.verifyPDF(pdf, rootPem, crlPem ?: ByteArray(0))
-        return VerifyResult(JSONObject(json))
+        return VerifyResult(json)
     }
 }
 
@@ -76,9 +76,12 @@ data class SignOptions(
     }.toString()
 }
 
-class VerifyResult(private val root: JSONObject) {
+class VerifyResult(val json: String) {
+    private val root = JSONObject(json)
     val valid: Boolean get() = root.optBoolean("valid", false)
     val documentSha512: String get() = root.optString("document_sha512")
-    val signatures: JSONObject? get() = root.optJSONObject("signatures")
-    fun raw(): JSONObject = root
+    /** First signature's algorithm, or "" if none. */
+    val firstAlgorithm: String
+        get() = root.optJSONArray("signatures")?.optJSONObject(0)?.optString("algorithm") ?: ""
+    fun pretty(): String = root.toString(2)
 }

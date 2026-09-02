@@ -19,8 +19,11 @@
 
 M0 done. M1 desktop done (`pqcsign-cli spike` green, `.exe` builds). M1 Android
 AAR build done (`apps/android/build-aar.sh`, arm64/API29, all 5 bridge methods
-exported). Remaining for M1: run sign/verify on a physical arm64 device and
-record timing/memory + a capture proving no key leakage (§25.1).
+exported) **and** a debug APK builds (`./gradlew :app:assembleDebug`) — a
+one-screen spike app that runs keygen-on-device + sign + verify + negative
+checks. Remaining for M1: install that APK on a physical arm64 device, run it,
+record timing/memory, and capture logcat/network proving no key leakage
+(§25.1).
 
 ## Per-release (M9)
 
