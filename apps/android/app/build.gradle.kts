@@ -62,7 +62,9 @@ val coreTestPdfDir = rootProject.layout.projectDirectory.dir("../../core/testpdf
 val generateSpikeFixtures by tasks.registering(Exec::class) {
     description = "Generate lab PKI + sample PDFs into src/main/assets (spike only)"
     val labDir = assetsDir.dir("lab").asFile
-    val marker = File(labDir, "device-test-key.pem")
+    // Regenerated whenever this marker is missing; bump the name when the
+    // fixture set changes so existing checkouts refresh.
+    val marker = File(labDir, "unrelated-root.crt.pem")
     outputs.file(marker)
     onlyIf { !marker.exists() }
     doFirst { labDir.mkdirs() }

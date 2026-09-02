@@ -212,6 +212,11 @@ func cmdGenPKI(args []string) error {
 	if err != nil {
 		return err
 	}
+	// An unrelated Root CA, for negative "wrong trust anchor" tests.
+	unrelated, err := labpki.NewRootCA("Unrelated Root CA (LAB)", 365*24*time.Hour)
+	if err != nil {
+		return err
+	}
 
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		return err
@@ -227,6 +232,7 @@ func cmdGenPKI(args []string) error {
 		write("device-key.pkcs8.pem", devKeyPEM, 0o600),
 		write("device.csr.pem", csrPEM, 0o644),
 		write("crl.pem", crlPEM, 0o644),
+		write("unrelated-root.crt.pem", labpki.CertPEM(unrelated.Cert), 0o644),
 	); err != nil {
 		return err
 	}

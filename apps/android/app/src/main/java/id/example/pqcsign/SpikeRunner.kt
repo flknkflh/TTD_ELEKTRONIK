@@ -45,10 +45,10 @@ class SpikeRunner(private val assets: AssetManager) {
         val samplePdf = asset("sample.pdf")
         val multiPdf = asset("sample-multipage.pdf")
         val rootPem = asset("lab/root-ca.crt.pem")
-        val interPem = asset("lab/intermediate-ca.crt.pem")
         val chainPem = asset("lab/ca-chain.pem")
         val deviceKeyPem = asset("lab/device-test-key.pem")
         val crlPem = asset("lab/crl.pem")
+        val unrelatedRootPem = asset("lab/unrelated-root.crt.pem")
 
         // 1. key generated on THIS device
         val t0 = System.nanoTime()
@@ -91,8 +91,8 @@ class SpikeRunner(private val assets: AssetManager) {
         val tv2 = SigningEngine.verifyPdf(tampered, rootPem, crlPem)
         check("tampered_pdf_rejected", !tv2.valid, "valid=${tv2.valid} (want false)")
 
-        // 6. wrong root must fail (reuse intermediate PEM as a bogus anchor)
-        val vWrong = SigningEngine.verifyPdf(signed, interPem, null)
+        // 6. an unrelated Root CA must fail
+        val vWrong = SigningEngine.verifyPdf(signed, unrelatedRootPem, null)
         check("wrong_root_rejected", !vWrong.valid, "valid=${vWrong.valid} (want false)")
 
         // 7. multi-page PDF
