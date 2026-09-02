@@ -27,7 +27,12 @@ signing endpoint (§17.5).
   * `certutil` — X.509/CRL parsing, profile enforcement, chain build.
   * `labpki` — **lab only** Root/Intermediate/device/CRL generation for fixtures.
   * `spike` — the M1 end-to-end proof, one call, returns a metrics report.
-* **apps/windows** — `pqcsign-cli` today (M1). Wails UI at M4; DPAPI key wrapping at M4.
+* **apps/windows** — `internal/keystore` (DPAPI-wrapped device key, §12.1),
+  `internal/apiclient` (§17 client), `internal/appcore` (the seven §20 pages,
+  GUI-independent, tested end-to-end). `cmd/pqcsign-desktop` is the Wails v2
+  shell binding `appcore`; `cmd/pqcsign-cli` is the M1 spike. The private key
+  is generated in `appcore`, wrapped by `keystore` immediately, and unwrapped
+  only for one operation.
 * **apps/android** — M5. Consumes `pqcsign.aar` built from `core/mobilebridge` via gomobile.
 * **server** — M6. `internal/store`: an `api.Store` interface with a
   concurrency-safe in-memory impl and a `Postgres` impl (embedded

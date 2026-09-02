@@ -56,7 +56,19 @@
   test pins the CMS shape (SubFilter, SHA-512, ML-DSA-65). `staticcheck` and
   `govulncheck` clean (one transitive advisory, `x/crypto/openpgp`, not
   reachable from our code).
-* Next: M4/M5 client UIs.
+* **M4 Windows client** mostly done: `apps/windows/internal/keystore` — DPAPI
+  key protection (§12.1: PKCS#8 → AES-256-GCM → random wrapping key →
+  Argon2id(PIN) → DPAPI CurrentUser), tested on Windows for round-trip, tamper,
+  wrong-PIN, and a corrupted/foreign blob failing to open (§26).
+  `internal/apiclient` (typed §17 client), `internal/appcore` (the seven §20
+  pages as GUI-independent Go). `appcore_windows_test.go` runs the full flow —
+  login → keygen+DPAPI → enroll → offline cert issuance → cert active →
+  sign (local verify + submit) → verify → history → wrong-PIN rejected →
+  reset — against a fake receiver that checks with the real `core/verification`.
+  `cmd/pqcsign-desktop` is the Wails v2 shell + a plain-HTML frontend, one
+  page per screen; it compiles (`go build`) — `wails build` + UI polish is a
+  later slice. Server gained `admin/enrollments/{id}/export` + `/approve`.
+* Next: M5 Android UI, then M7 / M8 / M9.
 
 ## Per-release (M9)
 

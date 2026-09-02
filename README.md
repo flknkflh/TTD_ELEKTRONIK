@@ -11,13 +11,14 @@ below refer to it).
 
 ## Status
 
-This repository currently contains **M0 baseline + the M1 cross-platform
-spike** (§10, §31, §32):
+Progress: **M0–M4 + M6 done** (baseline, cross-platform ML-DSA spike, offline
+CA tooling, core fuzz-hardening, full receiver API, Windows client logic).
+M5 (Android UI), M7–M9 remain.
 
 | Component | State |
 |---|---|
 | `core/` Go library — keygen, CSR, sign, verify, CRL | implemented; unit + fuzz + golden tests; `staticcheck`/`govulncheck` clean |
-| `apps/windows/` `pqcsign-cli` — M1 desktop spike | implemented, builds `.exe`, spike PASSES on windows/amd64 |
+| `apps/windows/` client | M4: DPAPI keystore + apiclient + appcore (7 §20 pages), full flow tested; `pqcsign-cli` M1 spike; `pqcsign-desktop` Wails shell compiles |
 | `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
 | `apps/android/` app | on-device spike (debug APK) + Kotlin wrapper; full app = M5 |
 | `tools/ca-admin/` | offline CA operator CLI (init/validate/issue/revoke/crl/show), tested — M2 done, HSM/encryption = M7 |
@@ -45,7 +46,7 @@ core/            framework-independent Go: keys, enrollment, signing, verificati
   labpki/        LAB-ONLY throwaway Root/Intermediate CA + device cert + CRL
   spike/         the M1 end-to-end proof, callable from any platform
   **/fuzz_test.go  Go native fuzzing of every attacker-controlled parser (M3)
-apps/windows/    Wails desktop client (UI = M4); today: pqcsign-cli spike
+apps/windows/    internal/{keystore(DPAPI),apiclient,appcore}; cmd/pqcsign-desktop (Wails), cmd/pqcsign-cli (M1)
 apps/android/    Kotlin/Compose client + Go AAR (M5)
 server/          Receiver API — internal/{store,auth,api}; strict submit verify + public verifier
 tools/ca-admin/  offline CA operator CLI: init / validate / issue / revoke / crl / show

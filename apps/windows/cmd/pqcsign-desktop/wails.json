@@ -1,0 +1,18 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "pqcsign-desktop",
+  "outputfilename": "PQC-PDF-Sign",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "wailsjsdir": "./frontend",
+  "author": {
+    "name": "PQC PDF Sign V1"
+  },
+  "info": {
+    "companyName": "PQC PDF Sign V1",
+    "productName": "PQC PDF Sign",
+    "productVersion": "0.1-m4",
+    "comments": "Client-side ML-DSA-65 PDF signing. DPAPI-protected device key."
+  }
+}

@@ -174,6 +174,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
 
 	mux.HandleFunc("GET /api/v1/admin/enrollments", s.admin(s.mfaRequired(s.hListEnrollments)))
+	mux.HandleFunc("GET /api/v1/admin/enrollments/{id}/export", s.admin(s.mfaRequired(s.hExportEnrollment)))
+	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/approve", s.admin(s.mfaRequired(s.hApproveEnrollment)))
 	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/certificate", s.admin(s.mfaRequired(s.hIssueCertificate)))
 	mux.HandleFunc("POST /api/v1/admin/certificates/{id}/revoke", s.admin(s.mfaRequired(s.hRevoke)))
 	mux.HandleFunc("POST /api/v1/admin/crl/import", s.admin(s.mfaRequired(s.hImportCRL)))

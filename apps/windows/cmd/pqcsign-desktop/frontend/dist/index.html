@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PQC PDF Sign</title>
+<style>
+  :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+  body { margin: 0; }
+  header { padding: 12px 16px; border-bottom: 1px solid #8883; font-weight: 600; }
+  nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 16px; border-bottom: 1px solid #8883; }
+  nav button { padding: 6px 10px; }
+  main { padding: 16px; }
+  section { display: none; }
+  section.active { display: block; }
+  label { display: block; margin: 8px 0 2px; }
+  input, textarea { width: 320px; max-width: 100%; padding: 4px; }
+  pre { background: #8881; padding: 8px; overflow: auto; white-space: pre-wrap; }
+  .row { margin: 10px 0; }
+</style>
+</head>
+<body>
+<header>PQC PDF Sign — Windows client (M4 skeleton)</header>
+<nav id="nav"></nav>
+<main>
+  <section id="login" class="active">
+    <h3>Login</h3>
+    <div class="row"><label>Server URL</label><input id="srv" value="https://localhost:8443" /></div>
+    <div class="row"><label>Email</label><input id="email" /></div>
+    <div class="row"><label>Password</label><input id="pw" type="password" /></div>
+    <div class="row"><label>Kode TOTP (jika MFA aktif)</label><input id="totp" /></div>
+    <button onclick="doLogin()">Masuk</button>
+  </section>
+
+  <section id="register">
+    <h3>Registrasi perangkat</h3>
+    <div class="row"><label>Label perangkat</label><input id="devlabel" value="Windows Laptop" /></div>
+    <div class="row"><label>PIN (opsional)</label><input id="devpin" type="password" /></div>
+    <button onclick="call('RegisterDevice', devlabel.value, devpin.value)">Daftarkan</button>
+  </section>
+
+  <section id="cert">
+    <h3>Status sertifikat</h3>
+    <div class="row"><label>PIN</label><input id="certpin" type="password" /></div>
+    <button onclick="call('CertificateStatus', certpin.value)">Periksa</button>
+  </section>
+
+  <section id="sign">
+    <h3>Tanda tangan PDF</h3>
+    <div class="row"><label>PDF masukan (path)</label><input id="sin" /></div>
+    <div class="row"><label>PDF keluaran (path, opsional)</label><input id="sout" /></div>
+    <div class="row"><label>Alasan</label><input id="sreason" value="Persetujuan" /></div>
+    <div class="row"><label>Nama penanda tangan</label><input id="sname" /></div>
+    <div class="row"><label>PIN</label><input id="spin" type="password" /></div>
+    <button onclick="call('SignPDF', sin.value, sout.value, sreason.value, sname.value, spin.value)">Tanda tangani</button>
+  </section>
+
+  <section id="verify">
+    <h3>Verifikasi PDF</h3>
+    <div class="row"><label>PDF (path)</label><input id="vin" /></div>
+    <button onclick="call('VerifyPDF', vin.value)">Verifikasi</button>
+  </section>
+
+  <section id="history">
+    <h3>Riwayat</h3>
+    <button onclick="call('History')">Muat</button>
+  </section>
+
+  <section id="security">
+    <h3>Pengaturan keamanan</h3>
+    <div class="row"><button onclick="call('StartMFASetup')">Aktifkan MFA (tampilkan secret)</button></div>
+    <div class="row"><label>Kode konfirmasi MFA</label><input id="mfacode" />
+      <button onclick="call('ConfirmMFA', mfacode.value)">Konfirmasi</button></div>
+    <div class="row"><label>PIN lama</label><input id="oldpin" type="password" />
+      <label>PIN baru</label><input id="newpin" type="password" />
+      <button onclick="call('SetPIN', oldpin.value, newpin.value)">Ubah PIN</button></div>
+    <div class="row"><button onclick="call('ReportLost')">Laporkan perangkat hilang</button></div>
+    <div class="row"><button onclick="if(confirm('Hapus seluruh vault lokal?')) call('Reset')">Reset (hapus vault)</button></div>
+  </section>
+
+  <h4>Hasil</h4>
+  <pre id="out">—</pre>
+</main>
+
+<script>
+  const pages = ["login","register","cert","sign","verify","history","security"];
+  const labels = {login:"Login",register:"Registrasi",cert:"Sertifikat",sign:"Tanda tangan",verify:"Verifikasi",history:"Riwayat",security:"Keamanan"};
+  const nav = document.getElementById("nav");
+  pages.forEach(p => { const b=document.createElement("button"); b.textContent=labels[p];
+    b.onclick=()=>{document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
+    document.getElementById(p).classList.add("active");}; nav.appendChild(b); });
+
+  const out = document.getElementById("out");
+  function show(v){ out.textContent = (typeof v === "string") ? v : JSON.stringify(v, null, 2); }
+
+  async function call(method, ...args){
+    try {
+      const fn = window.go?.main?.App?.[method];
+      if (!fn) { show("binding go.main.App." + method + " not available (run via `wails dev`/build)"); return; }
+      show(await fn(...args));
+    } catch (e) { show("ERROR: " + (e?.message || e)); }
+  }
+  async function doLogin(){
+    await call("Connect", document.getElementById("srv").value, true);
+    await call("Login", email.value, pw.value, totp.value);
+  }
+</script>
+</body>
+</html>

@@ -329,6 +329,32 @@ func TestSubmissionRejections(t *testing.T) {
 	})
 }
 
+func TestAdminEnrollmentExportAndApprove(t *testing.T) {
+	e := newEnv(t)
+	user := e.account("user@test", store.RoleUser)
+	admin := e.account("admin@test", store.RoleAdmin)
+
+	w := e.do("POST", "/api/v1/devices", user, map[string]string{"label": "D", "platform": "windows"})
+	mustCode(t, w, http.StatusCreated)
+	dev := jbody(t, w)["device_id"].(string)
+
+	sk, _ := keys.GenerateMLDSA65Key()
+	keyPEM, _ := keys.MarshalPKCS8PEM(sk)
+	csrPEM, _ := enrollment.CreateDeviceCSR(keyPEM, enrollment.Request{CommonName: "x"})
+	w = e.do("POST", "/api/v1/devices/"+dev+"/csr", user, csrPEM)
+	mustCode(t, w, http.StatusCreated)
+	enrID := jbody(t, w)["enrollment_id"].(string)
+
+	w = e.do("GET", "/api/v1/admin/enrollments/"+enrID+"/export", admin, nil)
+	mustCode(t, w, http.StatusOK)
+	if !contains(w.Body.String(), "CERTIFICATE REQUEST") {
+		t.Fatalf("export did not return a CSR: %s", w.Body.String())
+	}
+	mustCode(t, e.do("POST", "/api/v1/admin/enrollments/"+enrID+"/approve", admin, nil), http.StatusOK)
+	// export requires MFA-admin
+	mustCode(t, e.do("GET", "/api/v1/admin/enrollments/"+enrID+"/export", user, nil), http.StatusForbidden)
+}
+
 func TestNoSigningEndpoint(t *testing.T) {
 	e := newEnv(t)
 	for _, p := range []string{"/api/v1/sign", "/api/v1/users/acct_x/sign"} {

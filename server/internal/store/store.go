@@ -24,6 +24,7 @@ const (
 	DeviceLost   = "lost"
 
 	EnrollmentSubmitted = "submitted"
+	EnrollmentApproved  = "approved"
 	EnrollmentIssued    = "issued"
 
 	CertActive  = "active"

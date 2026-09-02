@@ -32,11 +32,12 @@ jobs:
           go vet ./...
           go test -race ./...
 
-      - name: windows cli — vet + build
+      - name: windows client — vet + cross-build
         working-directory: apps/windows
         run: |
           go vet ./...
           GOOS=windows GOARCH=amd64 go build ./...
+          go build ./...   # stub path builds on linux too
 
       - name: server — vet + test
         working-directory: server
@@ -106,6 +107,18 @@ jobs:
         run: go test ./internal/api/ -count=1
       - name: validate compose
         run: docker compose -f deploy/lab/docker-compose.yml --env-file deploy/lab/.env.lab.example config --quiet
+
+  windows-client:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - name: keystore (DPAPI) + appcore end-to-end
+        working-directory: apps/windows
+        run: |
+          go vet ./...
+          go test ./...
 
   fuzz-smoke:
     runs-on: ubuntu-latest

@@ -248,6 +248,29 @@ func (s *Server) hListEnrollments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"enrollments": out})
 }
 
+// hExportEnrollment returns the raw CSR PEM so the offline CA can sign it
+// (Rencana V1 §14 "Ambil enrollment yang disetujui", §17.5).
+func (s *Server) hExportEnrollment(w http.ResponseWriter, r *http.Request) {
+	e, err := s.st.Enrollment(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "enrollment not found")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	_, _ = w.Write(e.CSRPEM)
+}
+
+// hApproveEnrollment marks an enrollment approved for issuance.
+func (s *Server) hApproveEnrollment(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.st.SetEnrollmentStatus(id, store.EnrollmentApproved); err != nil {
+		writeErr(w, http.StatusNotFound, "enrollment not found")
+		return
+	}
+	s.st.Append(store.AuditEvent{Type: "enrollment.approve", Result: "ok", Detail: id})
+	writeJSON(w, http.StatusOK, map[string]string{"enrollment_id": id, "status": store.EnrollmentApproved})
+}
+
 // hIssueCertificate accepts the certificate an offline CA issued for an
 // enrollment, checks it chains to the configured Root CA and that its public
 // key matches the CSR, then binds it to the enrollment's account+device.
