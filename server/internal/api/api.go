@@ -30,6 +30,24 @@ type Config struct {
 	PublicBaseURL  string // e.g. https://verify.example.id
 	MaxUploadBytes int64  // 0 -> 25 MiB (§24)
 	AccessTTL      time.Duration
+	Issuer         string // TOTP issuer label; "" -> "PQC PDF Sign"
+
+	// RateLimits are per-minute caps. nil applies sane defaults; pass
+	// &RateLimits{} to disable every bucket (tests do this).
+	RateLimits *RateLimits
+}
+
+// RateLimits — per-minute request caps (Rencana V1 §24). A zero value
+// disables that bucket.
+type RateLimits struct {
+	LoginPerIP        int
+	ReservePerAccount int
+	SubmitPerAccount  int
+	VerifyPerIP       int
+}
+
+func defaultRateLimits() RateLimits {
+	return RateLimits{LoginPerIP: 10, ReservePerAccount: 60, SubmitPerAccount: 30, VerifyPerIP: 30}
 }
 
 // Store is everything the handlers need from persistence. Both
@@ -64,6 +82,10 @@ type Store interface {
 	Signature(string) (store.Signature, error)
 	SignaturesByAccount(string) []store.Signature
 
+	UpsertMFA(accountID, secret string) error
+	MFA(accountID string) (store.MFACredential, error)
+	ConfirmMFA(accountID string) error
+
 	PutObject(key string, data []byte) error
 	GetObject(key string) ([]byte, error)
 
@@ -76,6 +98,9 @@ type Server struct {
 	signer *auth.Signer
 	cfg    Config
 	crl    []byte // mutable copy of cfg.CRLPEM
+	issuer string
+
+	rlLogin, rlReserve, rlSubmit, rlVerify *limiterSet
 }
 
 func New(st Store, cfg Config) (*Server, error) {
@@ -94,11 +119,30 @@ func New(st Store, cfg Config) (*Server, error) {
 	if cfg.AccessTTL == 0 {
 		cfg.AccessTTL = 15 * time.Minute
 	}
+	issuer := cfg.Issuer
+	if issuer == "" {
+		issuer = "PQC PDF Sign"
+	}
+	rl := defaultRateLimits()
+	if cfg.RateLimits != nil {
+		rl = *cfg.RateLimits
+	}
+	mk := func(perMin int) *limiterSet {
+		if perMin <= 0 {
+			return nil
+		}
+		return newLimiterSet(perMin)
+	}
 	return &Server{
-		st:     st,
-		signer: auth.NewSigner(cfg.JWTSecret, cfg.AccessTTL),
-		cfg:    cfg,
-		crl:    cfg.CRLPEM,
+		st:        st,
+		signer:    auth.NewSigner(cfg.JWTSecret, cfg.AccessTTL),
+		cfg:       cfg,
+		crl:       cfg.CRLPEM,
+		issuer:    issuer,
+		rlLogin:   mk(rl.LoginPerIP),
+		rlReserve: mk(rl.ReservePerAccount),
+		rlSubmit:  mk(rl.SubmitPerAccount),
+		rlVerify:  mk(rl.VerifyPerIP),
 	}, nil
 }
 
@@ -107,31 +151,33 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/v1/auth/register", s.hRegister)
-	mux.HandleFunc("POST /api/v1/auth/login", s.hLogin)
+	mux.HandleFunc("POST /api/v1/auth/login", s.limit(s.rlLogin, byIP, s.hLogin))
+	mux.HandleFunc("POST /api/v1/auth/mfa/setup", s.user(s.hMFASetup))
+	mux.HandleFunc("POST /api/v1/auth/mfa/verify", s.user(s.hMFAVerify))
 
 	mux.HandleFunc("POST /api/v1/devices", s.user(s.hCreateDevice))
 	mux.HandleFunc("GET /api/v1/devices", s.user(s.hListDevices))
-	mux.HandleFunc("POST /api/v1/devices/{device_id}/csr", s.user(s.hSubmitCSR))
+	mux.HandleFunc("POST /api/v1/devices/{device_id}/csr", s.user(s.mfaRequired(s.hSubmitCSR)))
 	mux.HandleFunc("GET /api/v1/devices/{device_id}/certificate", s.user(s.hDeviceCertificate))
-	mux.HandleFunc("POST /api/v1/devices/{device_id}/report-lost", s.user(s.hReportLost))
+	mux.HandleFunc("POST /api/v1/devices/{device_id}/report-lost", s.user(s.mfaRequired(s.hReportLost)))
 
-	mux.HandleFunc("POST /api/v1/signatures/reserve", s.user(s.hReserve))
-	mux.HandleFunc("PUT /api/v1/signatures/{public_id}/document", s.user(s.hSubmitDocument))
+	mux.HandleFunc("POST /api/v1/signatures/reserve", s.user(s.limit(s.rlReserve, byAccount, s.hReserve)))
+	mux.HandleFunc("PUT /api/v1/signatures/{public_id}/document", s.user(s.limit(s.rlSubmit, byAccount, s.hSubmitDocument)))
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}", s.user(s.hGetSignature))
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}/download", s.user(s.hDownload))
 	mux.HandleFunc("GET /api/v1/me/signatures", s.user(s.hMySignatures))
 
-	mux.HandleFunc("POST /api/v1/verify", s.hPublicVerify)
+	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
 
-	mux.HandleFunc("GET /api/v1/admin/enrollments", s.admin(s.hListEnrollments))
-	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/certificate", s.admin(s.hIssueCertificate))
-	mux.HandleFunc("POST /api/v1/admin/certificates/{id}/revoke", s.admin(s.hRevoke))
-	mux.HandleFunc("POST /api/v1/admin/crl/import", s.admin(s.hImportCRL))
-	mux.HandleFunc("GET /api/v1/admin/audit-events", s.admin(s.hAudit))
+	mux.HandleFunc("GET /api/v1/admin/enrollments", s.admin(s.mfaRequired(s.hListEnrollments)))
+	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/certificate", s.admin(s.mfaRequired(s.hIssueCertificate)))
+	mux.HandleFunc("POST /api/v1/admin/certificates/{id}/revoke", s.admin(s.mfaRequired(s.hRevoke)))
+	mux.HandleFunc("POST /api/v1/admin/crl/import", s.admin(s.mfaRequired(s.hImportCRL)))
+	mux.HandleFunc("GET /api/v1/admin/audit-events", s.admin(s.mfaRequired(s.hAudit)))
 
 	return mux
 }
@@ -168,6 +214,20 @@ func (s *Server) authed(minRole string, h http.HandlerFunc) http.HandlerFunc {
 func claims(r *http.Request) auth.Claims {
 	c, _ := r.Context().Value(claimsKey).(auth.Claims)
 	return c
+}
+
+// mfaRequired gates the sensitive actions of Rencana V1 §24 (enrollment,
+// device loss reporting, every admin action) behind a session that presented
+// a valid TOTP code at login.
+func (s *Server) mfaRequired(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !claims(r).Mfa {
+			writeErr(w, http.StatusForbidden,
+				"this action requires MFA: POST /api/v1/auth/mfa/setup, then log in again with a TOTP code")
+			return
+		}
+		h(w, r)
+	}
 }
 
 func (s *Server) pem(get func() []byte) http.HandlerFunc {

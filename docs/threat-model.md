@@ -41,7 +41,9 @@ Covered by `server/internal/api/api_test.go`: submit of a tampered PDF, a
 different device's certificate, a revoked certificate, or a mismatched
 public-id all rejected (422); a revoked device cert blocks new reservations;
 another account cannot read a signature record; `POST /api/v1/sign` and
-`/users/{id}/sign` do not exist.
+`/users/{id}/sign` do not exist; enrollment / device-loss / admin routes are
+403 without a TOTP-authorized session, and a plain login is refused once MFA
+is confirmed; the login endpoint returns 429 under a burst.
 
 Pending (M6 slice 2 / M8): reserve/submit replay across restarts, symlink /
 path-traversal on upload + export, account switch while a device key is open,

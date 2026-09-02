@@ -19,6 +19,7 @@ type Memory struct {
 	certificates map[string]Certificate
 	reservations map[string]Reservation
 	signatures   map[string]Signature
+	mfa          map[string]MFACredential
 	audit        []AuditEvent
 	objects      map[string][]byte
 }
@@ -32,8 +33,40 @@ func NewMemory() *Memory {
 		certificates: map[string]Certificate{},
 		reservations: map[string]Reservation{},
 		signatures:   map[string]Signature{},
+		mfa:          map[string]MFACredential{},
 		objects:      map[string][]byte{},
 	}
+}
+
+// --- MFA ---
+
+func (m *Memory) UpsertMFA(accountID, secret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mfa[accountID] = MFACredential{AccountID: accountID, Secret: secret, Confirmed: false, CreatedAt: time.Now().UTC()}
+	return nil
+}
+
+func (m *Memory) MFA(accountID string) (MFACredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.mfa[accountID]
+	if !ok {
+		return MFACredential{}, ErrNotFound
+	}
+	return c, nil
+}
+
+func (m *Memory) ConfirmMFA(accountID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.mfa[accountID]
+	if !ok {
+		return ErrNotFound
+	}
+	c.Confirmed = true
+	m.mfa[accountID] = c
+	return nil
 }
 
 // ID makes a random opaque id with the given prefix (e.g. "dev", "sig").

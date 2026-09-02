@@ -9,7 +9,9 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 
 ```
 ✔ POST /api/v1/auth/register          (lab; real deploys seed admins out of band)
-✔ POST /api/v1/auth/login
+✔ POST /api/v1/auth/login             ({email,password,code?}; code required once MFA is confirmed)
+✔ POST /api/v1/auth/mfa/setup         (returns TOTP secret + otpauth:// URL)
+✔ POST /api/v1/auth/mfa/verify        ({code} -> confirms the secret)
 ✔ POST /api/v1/devices
 ✔ GET  /api/v1/devices
 ✔ POST /api/v1/devices/{device_id}/csr
@@ -30,8 +32,16 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ GET  /api/v1/admin/audit-events
 ```
 
-Slice 2: `auth/refresh`, `auth/logout`, `auth/mfa/*`,
+Slice 2 remainder: `auth/refresh`, `auth/logout`,
 `admin/enrollments/{id}/approve`, `admin/enrollments/{id}/export`.
+
+**MFA gate (§24)**: `POST /devices/{id}/csr`, `POST /devices/{id}/report-lost`,
+and every `admin/*` route require a session that presented a valid TOTP code
+at login (`mfa` claim). Others are reachable without MFA.
+
+**Rate limits (§24, per minute)**: `auth/login` 10/IP, `signatures/reserve`
+60/account, `signatures/{id}/document` 30/account, `verify` 30/IP. Over the
+cap → `429` + `Retry-After`. Configurable via `api.Config.RateLimits`.
 
 ## Auth
 ```

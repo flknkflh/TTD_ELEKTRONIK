@@ -31,15 +31,18 @@
   audit log. `api_test.go` covers the §25.4 rejections (tampered PDF, wrong
   device cert, revoked cert, public-id mismatch, cross-account read) and
   asserts there is no signing endpoint.
-* **M6 slice 2** mostly done: `store.Postgres` (schema auto-applied) behind an
-  `api.Store` interface — the **whole `api_test.go` suite passes against real
-  PostgreSQL 16** (`PQC_TEST_DATABASE_URL`). `store.NewS3Objects` (MinIO/S3)
-  for the signed blobs. `deploy/lab/` Docker Compose (caddy+api+postgres+minio,
-  `compose config` validated), multi-stage Dockerfile, Caddyfile (TLS + 25 MiB
-  cap + headers), `.env.lab.example`. `cmd/api` picks its backend from env.
-  Not yet run here: `docker compose up` and the API image build (this machine
-  can't reach Docker Hub); MFA/TOTP, refresh-token revocation, rate limiting,
-  `server/migrations/*.sql`, backup/restore drill.
+* **M6 slice 2** done: `store.Postgres` behind an `api.Store` interface with
+  embedded, `schema_migrations`-guarded migrations (`0001_init`, `0002_mfa`) —
+  the **whole `api_test.go` suite passes against real PostgreSQL 16**.
+  `store.NewS3Objects` (MinIO/S3) for signed blobs. **TOTP MFA** (RFC 6238,
+  hand-rolled): `auth/mfa/setup` + `auth/mfa/verify`, `code` in login,
+  enforced on enrollment / device-loss / all admin routes (§24). **Rate
+  limiting** (`golang.org/x/time/rate`) on login / reserve / submit / verify.
+  `deploy/lab/` Docker Compose (`compose config` validated), multi-stage
+  Dockerfile, Caddyfile. Not run here: `docker compose up` + the API image
+  build (this machine can't reach Docker Hub). Left: `auth/refresh` +
+  token revocation, `admin/enrollments/{id}/approve|export`, backup/restore
+  drill.
 * Next: M3 hardening (parser fuzzing), then M4/M5 client UIs.
 
 ## Per-release (M9)

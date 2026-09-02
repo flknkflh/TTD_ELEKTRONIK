@@ -51,7 +51,11 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) hLogin(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Email, Password string }
+	var in struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Code     string `json:"code"` // TOTP, required once MFA is confirmed
+	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
@@ -62,11 +66,81 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+
+	mfaOK := false
+	if cred, err := s.st.MFA(a.ID); err == nil && cred.Confirmed {
+		if in.Code == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error": "TOTP code required", "mfa_required": true,
+			})
+			return
+		}
+		if !auth.ValidateTOTP(cred.Secret, in.Code) {
+			s.st.Append(store.AuditEvent{Type: "auth.login", AccountID: a.ID, Result: "fail", Detail: "bad totp"})
+			writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
+			return
+		}
+		mfaOK = true
+	}
+
 	s.st.Append(store.AuditEvent{Type: "auth.login", AccountID: a.ID, Result: "ok"})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": s.signer.Issue(a.ID, a.Role),
+		"access_token": s.signer.Issue(a.ID, a.Role, mfaOK),
 		"token_type":   "Bearer",
 		"expires_in":   int(s.signer.TTL().Seconds()),
+		"mfa":          mfaOK,
+	})
+}
+
+// hMFASetup issues a fresh (unconfirmed) TOTP secret for the caller.
+func (s *Server) hMFASetup(w http.ResponseWriter, r *http.Request) {
+	c := claims(r)
+	secret, err := auth.GenerateTOTPSecret()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "secret")
+		return
+	}
+	if err := s.st.UpsertMFA(c.Sub, secret); err != nil {
+		writeErr(w, http.StatusInternalServerError, "store")
+		return
+	}
+	a, _ := s.st.Account(c.Sub)
+	label := a.Email
+	if label == "" {
+		label = c.Sub
+	}
+	s.audit("mfa.setup", c, "", "ok", "")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"secret":      secret,
+		"otpauth_url": auth.OTPAuthURL(s.issuer, label, secret),
+		"note":        "add to an authenticator app, then POST /api/v1/auth/mfa/verify with a code",
+	})
+}
+
+// hMFAVerify confirms a pending secret by proving one code.
+func (s *Server) hMFAVerify(w http.ResponseWriter, r *http.Request) {
+	c := claims(r)
+	var in struct {
+		Code string `json:"code"`
+	}
+	_ = decode(r, &in)
+	cred, err := s.st.MFA(c.Sub)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "no MFA secret; call /api/v1/auth/mfa/setup first")
+		return
+	}
+	if !auth.ValidateTOTP(cred.Secret, in.Code) {
+		s.audit("mfa.verify", c, "", "fail", "")
+		writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
+		return
+	}
+	if !cred.Confirmed {
+		_ = s.st.ConfirmMFA(c.Sub)
+	}
+	s.audit("mfa.verify", c, "", "ok", "")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"confirmed": true,
+		"note":      "log in again with \"code\" to get an MFA-authorized session",
 	})
 }
 

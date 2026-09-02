@@ -68,6 +68,7 @@ func VerifyPassword(password, encoded string) bool {
 type Claims struct {
 	Sub  string `json:"sub"`  // account id
 	Role string `json:"role"` // "user" | "admin"
+	Mfa  bool   `json:"mfa"`  // true if this session presented a valid TOTP code
 	Exp  int64  `json:"exp"`
 	Iat  int64  `json:"iat"`
 }
@@ -88,9 +89,9 @@ func NewSigner(secret []byte, ttl time.Duration) *Signer {
 
 func (s *Signer) TTL() time.Duration { return s.ttl }
 
-func (s *Signer) Issue(accountID, role string) string {
+func (s *Signer) Issue(accountID, role string, mfa bool) string {
 	now := time.Now()
-	c := Claims{Sub: accountID, Role: role, Iat: now.Unix(), Exp: now.Add(s.ttl).Unix()}
+	c := Claims{Sub: accountID, Role: role, Mfa: mfa, Iat: now.Unix(), Exp: now.Add(s.ttl).Unix()}
 	header := b64json(map[string]string{"alg": "HS256", "typ": "JWT"})
 	payload := b64json(c)
 	signing := header + "." + payload

@@ -27,7 +27,7 @@ func TestPasswordHashVerify(t *testing.T) {
 
 func TestJWTRoundTrip(t *testing.T) {
 	s := NewSigner([]byte("0123456789abcdef"), time.Minute)
-	tok := s.Issue("acct_1", "admin")
+	tok := s.Issue("acct_1", "admin", true)
 	c, err := s.Parse(tok)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -39,7 +39,7 @@ func TestJWTRoundTrip(t *testing.T) {
 
 func TestJWTRejectsTamperAndWrongKey(t *testing.T) {
 	s := NewSigner([]byte("0123456789abcdef"), time.Minute)
-	tok := s.Issue("acct_1", "user")
+	tok := s.Issue("acct_1", "user", false)
 
 	bad := tok[:len(tok)-2] + "xx"
 	if _, err := s.Parse(bad); err == nil {

@@ -30,14 +30,16 @@ signing endpoint (§17.5).
 * **apps/windows** — `pqcsign-cli` today (M1). Wails UI at M4; DPAPI key wrapping at M4.
 * **apps/android** — M5. Consumes `pqcsign.aar` built from `core/mobilebridge` via gomobile.
 * **server** — M6. `internal/store`: an `api.Store` interface with a
-  concurrency-safe in-memory impl and a `Postgres` impl (schema auto-applied;
-  the full `api_test.go` suite passes against real PG16). `store.NewS3Objects`
-  puts signed blobs in MinIO/S3, else an `objects` table. `internal/auth`
-  (Argon2id + HS256 JWT). `internal/api`: all §17 core routes. Receiver-only:
-  no endpoint signs a PDF. Submit runs `core/verification` strictly + DB
-  checks (cert registered to this account+device, active, not revoked,
-  public-id in the PDF matches the reservation). `deploy/lab/` runs it as
-  caddy+api+postgres+minio via Docker Compose.
+  concurrency-safe in-memory impl and a `Postgres` impl (embedded
+  `schema_migrations`-guarded migrations; the full `api_test.go` suite passes
+  against real PG16). `store.NewS3Objects` puts signed blobs in MinIO/S3, else
+  an `objects` table. `internal/auth`: Argon2id + HS256 JWT + RFC 6238 TOTP.
+  `internal/api`: all §17 core routes; TOTP MFA enforced on enrollment,
+  device-loss, and all admin routes; per-route rate limits (login / reserve /
+  submit / verify). Receiver-only: no endpoint signs a PDF. Submit runs
+  `core/verification` strictly + DB checks (cert registered to this
+  account+device, active, not revoked, public-id in the PDF matches the
+  reservation). `deploy/lab/` runs it as caddy+api+postgres+minio via Compose.
 * **tools/ca-admin** — M2 done: offline CLI for CSR validation, operator-
   assigned cert issuance, revocation ledger, ML-DSA-65 CRL publishing; keeps
   Root/Intermediate keys in its own dir, publishes only `public/`. M7 adds

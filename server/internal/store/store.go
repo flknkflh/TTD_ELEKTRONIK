@@ -115,3 +115,12 @@ type AuditEvent struct {
 	Result    string
 	Detail    string
 }
+
+// MFACredential is a per-account TOTP secret. Confirmed flips true once the
+// account proves a code (Rencana V1 §17 auth/mfa/*, §24).
+type MFACredential struct {
+	AccountID string
+	Secret    string // base32
+	Confirmed bool
+	CreatedAt time.Time
+}

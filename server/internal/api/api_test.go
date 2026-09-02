@@ -23,6 +23,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"example.internal/pqc-pdf-sign/server/internal/api"
+	"example.internal/pqc-pdf-sign/server/internal/auth"
 	"example.internal/pqc-pdf-sign/server/internal/store"
 )
 
@@ -74,6 +75,7 @@ func newEnv(t *testing.T) *env {
 		CAChainPEM:    labpki.ChainPEM(inter.Cert, root.Cert),
 		JWTSecret:     []byte("test-secret-0123456789"),
 		PublicBaseURL: "https://verify.test",
+		RateLimits:    &api.RateLimits{}, // off; TestRateLimit sets its own
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,12 +119,37 @@ func mustCode(t *testing.T, w *httptest.ResponseRecorder, want int) {
 	}
 }
 
+// account registers, enables + confirms TOTP MFA, and returns an
+// MFA-authorized access token (so every test exercises the §24 MFA path and
+// the admin/enrollment routes stay reachable).
 func (e *env) account(email, role string) string {
 	e.t.Helper()
 	mustCode(e.t, e.do("POST", "/api/v1/auth/register", "", map[string]string{
 		"email": email, "password": "password123", "display_name": email, "role": role,
 	}), http.StatusCreated)
-	w := e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": email, "password": "password123"})
+
+	tok := e.login(email, "")
+
+	w := e.do("POST", "/api/v1/auth/mfa/setup", tok, nil)
+	mustCode(e.t, w, http.StatusOK)
+	secret := jbody(e.t, w)["secret"].(string)
+	code, err := auth.TOTPAt(secret, time.Now())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	mustCode(e.t, e.do("POST", "/api/v1/auth/mfa/verify", tok, map[string]string{"code": code}), http.StatusOK)
+
+	code, _ = auth.TOTPAt(secret, time.Now())
+	return e.login(email, code)
+}
+
+func (e *env) login(email, code string) string {
+	e.t.Helper()
+	body := map[string]string{"email": email, "password": "password123"}
+	if code != "" {
+		body["code"] = code
+	}
+	w := e.do("POST", "/api/v1/auth/login", "", body)
 	mustCode(e.t, w, http.StatusOK)
 	return jbody(e.t, w)["access_token"].(string)
 }
@@ -315,6 +342,75 @@ func TestAuthGuards(t *testing.T) {
 	e := newEnv(t)
 	user := e.account("u@test", store.RoleUser)
 	mustCode(t, e.do("GET", "/api/v1/devices", "", nil), http.StatusUnauthorized)
-	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", user, nil), http.StatusForbidden)
+	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", user, nil), http.StatusForbidden) // user != admin
 	mustCode(t, e.do("GET", "/api/v1/devices", user, nil), http.StatusOK)
+}
+
+func TestMFAEnforcement(t *testing.T) {
+	e := newEnv(t)
+
+	// register + login WITHOUT setting up MFA
+	mustCode(t, e.do("POST", "/api/v1/auth/register", "", map[string]string{
+		"email": "nomfa@test", "password": "password123", "role": store.RoleAdmin,
+	}), http.StatusCreated)
+	tok := e.login("nomfa@test", "")
+
+	// sensitive routes are blocked until MFA is set up + a coded login is used
+	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", tok, nil), http.StatusForbidden)
+	w := e.do("POST", "/api/v1/devices", tok, map[string]string{"label": "L"})
+	mustCode(t, w, http.StatusCreated)
+	dev := jbody(t, w)["device_id"].(string)
+	mustCode(t, e.do("POST", "/api/v1/devices/"+dev+"/report-lost", tok, nil), http.StatusForbidden)
+
+	// set up + confirm MFA
+	w = e.do("POST", "/api/v1/auth/mfa/setup", tok, nil)
+	mustCode(t, w, http.StatusOK)
+	secret := jbody(t, w)["secret"].(string)
+	code, _ := auth.TOTPAt(secret, time.Now())
+	mustCode(t, e.do("POST", "/api/v1/auth/mfa/verify", tok, map[string]string{"code": code}), http.StatusOK)
+
+	// a plain login is now rejected: MFA is required
+	pw := e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "nomfa@test", "password": "password123"})
+	mustCode(t, pw, http.StatusUnauthorized)
+	if jbody(t, pw)["mfa_required"] != true {
+		t.Fatalf("expected mfa_required: %s", pw.Body.String())
+	}
+
+	// a coded login yields an MFA-authorized session
+	code, _ = auth.TOTPAt(secret, time.Now())
+	mfaTok := e.login("nomfa@test", code)
+	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", mfaTok, nil), http.StatusOK)
+
+	// wrong code is rejected
+	bad := e.do("POST", "/api/v1/auth/login", "", map[string]string{
+		"email": "nomfa@test", "password": "password123", "code": "000000",
+	})
+	mustCode(t, bad, http.StatusUnauthorized)
+}
+
+func TestRateLimit(t *testing.T) {
+	e := newEnv(t)
+	// small custom limiter just for this test's server
+	root, _ := labpki.NewRootCA("RL Root", time.Hour)
+	srv, err := api.New(store.NewMemory(), api.Config{
+		RootCAPEM:  labpki.CertPEM(root.Cert),
+		JWTSecret:  []byte("test-secret-0123456789"),
+		RateLimits: &api.RateLimits{LoginPerIP: 6, VerifyPerIP: 6},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.h = srv.Routes()
+
+	got429 := false
+	for i := 0; i < 25; i++ {
+		w := e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "x@y", "password": "nope"})
+		if w.Code == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	if !got429 {
+		t.Fatal("login endpoint never rate-limited after 25 rapid attempts")
+	}
 }

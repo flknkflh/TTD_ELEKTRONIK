@@ -2,16 +2,64 @@ package store
 
 import (
 	"database/sql"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
+	"sort"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-//go:embed schema.sql
-var schemaSQL string
+//go:embed migrations/*.up.sql
+var migrationsFS embed.FS
+
+// applyMigrations runs each migrations/NNNN_*.up.sql exactly once, in name
+// order, recording applied versions in schema_migrations. Safe to call on a
+// fresh database and on every startup (Rencana V1 §23 M6: "migration dapat
+// dijalankan dari database kosong").
+func applyMigrations(db *sql.DB) error {
+	if _, err := db.Exec(
+		`CREATE TABLE IF NOT EXISTS schema_migrations (
+		    version    TEXT PRIMARY KEY,
+		    applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
+		return err
+	}
+	entries, err := fs.Glob(migrationsFS, "migrations/*.up.sql")
+	if err != nil {
+		return err
+	}
+	sort.Strings(entries)
+	for _, path := range entries {
+		version := strings.TrimSuffix(strings.TrimPrefix(path, "migrations/"), ".up.sql")
+		var done bool
+		if err := db.QueryRow(`SELECT true FROM schema_migrations WHERE version=$1`, version).Scan(&done); err == nil {
+			continue
+		}
+		body, err := migrationsFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(string(body)); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("store: migration %s: %w", version, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES($1)`, version); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Postgres implements the same method set as Memory, backed by PostgreSQL +
 // an ObjectStore for the signed PDF blobs.
@@ -38,8 +86,8 @@ func OpenPostgres(dsn string, objs ObjectStore) (*Postgres, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: ping: %w", err)
 	}
-	if _, err := db.Exec(schemaSQL); err != nil {
-		return nil, fmt.Errorf("store: schema: %w", err)
+	if err := applyMigrations(db); err != nil {
+		return nil, err
 	}
 	p := &Postgres{db: db}
 	if objs != nil {
@@ -313,6 +361,28 @@ func (p *Postgres) SignaturesByAccount(accountID string) []Signature {
 		}
 	}
 	return out
+}
+
+// --- MFA ---
+
+func (p *Postgres) UpsertMFA(accountID, secret string) error {
+	_, err := p.db.Exec(
+		`INSERT INTO mfa_credentials(account_id,secret,confirmed) VALUES($1,$2,FALSE)
+		 ON CONFLICT(account_id) DO UPDATE SET secret=EXCLUDED.secret, confirmed=FALSE, created_at=now()`,
+		accountID, secret)
+	return err
+}
+
+func (p *Postgres) MFA(accountID string) (MFACredential, error) {
+	var c MFACredential
+	err := p.db.QueryRow(
+		`SELECT account_id,secret,confirmed,created_at FROM mfa_credentials WHERE account_id=$1`, accountID).
+		Scan(&c.AccountID, &c.Secret, &c.Confirmed, &c.CreatedAt)
+	return c, norm(err)
+}
+
+func (p *Postgres) ConfirmMFA(accountID string) error {
+	return affected(p.db.Exec(`UPDATE mfa_credentials SET confirmed=TRUE WHERE account_id=$1`, accountID))
 }
 
 // --- objects & audit ---

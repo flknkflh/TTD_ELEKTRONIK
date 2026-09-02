@@ -1,17 +1,20 @@
 # server/migrations
 
-M6 slice 1 runs on the in-memory `store.Memory`. The PostgreSQL schema +
-`golang-migrate`-style `NNNN_name.up.sql` / `.down.sql` files land in slice 2,
-covering the tables from Rencana V1 §18.1:
+The canonical, versioned migrations live in
+[`../internal/store/migrations/`](../internal/store/migrations/) as
+`NNNN_name.up.sql` / `.down.sql`. They are embedded (`//go:embed`) and applied
+in order on every `OpenPostgres`, guarded by a `schema_migrations` table, so a
+fresh database converges and re-runs are no-ops (Rencana V1 §23 M6: "migration
+dapat dijalankan dari database kosong").
+
+Current:
 
 ```
-users                 user_credentials       mfa_credentials
-devices               device_enrollments
-certificates          certificate_revocations
-signature_reservations
-documents             signatures
-authentication_events audit_events
+0001_init   accounts, devices, enrollments, certificates, reservations,
+            signatures, objects, audit_events   (§18.1)
+0002_mfa    mfa_credentials (TOTP)              (§17 auth/mfa/*, §24)
 ```
 
-The `store` package method set is the contract the SQL implementation must
-satisfy; keep all SQL behind it.
+The `.down.sql` files are for operators using an external migration tool; the
+server itself only rolls forward. Slice-2 remainder: refresh-token store,
+rate-limit persistence if ever needed (currently in-process).
