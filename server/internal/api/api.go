@@ -32,14 +32,53 @@ type Config struct {
 	AccessTTL      time.Duration
 }
 
+// Store is everything the handlers need from persistence. Both
+// store.Memory and store.Postgres satisfy it, so the backend is chosen at
+// startup and nothing else in the package changes.
+type Store interface {
+	CreateAccount(store.Account) (store.Account, error)
+	AccountByEmail(string) (store.Account, error)
+	Account(string) (store.Account, error)
+
+	CreateDevice(store.Device) (store.Device, error)
+	Device(string) (store.Device, error)
+	SetDeviceStatus(id, status string) error
+	DevicesByAccount(string) []store.Device
+
+	CreateEnrollment(store.Enrollment) (store.Enrollment, error)
+	Enrollment(string) (store.Enrollment, error)
+	ListEnrollments() []store.Enrollment
+	SetEnrollmentStatus(id, status string) error
+
+	CreateCertificate(store.Certificate) (store.Certificate, error)
+	Certificate(string) (store.Certificate, error)
+	CertificateByDevice(string) (store.Certificate, error)
+	CertificateBySerial(string) (store.Certificate, error)
+	RevokeCertificate(id, reason string) error
+
+	CreateReservation(store.Reservation) (store.Reservation, error)
+	Reservation(string) (store.Reservation, error)
+	SetReservationStatus(publicID, status string) error
+
+	CreateSignature(store.Signature) (store.Signature, error)
+	Signature(string) (store.Signature, error)
+	SignaturesByAccount(string) []store.Signature
+
+	PutObject(key string, data []byte) error
+	GetObject(key string) ([]byte, error)
+
+	Append(store.AuditEvent)
+	AuditEvents(limit int) []store.AuditEvent
+}
+
 type Server struct {
-	st     *store.Memory
+	st     Store
 	signer *auth.Signer
 	cfg    Config
 	crl    []byte // mutable copy of cfg.CRLPEM
 }
 
-func New(st *store.Memory, cfg Config) (*Server, error) {
+func New(st Store, cfg Config) (*Server, error) {
 	if len(cfg.RootCAPEM) == 0 {
 		return nil, errors.New("api: RootCAPEM is required")
 	}

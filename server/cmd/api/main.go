@@ -4,9 +4,10 @@
 // configured Root CA, stores metadata + the object, and serves the public
 // verifier. It has NO endpoint that signs a PDF for a user (§1, §17.5).
 //
-// M6 slice 1: in-memory store, filesystem-free (objects held in memory),
-// no TLS termination here (Caddy does that, §22). PostgreSQL + MinIO + Docker
-// land in slice 2.
+// Backend selection:
+//   - PQC_DATABASE_URL set  -> PostgreSQL (schema auto-applied)
+//   - PQC_S3_ENDPOINT set   -> signed PDFs go to MinIO/S3, else the DB
+//   - neither               -> in-memory (dev / tests)
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"example.internal/pqc-pdf-sign/server/internal/api"
@@ -56,7 +58,12 @@ func main() {
 		}
 	}
 
-	srv, err := api.New(store.NewMemory(), cfg)
+	st, backend, err := openStore()
+	if err != nil {
+		log.Fatalf("api: store: %v", err)
+	}
+
+	srv, err := api.New(st, cfg)
 	if err != nil {
 		log.Fatalf("api: %v", err)
 	}
@@ -70,7 +77,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() {
-		fmt.Printf("pqc-pdf-sign receiver API listening on %s (in-memory store, M6 slice 1)\n", *addr)
+		fmt.Printf("pqc-pdf-sign receiver API listening on %s (store: %s)\n", *addr, backend)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("api: serve: %v", err)
 		}
@@ -81,9 +88,44 @@ func main() {
 	_ = httpSrv.Shutdown(shutCtx)
 }
 
+func openStore() (api.Store, string, error) {
+	dsn := os.Getenv("PQC_DATABASE_URL")
+	if dsn == "" {
+		return store.NewMemory(), "in-memory", nil
+	}
+	var objs store.ObjectStore
+	if ep := os.Getenv("PQC_S3_ENDPOINT"); ep != "" {
+		var err error
+		objs, err = store.NewS3Objects(store.S3Config{
+			Endpoint:  ep,
+			Region:    envOr("PQC_S3_REGION", "us-east-1"),
+			Bucket:    envOr("PQC_S3_BUCKET", "pqc-pdf-sign"),
+			AccessKey: os.Getenv("PQC_S3_ACCESS_KEY"),
+			SecretKey: os.Getenv("PQC_S3_SECRET_KEY"),
+			UseSSL:    boolEnv("PQC_S3_USE_SSL"),
+		})
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	pg, err := store.OpenPostgres(dsn, objs)
+	if err != nil {
+		return nil, "", err
+	}
+	if objs != nil {
+		return pg, "postgres + s3", nil
+	}
+	return pg, "postgres", nil
+}
+
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
 	return def
+}
+
+func boolEnv(k string) bool {
+	b, _ := strconv.ParseBool(os.Getenv(k))
+	return b
 }

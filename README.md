@@ -21,9 +21,9 @@ spike** (§10, §31, §32):
 | `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
 | `apps/android/` app | on-device spike (debug APK) + Kotlin wrapper; full app = M5 |
 | `tools/ca-admin/` | offline CA operator CLI (init/validate/issue/revoke/crl/show), tested — M2 done, HSM/encryption = M7 |
-| `server/` Receiver API | M6 slice 1: all §17 core routes on an in-memory store, strict submit verification, public verifier — tested; PostgreSQL/MinIO/Docker/MFA = slice 2 |
+| `server/` Receiver API | all §17 core routes, strict submit verification, public verifier; runs on in-memory **or PostgreSQL** (`api_test.go` passes against real PG16) + MinIO blobs; MFA/rate-limit = slice 2 remainder |
+| `deploy/lab/` | Docker Compose (caddy+api+postgres+minio), multi-stage Dockerfile, Caddyfile — `compose config` validated |
 | `pki/` | lab scripts + templates; production ceremony = M7 |
-| `deploy/` | lab Docker Compose = M6 slice 2 |
 
 ## Crypto profile (§4)
 

@@ -30,9 +30,17 @@
   match), reservation, strict submit verification, public multipart verifier,
   audit log. `api_test.go` covers the §25.4 rejections (tampered PDF, wrong
   device cert, revoked cert, public-id mismatch, cross-account read) and
-  asserts there is no signing endpoint. **Slice 2**: PostgreSQL + MinIO +
-  Docker Compose, MFA/TOTP, refresh-token revocation, rate limiting.
-* Next: M6 slice 2, then M3 hardening (parser fuzzing).
+  asserts there is no signing endpoint.
+* **M6 slice 2** mostly done: `store.Postgres` (schema auto-applied) behind an
+  `api.Store` interface — the **whole `api_test.go` suite passes against real
+  PostgreSQL 16** (`PQC_TEST_DATABASE_URL`). `store.NewS3Objects` (MinIO/S3)
+  for the signed blobs. `deploy/lab/` Docker Compose (caddy+api+postgres+minio,
+  `compose config` validated), multi-stage Dockerfile, Caddyfile (TLS + 25 MiB
+  cap + headers), `.env.lab.example`. `cmd/api` picks its backend from env.
+  Not yet run here: `docker compose up` and the API image build (this machine
+  can't reach Docker Hub); MFA/TOTP, refresh-token revocation, rate limiting,
+  `server/migrations/*.sql`, backup/restore drill.
+* Next: M3 hardening (parser fuzzing), then M4/M5 client UIs.
 
 ## Per-release (M9)
 

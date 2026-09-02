@@ -19,6 +19,11 @@ pki/intermediate/private/
 ca/
 lab-ca/
 tools/ca-admin/ca/
+deploy/lab/ca/
+
+# deploy secrets + mounted public PKI (regenerated per environment)
+deploy/lab/.env.lab
+deploy/lab/pki/*.pem
 
 # ---- databases, object storage, local runtime ----
 runtime/

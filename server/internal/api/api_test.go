@@ -3,11 +3,13 @@ package api_test
 import (
 	"bytes"
 	"crypto/x509/pkix"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -18,9 +20,38 @@ import (
 	"example.internal/pqc-pdf-sign/core/signing"
 	"example.internal/pqc-pdf-sign/core/testpdf"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"example.internal/pqc-pdf-sign/server/internal/api"
 	"example.internal/pqc-pdf-sign/server/internal/store"
 )
+
+// backendStore returns an in-memory store, or a freshly-truncated PostgreSQL
+// store when PQC_TEST_DATABASE_URL is set (so the same suite proves both
+// backends).
+func backendStore(t *testing.T) api.Store {
+	t.Helper()
+	dsn := os.Getenv("PQC_TEST_DATABASE_URL")
+	if dsn == "" {
+		return store.NewMemory()
+	}
+	pg, err := store.OpenPostgres(dsn, nil)
+	if err != nil {
+		t.Fatalf("open test postgres: %v", err)
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`TRUNCATE signatures, reservations, certificates, enrollments,
+		devices, accounts, objects, audit_events RESTART IDENTITY CASCADE`)
+	if err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	t.Cleanup(func() { _ = pg.Close() })
+	return pg
+}
 
 type env struct {
 	t     *testing.T
@@ -38,7 +69,7 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := api.New(store.NewMemory(), api.Config{
+	srv, err := api.New(backendStore(t), api.Config{
 		RootCAPEM:     labpki.CertPEM(root.Cert),
 		CAChainPEM:    labpki.ChainPEM(inter.Cert, root.Cert),
 		JWTSecret:     []byte("test-secret-0123456789"),

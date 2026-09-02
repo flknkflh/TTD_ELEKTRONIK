@@ -85,6 +85,28 @@ jobs:
           path: apps/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+  server-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_PASSWORD: pw }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - name: api suite against PostgreSQL
+        working-directory: server
+        env:
+          PQC_TEST_DATABASE_URL: postgres://postgres:pw@localhost:5432/postgres?sslmode=disable
+        run: go test ./internal/api/ -count=1
+      - name: validate compose
+        run: docker compose -f deploy/lab/docker-compose.yml --env-file deploy/lab/.env.lab.example config --quiet
+
   staticcheck:
     runs-on: ubuntu-latest
     steps:
