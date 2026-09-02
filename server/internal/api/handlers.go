@@ -476,7 +476,7 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := verification.VerifyPDF(pdf, verification.Options{
 		RootPEM: s.cfg.RootCAPEM, IntermediatePEM: s.cfg.CAChainPEM, CRLPEM: s.crl,
-		RequireMLDSAOnly: true,
+		RequireMLDSAOnly: true, Timeout: 15 * time.Second,
 	})
 	if err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())

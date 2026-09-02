@@ -16,7 +16,7 @@ spike** (§10, §31, §32):
 
 | Component | State |
 |---|---|
-| `core/` Go library — keygen, CSR, sign, verify, CRL | implemented, tested |
+| `core/` Go library — keygen, CSR, sign, verify, CRL | implemented; unit + fuzz + golden tests; `staticcheck`/`govulncheck` clean |
 | `apps/windows/` `pqcsign-cli` — M1 desktop spike | implemented, builds `.exe`, spike PASSES on windows/amd64 |
 | `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
 | `apps/android/` app | on-device spike (debug APK) + Kotlin wrapper; full app = M5 |
@@ -44,6 +44,7 @@ core/            framework-independent Go: keys, enrollment, signing, verificati
   certutil/      X.509 / CRL parsing and profile checks
   labpki/        LAB-ONLY throwaway Root/Intermediate CA + device cert + CRL
   spike/         the M1 end-to-end proof, callable from any platform
+  **/fuzz_test.go  Go native fuzzing of every attacker-controlled parser (M3)
 apps/windows/    Wails desktop client (UI = M4); today: pqcsign-cli spike
 apps/android/    Kotlin/Compose client + Go AAR (M5)
 server/          Receiver API — internal/{store,auth,api}; strict submit verify + public verifier

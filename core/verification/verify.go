@@ -34,7 +34,19 @@ type Options struct {
 	// AllowExternalRevocation lets digitorus/pdfsign fetch OCSP/CRL over the
 	// network. Off by default; V1 clients verify offline.
 	AllowExternalRevocation bool
+
+	// Timeout bounds how long the parse+verify may run. 0 means no watchdog.
+	// A crafted PDF can drive the third-party parser into a CPU-bound loop
+	// (see docs/security-findings.md); a network-facing caller MUST set this
+	// (the server uses 15s) AND keep upstream rate limiting on. On timeout an
+	// error is returned but the parse goroutine may keep running until the
+	// process is recycled.
+	Timeout time.Duration
 }
+
+// MaxPDFBytes is the hard input ceiling for VerifyPDF. Anything larger is
+// rejected before the parser sees it.
+const MaxPDFBytes = 64 << 20
 
 // SignatureResult mirrors one entry of the shared verification JSON.
 type SignatureResult struct {
@@ -77,8 +89,45 @@ type Result struct {
 	Errors         []string          `json:"errors,omitempty"`
 }
 
-// VerifyPDF verifies every signature in pdf.
-func VerifyPDF(pdf []byte, o Options) (*Result, error) {
+// VerifyPDF verifies every signature in pdf. It is hardened for hostile input
+// (Rencana V1 §24, §26): oversized input is rejected up front, a panic in the
+// third-party PDF/CMS parser becomes an error, and Timeout bounds a parser
+// that loops.
+func VerifyPDF(pdf []byte, o Options) (res *Result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res, err = nil, fmt.Errorf("verification: recovered from panic parsing PDF: %v", r)
+		}
+	}()
+	if int64(len(pdf)) > MaxPDFBytes {
+		return nil, fmt.Errorf("verification: PDF is %d bytes, over the %d-byte limit", len(pdf), MaxPDFBytes)
+	}
+	if o.Timeout <= 0 {
+		return verifyPDF(pdf, o)
+	}
+	type out struct {
+		res *Result
+		err error
+	}
+	ch := make(chan out, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- out{nil, fmt.Errorf("verification: recovered from panic parsing PDF: %v", r)}
+			}
+		}()
+		r, e := verifyPDF(pdf, o)
+		ch <- out{r, e}
+	}()
+	select {
+	case v := <-ch:
+		return v.res, v.err
+	case <-time.After(o.Timeout):
+		return nil, fmt.Errorf("verification: gave up after %s (malformed PDF?)", o.Timeout)
+	}
+}
+
+func verifyPDF(pdf []byte, o Options) (*Result, error) {
 	if len(pdf) == 0 {
 		return nil, errors.New("verification: empty PDF input")
 	}
@@ -212,13 +261,18 @@ func VerifyPDFJSON(pdf, rootPEM, crlPEM []byte) (string, error) {
 }
 
 // ListPDFSignatures returns a light summary of each signature without running
-// full trust verification (Rencana V1 §11.1 ListPDFSignatures).
-func ListPDFSignatures(pdf []byte) ([]certutil.CertInfo, error) {
-	doc, err := pdfsign.Open(bytes.NewReader(pdf), int64(len(pdf)))
-	if err != nil {
-		return nil, fmt.Errorf("verification: open PDF: %w", err)
+// full trust verification (Rencana V1 §11.1 ListPDFSignatures). Panic-safe
+// like VerifyPDF.
+func ListPDFSignatures(pdf []byte) (out []certutil.CertInfo, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			out, err = nil, fmt.Errorf("verification: recovered from panic parsing PDF: %v", r)
+		}
+	}()
+	doc, oerr := pdfsign.Open(bytes.NewReader(pdf), int64(len(pdf)))
+	if oerr != nil {
+		return nil, fmt.Errorf("verification: open PDF: %w", oerr)
 	}
-	var out []certutil.CertInfo
 	for _, s := range doc.Verify().TrustSelfSigned(true).SkipRevocationCheck(true).Signatures() {
 		if s.Certificate != nil {
 			out = append(out, certutil.Describe(s.Certificate))

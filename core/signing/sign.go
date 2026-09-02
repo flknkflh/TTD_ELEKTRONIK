@@ -33,7 +33,15 @@ type Options struct {
 	// ClaimedSigningTime is written into the appearance. It is the client's
 	// clock and is NOT a trusted timestamp (Rencana V1 §4). Zero -> now.
 	ClaimedSigningTime time.Time `json:"client_claimed_signing_time,omitempty"`
+
+	// Timeout bounds the parse+sign. 0 means no watchdog. A network-facing
+	// caller should set it (see docs/security-findings.md). On timeout an
+	// error is returned; the parse goroutine may keep running.
+	Timeout time.Duration `json:"-"`
 }
+
+// MaxPDFBytes is the hard input ceiling for SignPDF.
+const MaxPDFBytes = 64 << 20
 
 // Result is returned alongside the signed PDF bytes.
 type Result struct {
@@ -56,7 +64,41 @@ type Result struct {
 //
 // The signature is PAdES Baseline-B, digest SHA-512, per the V1 crypto
 // profile. No timestamp is added in V1 (Rencana V1 §4).
-func SignPDF(pdf, privateKeyPKCS8, certChainPEM []byte, o Options) (*Result, error) {
+func SignPDF(pdf, privateKeyPKCS8, certChainPEM []byte, o Options) (res *Result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res, err = nil, fmt.Errorf("signing: recovered from panic parsing PDF: %v", r)
+		}
+	}()
+	if int64(len(pdf)) > MaxPDFBytes {
+		return nil, fmt.Errorf("signing: PDF is %d bytes, over the %d-byte limit", len(pdf), MaxPDFBytes)
+	}
+	if o.Timeout <= 0 {
+		return signPDF(pdf, privateKeyPKCS8, certChainPEM, o)
+	}
+	type out struct {
+		res *Result
+		err error
+	}
+	ch := make(chan out, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- out{nil, fmt.Errorf("signing: recovered from panic parsing PDF: %v", r)}
+			}
+		}()
+		r, e := signPDF(pdf, privateKeyPKCS8, certChainPEM, o)
+		ch <- out{r, e}
+	}()
+	select {
+	case v := <-ch:
+		return v.res, v.err
+	case <-time.After(o.Timeout):
+		return nil, fmt.Errorf("signing: gave up after %s (malformed PDF?)", o.Timeout)
+	}
+}
+
+func signPDF(pdf, privateKeyPKCS8, certChainPEM []byte, o Options) (*Result, error) {
 	if len(pdf) == 0 {
 		return nil, errors.New("signing: empty PDF input")
 	}

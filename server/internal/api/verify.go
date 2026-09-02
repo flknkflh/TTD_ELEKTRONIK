@@ -6,6 +6,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"time"
 
 	"example.internal/pqc-pdf-sign/core/verification"
 
@@ -41,6 +42,7 @@ func (s *Server) strictVerify(res store.Reservation, pdf []byte) (verifiedInfo, 
 		IntermediatePEM:  s.cfg.CAChainPEM,
 		CRLPEM:           s.crl,
 		RequireMLDSAOnly: true,
+		Timeout:          15 * time.Second, // bound a malformed-PDF parser loop (§26)
 	})
 	if err != nil {
 		return verifiedInfo{}, "verification error: " + err.Error()

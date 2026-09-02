@@ -43,7 +43,20 @@
   build (this machine can't reach Docker Hub). Left: `auth/refresh` +
   token revocation, `admin/enrollments/{id}/approve|export`, backup/restore
   drill.
-* Next: M3 hardening (parser fuzzing), then M4/M5 client UIs.
+* **M3 core hardening** done: Go native fuzz tests for every
+  attacker-controlled parser (`keys.ParsePKCS8`, `enrollment.ParseAndValidateCSR`,
+  `certutil.ParseCertificatePEM`/`ParseChainPEM`/`ValidateCRL`,
+  `verification.VerifyPDF`/`ListPDFSignatures`, `signing.SignPDF`). The stdlib
+  `crypto/x509`-backed ones survive millions of execs with no panic (CI fuzzes
+  them 20–30 s each). `VerifyPDF`/`SignPDF` gained a size cap (`MaxPDFBytes`
+  64 MiB), a `recover` guard, and an `Options.Timeout` (server: 15 s). Fuzzing
+  found **SF-1** — a CPU-loop DoS in `github.com/digitorus/pdf` on crafted
+  input; mitigated (timeout + rate limits + size cap) and tracked in
+  `docs/security-findings.md` with an upstream-report / sandbox TODO. Golden
+  test pins the CMS shape (SubFilter, SHA-512, ML-DSA-65). `staticcheck` and
+  `govulncheck` clean (one transitive advisory, `x/crypto/openpgp`, not
+  reachable from our code).
+* Next: M4/M5 client UIs.
 
 ## Per-release (M9)
 

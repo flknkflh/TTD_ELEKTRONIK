@@ -45,6 +45,17 @@ another account cannot read a signature record; `POST /api/v1/sign` and
 403 without a TOTP-authorized session, and a plain login is refused once MFA
 is confirmed; the login endpoint returns 429 under a burst.
 
-Pending (M6 slice 2 / M8): reserve/submit replay across restarts, symlink /
-path-traversal on upload + export, account switch while a device key is open,
-CRL-cache-stale warning surfaced in the client UI.
+Covered by M3 fuzzing (`core/**/fuzz_test.go`): `keys.ParsePKCS8`,
+`enrollment.ParseAndValidateCSR`, `certutil.ParseCertificatePEM` /
+`ParseChainPEM` / `ValidateCRL` survive millions of mutated inputs with no
+panic and no false "valid" verdict. `verification.VerifyPDF` / `signing.SignPDF`
+have a size cap + `recover` + `Options.Timeout`.
+
+Known finding **SF-1** (`docs/security-findings.md`): a crafted PDF loops the
+third-party parser (`github.com/digitorus/pdf`). Mitigated by the 15 s server
+timeout + rate limits + 64 MiB cap; residual CPU risk until an upstream fix or
+a subprocess sandbox lands.
+
+Pending (M8): reserve/submit replay across restarts, symlink / path-traversal
+on upload + export, account switch while a device key is open, CRL-cache-stale
+warning surfaced in the client UI.

@@ -105,3 +105,4 @@ PDF for a user (`POST /api/v1/sign`, `POST /api/v1/users/{id}/sign`).
 | date | change |
 |---|---|
 | 2026-09-02 | Initial freeze at M1/M2: items 1–7 as above. |
+| 2026-09-02 | M3: `verification.SignatureResult` gains `reason` + `contact`; `VerifyPDF`/`SignPDF` gain `MaxPDFBytes` (64 MiB) and `Options.Timeout`. Wire shape unchanged; golden test in `core/signing/golden_test.go`. |

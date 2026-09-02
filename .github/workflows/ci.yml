@@ -107,6 +107,25 @@ jobs:
       - name: validate compose
         run: docker compose -f deploy/lab/docker-compose.yml --env-file deploy/lab/.env.lab.example config --quiet
 
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - name: fuzz stdlib-backed parsers (30s each)
+        working-directory: core
+        run: |
+          set -e
+          go test ./keys/       -run=x -fuzz='^FuzzParsePKCS8$'            -fuzztime=30s
+          go test ./enrollment/ -run=x -fuzz='^FuzzParseAndValidateCSR$'  -fuzztime=30s
+          go test ./certutil/   -run=x -fuzz='^FuzzParseCertificatePEM$'  -fuzztime=20s
+          go test ./certutil/   -run=x -fuzz='^FuzzParseChainPEM$'        -fuzztime=20s
+          go test ./certutil/   -run=x -fuzz='^FuzzValidateCRL$'          -fuzztime=20s
+      # NOTE: verification/FuzzVerifyPDF and signing/FuzzSignPDF are NOT
+      # actively fuzzed here — see docs/security-findings.md SF-1. Their seed
+      # corpus runs in the `go` job's `go test ./...`.
+
   staticcheck:
     runs-on: ubuntu-latest
     steps:
@@ -114,7 +133,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: '1.27.0' }
       - run: go install honnef.co/go/tools/cmd/staticcheck@latest
-      - run: cd core && staticcheck ./...
+      - run: cd core && staticcheck ./... && cd ../server && staticcheck ./...
 
   dependency-scan:
     runs-on: ubuntu-latest
