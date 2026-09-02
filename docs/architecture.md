@@ -30,7 +30,10 @@ signing endpoint (§17.5).
 * **apps/windows** — `pqcsign-cli` today (M1). Wails UI at M4; DPAPI key wrapping at M4.
 * **apps/android** — M5. Consumes `pqcsign.aar` built from `core/mobilebridge` via gomobile.
 * **server** — M6. Receiver API only.
-* **tools/ca-admin** — M7. Offline CSR signing, cert issuance, revocation, CRL.
+* **tools/ca-admin** — M2 done: offline CLI for CSR validation, operator-
+  assigned cert issuance, revocation ledger, ML-DSA-65 CRL publishing; keeps
+  Root/Intermediate keys in its own dir, publishes only `public/`. M7 adds
+  key encryption / PKCS#11 and signed enrollment-package import/export.
 
 ## Frozen interfaces
 

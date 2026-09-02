@@ -19,9 +19,10 @@ spike** (§10, §31, §32):
 | `core/` Go library — keygen, CSR, sign, verify, CRL | implemented, tested |
 | `apps/windows/` `pqcsign-cli` — M1 desktop spike | implemented, builds `.exe`, spike PASSES on windows/amd64 |
 | `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
-| `apps/android/` app | Kotlin wrapper skeleton only (M5) |
+| `apps/android/` app | on-device spike (debug APK) + Kotlin wrapper; full app = M5 |
+| `tools/ca-admin/` | offline CA operator CLI (init/validate/issue/revoke/crl/show), tested — M2 done, HSM/encryption = M7 |
 | `server/` Receiver API | placeholder (M6) |
-| `pki/`, `tools/ca-admin/` | lab scripts + templates; production ceremony = M7 |
+| `pki/` | lab scripts + templates; production ceremony = M7 |
 | `deploy/` | lab Docker Compose = M6 |
 
 ## Crypto profile (§4)
@@ -46,7 +47,7 @@ core/            framework-independent Go: keys, enrollment, signing, verificati
 apps/windows/    Wails desktop client (UI = M4); today: pqcsign-cli spike
 apps/android/    Kotlin/Compose client + Go AAR (M5)
 server/          Receiver API (M6)
-tools/ca-admin/  offline CA operator tooling (M7)
+tools/ca-admin/  offline CA operator CLI: init / validate / issue / revoke / crl / show
 pki/             CA templates, scripts, published public material
 deploy/          lab (Compose) and production recipes
 docs/            architecture, api, pki-ceremony, threat-model, release-checklist

@@ -15,6 +15,11 @@ pki/private/
 pki/offline-root/
 pki/intermediate/private/
 
+# ca-admin working directories (hold Root/Intermediate private keys)
+ca/
+lab-ca/
+tools/ca-admin/ca/
+
 # ---- databases, object storage, local runtime ----
 runtime/
 data/

@@ -17,13 +17,15 @@
 
 ## Current state
 
-M0 done. M1 desktop done (`pqcsign-cli spike` green, `.exe` builds). M1 Android
-AAR build done (`apps/android/build-aar.sh`, arm64/API29, all 5 bridge methods
-exported) **and** a debug APK builds (`./gradlew :app:assembleDebug`) — a
-one-screen spike app that runs keygen-on-device + sign + verify + negative
-checks. Remaining for M1: install that APK on a physical arm64 device, run it,
-record timing/memory, and capture logcat/network proving no key leakage
-(§25.1).
+* **M0** done.
+* **M1** done: `pqcsign-cli spike` green on Windows; debug APK runs the same
+  spike on a physical arm64 device (keygen-on-device + sign + verify + tamper
+  / wrong-root rejection). Left for full sign-off: a logcat/network capture
+  proving no key leakage (§25.1).
+* **M2** done: `tools/ca-admin` (`init/validate/issue/revoke/crl/show`) with
+  the gate test — Root→Intermediate→device chain verifies, a revoked cert is
+  rejected via a fresh ML-DSA-65 CRL, CA private keys stay out of any server.
+* Next: **M6** (Receiver API) then M3 hardening (parser fuzzing).
 
 ## Per-release (M9)
 
