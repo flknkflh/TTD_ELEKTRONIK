@@ -1,0 +1,35 @@
+# ---- private keys and secrets (Rencana V1 §9.3) ----
+*.key
+*.key.pem
+*.pkcs8.pem
+*.pk8
+*.pk8.enc
+*.pqk
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+secrets/
+pki/private/
+pki/offline-root/
+pki/intermediate/private/
+
+# ---- databases, object storage, local runtime ----
+runtime/
+data/
+dist/
+build/
+spike-out/
+lab-pki/
+*.out
+
+# ---- reference repository clones (studied, not vendored) ----
+research/pdfsign/
+research/pdfsigner/
+
+# ---- toolchain noise ----
+*.exe
+*.test
+*.prof
+.DS_Store

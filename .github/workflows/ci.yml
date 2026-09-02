@@ -1,0 +1,73 @@
+# Pull-request pipeline (Rencana V1 §27).
+# format -> unit test Go -> static analysis -> (Android lint/AAR: added at M5)
+# -> build server image (M6) -> dependency/secret scan.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache-dependency-path: '**/go.sum'
+
+      - name: gofmt
+        run: |
+          fmt_out="$(gofmt -l core apps server tools 2>/dev/null || true)"
+          if [ -n "$fmt_out" ]; then echo "unformatted:"; echo "$fmt_out"; exit 1; fi
+
+      - name: core — vet + test
+        working-directory: core
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: windows cli — vet + build
+        working-directory: apps/windows
+        run: |
+          go vet ./...
+          GOOS=windows GOARCH=amd64 go build ./...
+
+      - name: server — vet + build
+        working-directory: server
+        run: |
+          go vet ./...
+          go build ./...
+
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      - run: cd core && staticcheck ./...
+
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: cd core && govulncheck ./...
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'

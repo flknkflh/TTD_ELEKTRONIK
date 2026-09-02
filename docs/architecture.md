@@ -1,0 +1,52 @@
+# Architecture
+
+Source of truth: `Rencana_Pembuatan_PQC_PDF_Sign_V1_Client_Side.md`. This file
+tracks decisions as they are implemented.
+
+## Shape
+
+```
+device app  --CSR/public key-->  receiver server  --account/registry
+device app  <--device cert-----  receiver server
+device app  --signed PDF------->  receiver server  --> storage / audit / public verifier
+CA admin (offline)  --cert + CRL-->  receiver server
+```
+
+The device holds the only copy of its ML-DSA-65 private key. The server has no
+signing endpoint (§17.5).
+
+## Modules (this repo)
+
+* **core** (`example.internal/pqc-pdf-sign/core`) — no UI, no framework, no
+  ambient network. Pure functions over `[]byte`. Consumed directly by the
+  Windows client and, through `core/mobilebridge`, by the Android AAR.
+  * `keys` — ML-DSA-65 generate / PKCS#8 marshal / parse / fingerprint / key-pair match.
+  * `enrollment` — `CreateDeviceCSR`, `ParseAndValidateCSR` (proof of possession, algo check, subject ignored).
+  * `signing` — `SignPDF` (PAdES-B, SHA-512), `BuildSignatureAppearance` (identity, time, serial, QR).
+  * `verification` — `VerifyPDF` against an explicit Root CA; offline CRL check; shared JSON result (§11.3).
+  * `certutil` — X.509/CRL parsing, profile enforcement, chain build.
+  * `labpki` — **lab only** Root/Intermediate/device/CRL generation for fixtures.
+  * `spike` — the M1 end-to-end proof, one call, returns a metrics report.
+* **apps/windows** — `pqcsign-cli` today (M1). Wails UI at M4; DPAPI key wrapping at M4.
+* **apps/android** — M5. Consumes `pqcsign.aar` built from `core/mobilebridge` via gomobile.
+* **server** — M6. Receiver API only.
+* **tools/ca-admin** — M7. Offline CSR signing, cert issuance, revocation, CRL.
+
+## Frozen interfaces
+
+Keep these stable across UI framework choices (§6):
+
+* Key blob: unencrypted PKCS#8 DER/PEM in memory; OS wrapping is the platform layer's job.
+* CSR: PKCS#10 PEM, ML-DSA-65, self-signed (proof of possession).
+* Device certificate: X.509, ML-DSA-65, `keyUsage=digitalSignature`,
+  EKU `1.3.6.1.5.5.7.3.36` (id-kp-documentSigning), `CA:FALSE`.
+* Verification result JSON: see `verification.Result` / §11.3.
+* Signature: PAdES-B, CMS pure ML-DSA-65, digest SHA-512, SubFilter `ETSI.CAdES.detached`.
+
+## Open items
+
+* Bind `public_id` into signed PDF `/Info` metadata (today it is in the visible
+  appearance and a CMS `Contact` attribute, both inside the signed byte range).
+* Offline CRL is checked by `core`, not by `digitorus/pdfsign`'s verifier
+  (which has no "supply CRL bytes" input) — revisit if that API gains one.
+* TSA / PAdES-B-T is a post-V1 addition (§4 note).
