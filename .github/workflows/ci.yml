@@ -88,6 +88,15 @@ jobs:
           path: apps/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+  e2e-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - name: full local end-to-end run (CA + receiver + client)
+        run: bash tests/e2e/local-run.sh
+
   server-postgres:
     runs-on: ubuntu-latest
     services:

@@ -43,6 +43,9 @@ func main() {
 	}
 
 	cfg := api.Config{JWTSecret: secret, PublicBaseURL: *baseURL, AccessTTL: 15 * time.Minute}
+	if boolEnv("PQC_RATE_LIMIT_DISABLED") {
+		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
+	}
 	var err error
 	if cfg.RootCAPEM, err = os.ReadFile(*rootPath); err != nil {
 		log.Fatalf("api: read root CA: %v", err)

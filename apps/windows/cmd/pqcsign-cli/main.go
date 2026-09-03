@@ -69,6 +69,8 @@ func main() {
 		err = cmdSign(os.Args[2:])
 	case "verify":
 		err = cmdVerify(os.Args[2:])
+	case "totp":
+		err = cmdTOTP(os.Args[2:])
 	case "version":
 		fmt.Printf("pqcsign-cli spike build\n%s %s/%s\nalgorithm: %s  profile: PAdES_B  digest: SHA-512\n",
 			runtime.Version(), runtime.GOOS, runtime.GOARCH, keys.Algorithm)
