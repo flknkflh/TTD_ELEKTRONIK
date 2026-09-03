@@ -19,6 +19,21 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
+    // Release signing from CI secrets (Rencana V1 §21.3, §27): the keystore
+    // never lives in the repo. If the env vars are absent the release build
+    // stays unsigned (CI still produces an artifact for inspection).
+    val ksPath = System.getenv("PQC_ANDROID_KEYSTORE")
+    signingConfigs {
+        if (ksPath != null && file(ksPath).exists()) {
+            create("release") {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("PQC_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("PQC_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("PQC_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
@@ -28,7 +43,7 @@ android {
         getByName("release") {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // No release signing config in the spike — build debug APKs only.
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 

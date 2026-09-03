@@ -92,7 +92,24 @@
   keeps original, CRL reason code). Manual run verified end to end (issue →
   sign → verify valid → revoke → CRL → verify revoked → backup → restore).
   Open post-V1: PKCS#11/HSM, signed enrollment-package format.
-* Next: M8 (§25 end-to-end), M9 (packaging/release).
+* **M8 acceptance** done: `docs/acceptance-v1.md` maps every §25 item to its
+  check; gap tests added (`server/internal/api/acceptance_test.go`,
+  `core/mobilebridge/bridge_test.go`, `TestStaleCRLWarns`);
+  `tools/acceptance.sh` runs the lot + the local e2e and prints a roll-up. The
+  QR record now reflects a revoked certificate. Manual sign-offs remaining are
+  listed in the doc (on-device KeyVault test, biometric cancel, `docker
+  compose` bring-up + backup/restore drill, a real cross-platform PDF check).
+* **M9 packaging** done: `.github/workflows/release.yml` (tag-triggered:
+  Windows CLI + Wails `-nsis` installer + Authenticode; Android AAR +
+  `assembleRelease` signed from secrets; server image → GHCR; SBOMs;
+  `SHA256SUMS`; GitHub release). `tools/release-local.sh` builds everything
+  buildable locally into `dist/release/` with CycloneDX SBOMs + checksums —
+  verified: `pqcsign-cli`/`ca-admin`/`pqc-api` exes, the debug APK, 4 SBOMs,
+  `SHA256SUMS.txt`, third-party notices. `apps/android` release signing reads
+  `PQC_ANDROID_KEYSTORE*` from the environment (keystore never in the repo).
+* **V1 code-complete.** Left before tagging `v1.0.0`: the manual sign-offs
+  above, real signing keys wired into CI secrets, and the production PKI
+  ceremony + VPS deploy (`docs/pki-ceremony.md`, §28).
 
 ## Per-release (M9)
 

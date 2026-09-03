@@ -1,0 +1,145 @@
+# Release pipeline (Rencana V1 §27). Triggered by a version tag.
+#   tag -> build Windows on a Windows runner
+#       -> build Android release
+#       -> build the server multi-stage image
+#       -> integration test (the local e2e run)
+#       -> SBOM + SHA256SUMS
+#       -> sign app artifacts (Authenticode / release keystore, from secrets)
+#       -> publish the GitHub release
+#
+# Signing keys, the Android release keystore, and the Authenticode certificate
+# live in repository / environment secrets — never in the tree.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - run: bash tests/e2e/local-run.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - uses: actions/setup-node@v4
+        with: { node-version: 'lts/*' }
+      - name: build CLI + spike exe
+        run: |
+          go -C apps/windows build -trimpath -ldflags "-s -w" -o ../../dist/PQC-PDF-Sign-CLI-x64.exe ./cmd/pqcsign-cli
+      - name: build Wails desktop (installer)
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+          cd apps/windows/cmd/pqcsign-desktop
+          wails build -platform windows/amd64 -clean -nsis
+        continue-on-error: true   # NSIS/toolchain may be missing on the runner
+      - name: Authenticode sign
+        if: ${{ env.WINDOWS_PFX_BASE64 != '' }}
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx",[Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          Get-ChildItem -Recurse -Include *.exe dist,apps/windows/cmd/pqcsign-desktop/build |
+            ForEach-Object { & signtool sign /f cert.pfx /p $env:WINDOWS_PFX_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $_.FullName }
+        shell: pwsh
+      - name: portable zip
+        run: |
+          New-Item -ItemType Directory portable | Out-Null
+          Copy-Item dist/PQC-PDF-Sign-CLI-x64.exe portable/
+          if (Test-Path apps/windows/cmd/pqcsign-desktop/build/bin) { Copy-Item apps/windows/cmd/pqcsign-desktop/build/bin/* portable/ }
+          Compress-Archive portable/* PQC-PDF-Sign-V1-Portable-x64.zip
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/PQC-PDF-Sign-CLI-x64.exe
+            PQC-PDF-Sign-V1-Portable-x64.zip
+            apps/windows/cmd/pqcsign-desktop/build/bin/*
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager --install "ndk;27.1.12297006"
+      - name: build AAR
+        env: { ANDROID_NDK_HOME: "${{ env.ANDROID_SDK_ROOT }}/ndk/27.1.12297006" }
+        run: sh apps/android/build-aar.sh
+      - name: assemble release APK
+        working-directory: apps/android
+        env:
+          PQC_ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
+          PQC_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          PQC_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PQC_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$PQC_ANDROID_KEYSTORE"
+          fi
+          ./gradlew :app:assembleRelease :app:assembleDebug
+      - run: |
+          cp apps/android/app/build/outputs/apk/release/app-release*.apk PQC-PDF-Sign-V1-release.apk || \
+            cp apps/android/app/build/outputs/apk/release/app-release-unsigned.apk PQC-PDF-Sign-V1-release-unsigned.apk
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk PQC-PDF-Sign-V1-debug.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: "PQC-PDF-Sign-V1-*.apk" }
+
+  server-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/lab/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/pqc-api:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/pqc-api:latest
+
+  publish:
+    needs: [integration, windows, android, server-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.27.0' }
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - name: SBOMs
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+          for m in core server apps/windows tools/ca-admin; do
+            n=$(echo "$m" | tr '/' '-')
+            ( cd "$m" && cyclonedx-gomod mod -json -output "$GITHUB_WORKSPACE/artifacts/sbom-$n.cdx.json" )
+          done
+      - name: SHA256SUMS
+        run: cd artifacts && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt | sort | xargs sha256sum > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

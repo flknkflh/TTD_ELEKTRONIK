@@ -25,6 +25,32 @@ Transitive dependencies pulled in by `digitorus/pdfsign` (see `core/go.sum`):
 * Repository: <https://github.com/skip2/go-qrcode>
 * Role: renders the QR code embedded in the signature appearance (§16.3).
 
+## Other Go dependencies
+
+Generated SBOMs (`sbom-*.cdx.json`, CycloneDX) accompany every release and are
+the authoritative dependency + licence inventory. Direct dependencies by
+module:
+
+| Module | Dependency | Licence | Role |
+|---|---|---|---|
+| server | `github.com/jackc/pgx/v5` | MIT | PostgreSQL driver |
+| server | `github.com/minio/minio-go/v7` | Apache-2.0 | S3/MinIO object storage client |
+| server | `golang.org/x/crypto` | BSD-3-Clause | Argon2id password hashing |
+| server | `golang.org/x/time` | BSD-3-Clause | rate limiter |
+| apps/windows | `github.com/wailsapp/wails/v2` | MIT | desktop GUI shell |
+| apps/windows | `golang.org/x/sys` | BSD-3-Clause | Windows DPAPI (`CryptProtectData`) |
+| apps/windows | `golang.org/x/crypto` | BSD-3-Clause | Argon2id (PIN-wrapped key) |
+| core (tool) | `golang.org/x/mobile` (`gobind`) | BSD-3-Clause | Android AAR generation |
+
+## Android app dependencies (`apps/android/app/build.gradle.kts`)
+
+| Dependency | Licence | Role |
+|---|---|---|
+| `androidx.appcompat`, `androidx.activity` | Apache-2.0 | Activity + Storage Access Framework |
+| `androidx.biometric` | Apache-2.0 | biometric / device-credential prompt |
+| `com.squareup.okhttp3:okhttp` (+ `mockwebserver`, test) | Apache-2.0 | HTTP client for the receiver API |
+| `junit:junit`, `org.json:json`, `androidx.test:*` (test) | EPL-1.0 / Android-SDK / Apache-2.0 | unit + instrumented tests |
+
 ## digitorus/pdfsigner — GPLv3 or commercial  (NOT a dependency)
 
 * Repository: <https://github.com/digitorus/pdfsigner>
