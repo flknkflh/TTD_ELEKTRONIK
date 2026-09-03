@@ -13,7 +13,8 @@ android {
         minSdk = 29          // matches gomobile bind -androidapi 29 (Rencana V1 §21)
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1-spike"
+        versionName = "0.2-m5"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // arm64 only: the AAR ships jni/arm64-v8a/libgojni.so
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -38,17 +39,35 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    buildFeatures {
+        buildConfig = true
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     lint {
         abortOnError = false
     }
     packaging {
-        resources.excludes += setOf("META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE")
+        resources.excludes += setOf("META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/*.kotlin_module")
     }
 }
 
 dependencies {
     // Built by apps/android/build-aar.sh from example.internal/pqc-pdf-sign/core/mobilebridge
     implementation(group = "", name = "pqcsign", ext = "aar")
+
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity:1.9.3")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.json:json:20240303")
+
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }
 
 // --- spike test fixtures -----------------------------------------------------

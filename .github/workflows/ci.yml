@@ -72,9 +72,11 @@ jobs:
           unzip -p apps/android/app/libs/pqcsign.aar classes.jar > /tmp/c.jar
           unzip -l /tmp/c.jar | grep 'mobilebridge/Mobilebridge.class'
 
-      - name: assemble debug APK
+      - name: android unit tests + debug APK
         working-directory: apps/android
-        run: ./gradlew :app:assembleDebug --no-daemon --console=plain
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain
+      # KeyVaultInstrumentedTest (androidTest) needs an emulator — run it on a
+      # device or a CI emulator lane; not in this job.
       - name: check APK contents
         run: |
           apk=apps/android/app/build/outputs/apk/debug/app-debug.apk

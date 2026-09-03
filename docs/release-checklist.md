@@ -68,7 +68,19 @@
   `cmd/pqcsign-desktop` is the Wails v2 shell + a plain-HTML frontend, one
   page per screen; it compiles (`go build`) — `wails build` + UI polish is a
   later slice. Server gained `admin/enrollments/{id}/export` + `/approve`.
-* Next: M5 Android UI, then M7 / M8 / M9.
+* **M5 Android client** mostly done: `core/KeyVault.kt` — Android Keystore
+  AES-256-GCM wrapping key (StrongBox→TEE→software fallback,
+  `setUnlockedDeviceRequired`, 30 s auth window), ML-DSA PKCS#8 encrypted in
+  internal storage, excluded from Auto Backup; `securityLevel()` reports
+  TEE/StrongBox (§12.2). `net/ApiClient.kt` (OkHttp, §17), `app/AppCore.kt`
+  (the §21 pages as GUI-independent Kotlin, mirrors Windows appcore),
+  `app/AppState.kt`. `MainActivity` is a 9-screen plain-Views shell with SAF
+  pick/save + `BiometricPrompt` before signing + a Diagnostics screen running
+  the M1 spike. `ApiClientTest` (7 JVM tests, MockWebServer) green;
+  `KeyVaultInstrumentedTest` (round-trip, tamper, security-level) is an
+  androidTest — needs a device/emulator. Debug APK builds (~25 MB). Compose
+  migration + in-app QR scanner + on-device run are a later slice.
+* Next: M7 (production PKI ceremony), M8 (§25 e2e), M9 (packaging/release).
 
 ## Per-release (M9)
 
