@@ -18,6 +18,7 @@ type fixture struct {
 	interPEM  []byte
 	crlPEM    []byte
 	signedPDF []byte
+	inter     *labpki.CA
 }
 
 func buildFixture(tb testing.TB) fixture {
@@ -52,7 +53,7 @@ func buildFixture(tb testing.TB) fixture {
 	}
 	return fixture{
 		rootPEM: labpki.CertPEM(root.Cert), interPEM: labpki.CertPEM(inter.Cert),
-		crlPEM: crl, signedPDF: res.SignedPDF,
+		crlPEM: crl, signedPDF: res.SignedPDF, inter: inter,
 	}
 }
 

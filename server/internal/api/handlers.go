@@ -512,7 +512,7 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 				a, _ := s.st.Account(sig.AccountID)
 				d, _ := s.st.Device(sig.DeviceID)
 				out["registered"] = true
-				out["record"] = publicRecord(sig, a, d)
+				out["record"] = s.publicRecord(sig, a, d)
 			}
 		}
 	}
@@ -527,12 +527,17 @@ func (s *Server) hPublicRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	a, _ := s.st.Account(sig.AccountID)
 	d, _ := s.st.Device(sig.DeviceID)
-	writeJSON(w, http.StatusOK, publicRecord(sig, a, d))
+	writeJSON(w, http.StatusOK, s.publicRecord(sig, a, d))
 }
 
-func publicRecord(sig store.Signature, a store.Account, d store.Device) map[string]any {
+// publicRecord is the display-safe record behind the QR page (§16.3). It
+// reflects the CURRENT certificate status, so a historic signature stays
+// readable with a clear "revoked" marker (§25.6).
+func (s *Server) publicRecord(sig store.Signature, a store.Account, d store.Device) map[string]any {
 	certStatus := "active"
-	if d.Status == store.DeviceLost {
+	if c, err := s.st.CertificateBySerial(sig.CertSerial); err == nil && c.Status == store.CertRevoked {
+		certStatus = "revoked"
+	} else if d.Status == store.DeviceLost {
 		certStatus = "device_reported_lost"
 	}
 	return map[string]any{
