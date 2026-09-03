@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"example.internal/pqc-pdf-sign/core/certutil"
@@ -17,15 +19,21 @@ import (
 // Store is the on-disk layout of a CA directory.
 //
 //	<dir>/
-//	  root/key.pem  root/cert.pem
-//	  intermediate/key.pem  intermediate/cert.pem
+//	  root/key.pem[.enc]  root/cert.pem
+//	  intermediate/key.pem[.enc]  intermediate/cert.pem
 //	  public/  root-ca.crt.pem  intermediate-ca.crt.pem  ca-chain.pem  crl.pem
-//	  ledger.json      { crl_number, revocations[] }
-//	  issued.jsonl     one line per issued device certificate
+//	  ledger.json       { crl_number, revocations[] }
+//	  issued.jsonl      one line per issued device certificate
+//	  ceremony.jsonl    append-only audit log with artifact checksums
 //
-// LAB ONLY: private keys are stored unencrypted. The production ceremony
-// (docs/pki-ceremony.md) is performed by hand on an air-gapped machine.
-type Store struct{ Dir string }
+// With PQC_CA_PASSPHRASE set, CA private keys are written as key.pem.enc
+// (Argon2id + AES-256-GCM, Rencana V1 §13.2). Without it, key.pem is written
+// in the clear — lab only.
+type Store struct {
+	Dir        string
+	Passphrase string // "" -> lab mode (unencrypted keys)
+	Operator   string // recorded in the ceremony log
+}
 
 type Ledger struct {
 	CRLNumber   int64        `json:"crl_number"`
@@ -33,9 +41,21 @@ type Ledger struct {
 }
 
 type Revocation struct {
-	Serial    string    `json:"serial"` // hex
-	Reason    string    `json:"reason"`
-	RevokedAt time.Time `json:"revoked_at"`
+	Serial     string    `json:"serial"` // hex
+	Reason     string    `json:"reason"`
+	ReasonCode int       `json:"reason_code"` // RFC 5280 (x509.RevocationReason*)
+	RevokedAt  time.Time `json:"revoked_at"`
+}
+
+// CeremonyEntry is one append-only audit line (Rencana V1 §13.2 "checksum
+// output", §23 M7 "audit ceremony").
+type CeremonyEntry struct {
+	At        time.Time         `json:"at"`
+	Action    string            `json:"action"`
+	Operator  string            `json:"operator"`
+	Encrypted bool              `json:"ca_keys_encrypted"`
+	Artifacts map[string]string `json:"artifacts"` // relative path -> sha256 hex
+	Note      string            `json:"note,omitempty"`
 }
 
 type IssuedRecord struct {
@@ -55,6 +75,12 @@ func (s Store) path(parts ...string) string {
 
 func (s Store) exists() bool {
 	_, err := os.Stat(s.path("intermediate", "cert.pem"))
+	return err == nil
+}
+
+// encrypted reports whether the CA keys on disk are in encrypted form.
+func (s Store) encrypted() bool {
+	_, err := os.Stat(s.path("intermediate", "key.pem.enc"))
 	return err == nil
 }
 
@@ -93,18 +119,36 @@ func (s Store) writeCA(name string, ca *labpki.CA) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(s.path(name, "key.pem"), keyPEM, 0o600); err != nil {
-		return err
+	if s.Passphrase != "" {
+		sealed, err := sealKeyPEM(keyPEM, s.Passphrase)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(s.path(name, "key.pem.enc"), sealed, 0o600); err != nil {
+			return err
+		}
+	} else {
+		if err := os.WriteFile(s.path(name, "key.pem"), keyPEM, 0o600); err != nil {
+			return err
+		}
 	}
 	return os.WriteFile(s.path(name, "cert.pem"), labpki.CertPEM(ca.Cert), 0o644)
 }
 
 func (s Store) loadCA(name string) (*labpki.CA, error) {
-	keyRaw, err := os.ReadFile(s.path(name, "key.pem"))
-	if err != nil {
-		return nil, err
+	var keyPEM []byte
+	if enc, err := os.ReadFile(s.path(name, "key.pem.enc")); err == nil {
+		keyPEM, err = openKeyPEM(enc, s.Passphrase)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		keyPEM, err = os.ReadFile(s.path(name, "key.pem"))
+		if err != nil {
+			return nil, fmt.Errorf("ca-admin: no CA key for %q: %w", name, err)
+		}
 	}
-	sk, err := keys.ParsePKCS8(keyRaw)
+	sk, err := keys.ParsePKCS8(keyPEM)
 	if err != nil {
 		return nil, err
 	}
@@ -175,12 +219,78 @@ func (s Store) publish(inter *labpki.CA, crlPEM []byte) error {
 
 var errNotInitialised = errors.New("ca-admin: CA directory not initialised (run `ca-admin init` first)")
 
-func openStore(dir string) (Store, error) {
-	s := Store{Dir: dir}
+func openStore(dir, passphrase, operator string) (Store, error) {
+	s := Store{Dir: dir, Passphrase: passphrase, Operator: operator}
 	if !s.exists() {
 		return s, errNotInitialised
 	}
+	if s.encrypted() && s.Passphrase == "" {
+		return s, errors.New("ca-admin: CA keys are encrypted; set PQC_CA_PASSPHRASE")
+	}
 	return s, nil
+}
+
+func sha256Bytes(b []byte) []byte {
+	sum := sha256.Sum256(b)
+	return sum[:]
+}
+
+// sha256File returns the hex SHA-256 of a file under the CA directory.
+func (s Store) sha256File(rel string) (string, error) {
+	b, err := os.ReadFile(s.path(rel))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return fmt.Sprintf("%x", sum[:]), nil
+}
+
+// logCeremony appends one audit line covering the given artifact paths
+// (relative to the CA dir), each with its current SHA-256.
+func (s Store) logCeremony(action, note string, artifacts ...string) error {
+	e := CeremonyEntry{
+		At: time.Now().UTC(), Action: action, Operator: s.Operator,
+		Encrypted: s.encrypted(), Artifacts: map[string]string{}, Note: note,
+	}
+	for _, a := range artifacts {
+		if sum, err := s.sha256File(a); err == nil {
+			e.Artifacts[filepath.ToSlash(a)] = sum
+		}
+	}
+	f, err := os.OpenFile(s.path("ceremony.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	line, _ := json.Marshal(&e)
+	_, err = f.Write(append(line, '\n'))
+	return err
+}
+
+// hasPrivateKeyLeak scans the public directory for anything that looks like a
+// private key (the M7 gate, Rencana V1 §23).
+func (s Store) hasPrivateKeyLeak() (string, bool) {
+	entries, _ := os.ReadDir(s.path("public"))
+	for _, e := range entries {
+		b, err := os.ReadFile(s.path("public", e.Name()))
+		if err != nil {
+			continue
+		}
+		if bytesContainsAny(b, "PRIVATE KEY", "BEGIN EC PRIVATE", "BEGIN RSA PRIVATE") {
+			return e.Name(), true
+		}
+	}
+	return "", false
+}
+
+func bytesContainsAny(b []byte, subs ...string) bool {
+	s := strings.ToUpper(string(b))
+	for _, x := range subs {
+		if strings.Contains(s, strings.ToUpper(x)) {
+			return true
+		}
+	}
+	return false
 }
 
 // certSerialHex renders a certificate serial the way `revoke` expects it.

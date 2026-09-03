@@ -80,7 +80,19 @@
   `KeyVaultInstrumentedTest` (round-trip, tamper, security-level) is an
   androidTest — needs a device/emulator. Debug APK builds (~25 MB). Compose
   migration + in-app QR scanner + on-device run are a later slice.
-* Next: M7 (production PKI ceremony), M8 (§25 e2e), M9 (packaging/release).
+* **M7 production PKI** done: `tools/ca-admin` gains encrypted CA keys
+  (`PQC_CA_PASSPHRASE` → Argon2id + AES-256-GCM `key.pem.enc`), an append-only
+  checksummed `ceremony.jsonl` (operator + per-artifact SHA-256 + encryption
+  posture), `batch-issue` (a directory of CSRs + `.meta.json`), `crl` with RFC
+  5280 reason codes, `status` + `backup`/`restore` that run the **M7 gate**
+  (`public/` holds no private-key material). `docs/pki-ceremony.md` is the full
+  witnessed air-gapped runbook (init → back up → distribute public only →
+  batch-issue → revoke/CRL → rotation). Tests: `m7_test.go` (encrypted
+  round-trip, wrong passphrase, ceremony-log checksums, gate, backup/restore
+  keeps original, CRL reason code). Manual run verified end to end (issue →
+  sign → verify valid → revoke → CRL → verify revoked → backup → restore).
+  Open post-V1: PKCS#11/HSM, signed enrollment-package format.
+* Next: M8 (§25 end-to-end), M9 (packaging/release).
 
 ## Per-release (M9)
 

@@ -11,10 +11,9 @@ below refer to it).
 
 ## Status
 
-Progress: **M0–M6 done** (baseline, cross-platform ML-DSA spike, offline CA
-tooling, core fuzz-hardening, full receiver API, Windows + Android client
-logic). M7 (production PKI ceremony), M8 (§25 end-to-end), M9 (packaging)
-remain.
+Progress: **M0–M7 done** (baseline, cross-platform ML-DSA spike, offline CA
+tooling + production ceremony, core fuzz-hardening, full receiver API,
+Windows + Android client logic). M8 (§25 end-to-end), M9 (packaging) remain.
 
 | Component | State |
 |---|---|
@@ -22,7 +21,7 @@ remain.
 | `apps/windows/` client | M4: DPAPI keystore + apiclient + appcore (7 §20 pages), full flow tested; `pqcsign-cli` M1 spike; `pqcsign-desktop` Wails shell compiles |
 | `core/mobilebridge/` + `apps/android/build-aar.sh` | AAR builds (arm64, API 29); on-device run still pending |
 | `apps/android/` app | M5: KeyVault (Android Keystore §12.2), OkHttp ApiClient, AppCore (§21 pages), 9-screen UI + biometric + SAF; JVM tests green, debug APK builds; Compose polish = later slice |
-| `tools/ca-admin/` | offline CA operator CLI (init/validate/issue/revoke/crl/show), tested — M2 done, HSM/encryption = M7 |
+| `tools/ca-admin/` | M7: offline CA CLI with encrypted keys, ceremony log, batch-issue, CRL reason codes, backup/restore + M7 gate; `docs/pki-ceremony.md` runbook; tested |
 | `server/` Receiver API | all §17 core routes, strict submit verification, public verifier, **TOTP MFA** + per-route **rate limits**; runs on in-memory **or PostgreSQL** (embedded migrations; `api_test.go` passes against real PG16) + MinIO blobs |
 | `deploy/lab/` | Docker Compose (caddy+api+postgres+minio), multi-stage Dockerfile, Caddyfile — `compose config` validated |
 | `pki/` | lab scripts + templates; production ceremony = M7 |
@@ -50,7 +49,7 @@ core/            framework-independent Go: keys, enrollment, signing, verificati
 apps/windows/    internal/{keystore(DPAPI),apiclient,appcore}; cmd/pqcsign-desktop (Wails), cmd/pqcsign-cli (M1)
 apps/android/    Kotlin/Compose client + Go AAR (M5)
 server/          Receiver API — internal/{store,auth,api}; strict submit verify + public verifier
-tools/ca-admin/  offline CA operator CLI: init / validate / issue / revoke / crl / show
+tools/ca-admin/  offline CA CLI: init / validate / issue / batch-issue / revoke / crl / status / backup / restore / show
 pki/             CA templates, scripts, published public material
 deploy/          lab (Compose) and production recipes
 docs/            architecture, api, pki-ceremony, threat-model, release-checklist

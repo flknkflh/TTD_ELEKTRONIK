@@ -152,19 +152,40 @@ func (ca *CA) IssueDeviceCert(csr *x509.CertificateRequest, opts DeviceCertOptio
 
 // NewCRL issues a CRL signed by this CA listing the given serials as revoked.
 func (ca *CA) NewCRL(revokedSerials []*big.Int, number int64, validity time.Duration) ([]byte, error) {
+	entries := make([]RevokedEntry, len(revokedSerials))
+	for i, s := range revokedSerials {
+		entries[i] = RevokedEntry{Serial: s}
+	}
+	return ca.NewCRLDetailed(entries, number, validity)
+}
+
+// RevokedEntry is one CRL entry with an optional RFC 5280 reason code
+// (x509.RevocationReason*, e.g. x509.KeyCompromise).
+type RevokedEntry struct {
+	Serial *big.Int
+	Reason int
+	At     time.Time
+}
+
+// NewCRLDetailed issues a CRL with per-entry revocation times and reason codes.
+func (ca *CA) NewCRLDetailed(entries []RevokedEntry, number int64, validity time.Duration) ([]byte, error) {
 	if validity == 0 {
 		validity = 7 * 24 * time.Hour
 	}
 	now := time.Now()
-	entries := make([]x509.RevocationListEntry, 0, len(revokedSerials))
-	for _, s := range revokedSerials {
-		entries = append(entries, x509.RevocationListEntry{SerialNumber: s, RevocationTime: now})
+	rl := make([]x509.RevocationListEntry, 0, len(entries))
+	for _, e := range entries {
+		at := e.At
+		if at.IsZero() {
+			at = now
+		}
+		rl = append(rl, x509.RevocationListEntry{SerialNumber: e.Serial, RevocationTime: at, ReasonCode: e.Reason})
 	}
 	tmpl := &x509.RevocationList{
 		Number:                    big.NewInt(number),
 		ThisUpdate:                now,
 		NextUpdate:                now.Add(validity),
-		RevokedCertificateEntries: entries,
+		RevokedCertificateEntries: rl,
 	}
 	der, err := x509.CreateRevocationList(rand.Reader, tmpl, ca.Cert, ca.Key)
 	if err != nil {
