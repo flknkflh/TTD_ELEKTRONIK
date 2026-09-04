@@ -7,8 +7,11 @@ class AppState(context: Context) {
     private val sp = context.applicationContext.getSharedPreferences("pqc_state", Context.MODE_PRIVATE)
 
     var serverUrl: String
-        get() = sp.getString("server_url", "https://10.0.2.2:8443") ?: ""
-        set(v) = sp.edit().putString("server_url", v).apply()
+        // Default matches tools/dev-up.sh (plain HTTP on :8099). For a TLS
+        // server (Caddy) use https:// and keep insecureTls on for a lab cert.
+        get() = sp.getString("server_url", "http://10.0.2.2:8099") ?: ""
+        set(v) = sp.edit().putString("server_url", v.trim().trimEnd('/'))
+            .apply()
 
     var insecureTls: Boolean
         get() = sp.getBoolean("insecure_tls", true)

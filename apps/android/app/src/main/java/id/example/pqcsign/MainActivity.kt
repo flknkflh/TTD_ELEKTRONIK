@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity() {
     // ---- screens ----
 
     private fun screenLogin(): View = column {
-        addView(label("Server URL"))
+        addView(label("Server URL  (http:// untuk dev-up.sh, https:// untuk Caddy)"))
         val srv = field(core.state.serverUrl)
         addView(srv)
         addView(label("Email")); val email = field(core.state.accountEmail ?: "")

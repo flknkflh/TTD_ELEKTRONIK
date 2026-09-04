@@ -50,12 +50,17 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
             "PUT" -> b.put(body ?: emptyBody())
             else -> error("method $method")
         }
-        http.newCall(b.build()).execute().use { resp ->
-            val bytes = resp.body?.bytes() ?: ByteArray(0)
-            if (!resp.isSuccessful) {
+        val resp = try {
+            http.newCall(b.build()).execute()
+        } catch (e: javax.net.ssl.SSLException) {
+            throw ApiException(0, "TLS handshake failed (${e.message}). If the server is plain HTTP (tools/dev-up.sh), use an http:// URL.")
+        }
+        resp.use { r ->
+            val bytes = r.body?.bytes() ?: ByteArray(0)
+            if (!r.isSuccessful) {
                 val msg = runCatching { JSONObject(String(bytes)).optString("error") }.getOrNull()
                     ?.takeIf { it.isNotEmpty() } ?: String(bytes).trim()
-                throw ApiException(resp.code, msg)
+                throw ApiException(r.code, msg)
             }
             return bytes
         }
