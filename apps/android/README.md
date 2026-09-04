@@ -35,6 +35,20 @@ Or open `apps/android/` in Android Studio and Run.
 uploads it as artifact `pqc-pdf-sign-android-debug-apk` (Actions → the run →
 Artifacts).
 
+## Connect the app to a local server
+
+On the PC:
+
+```sh
+bash tools/dev-up.sh          # builds + starts the receiver on 0.0.0.0:8099
+```
+
+It prints the LAN URL to type into the app (`Login` → `Server URL`), the Root
+CA path, and where `ca-admin` is for issuing device certs offline. The **debug**
+APK allows plain HTTP to the LAN; the release APK is HTTPS-only (use Caddy).
+If the printed IP is a virtual adapter, run `ipconfig` and use your Wi-Fi
+IPv4 instead.
+
 ## 3. Test on a phone
 
 1. Copy `app-debug.apk` to an arm64 Android phone (Android 10 / API 29+).
