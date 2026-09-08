@@ -23,7 +23,6 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"example.internal/pqc-pdf-sign/server/internal/api"
-	"example.internal/pqc-pdf-sign/server/internal/auth"
 	"example.internal/pqc-pdf-sign/server/internal/store"
 )
 
@@ -55,9 +54,10 @@ func backendStore(t *testing.T) api.Store {
 }
 
 type env struct {
-	t     *testing.T
-	h     http.Handler
-	inter *labpki.CA
+	t      *testing.T
+	h      http.Handler
+	inter  *labpki.CA
+	badmin string // cached bootstrap-admin token, used to approve pending users
 }
 
 func newEnv(t *testing.T) *env {
@@ -119,37 +119,34 @@ func mustCode(t *testing.T, w *httptest.ResponseRecorder, want int) {
 	}
 }
 
-// account registers, enables + confirms TOTP MFA, and returns an
-// MFA-authorized access token (so every test exercises the §24 MFA path and
-// the admin/enrollment routes stay reachable).
+// account registers, gets a pending user approved by a bootstrap admin, and
+// returns an access token (exercises the RB-1 approval gate).
 func (e *env) account(email, role string) string {
 	e.t.Helper()
-	mustCode(e.t, e.do("POST", "/api/v1/auth/register", "", map[string]string{
+	w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
 		"email": email, "password": "password123", "display_name": email, "role": role,
-	}), http.StatusCreated)
+	})
+	mustCode(e.t, w, http.StatusCreated)
 
-	tok := e.login(email, "")
-
-	w := e.do("POST", "/api/v1/auth/mfa/setup", tok, nil)
-	mustCode(e.t, w, http.StatusOK)
-	secret := jbody(e.t, w)["secret"].(string)
-	code, err := auth.TOTPAt(secret, time.Now())
-	if err != nil {
-		e.t.Fatal(err)
+	if role == store.RoleUser {
+		id := jbody(e.t, w)["account_id"].(string)
+		mustCode(e.t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", e.adminTok(), nil), http.StatusOK)
 	}
-	mustCode(e.t, e.do("POST", "/api/v1/auth/mfa/verify", tok, map[string]string{"code": code}), http.StatusOK)
-
-	code, _ = auth.TOTPAt(secret, time.Now())
-	return e.login(email, code)
+	return e.login(email)
 }
 
-func (e *env) login(email, code string) string {
+// adminTok lazily creates one admin used to approve pending user registrations.
+func (e *env) adminTok() string {
 	e.t.Helper()
-	body := map[string]string{"email": email, "password": "password123"}
-	if code != "" {
-		body["code"] = code
+	if e.badmin == "" {
+		e.badmin = e.account("_bootstrap_admin@test", store.RoleAdmin)
 	}
-	w := e.do("POST", "/api/v1/auth/login", "", body)
+	return e.badmin
+}
+
+func (e *env) login(email string) string {
+	e.t.Helper()
+	w := e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": email, "password": "password123"})
 	mustCode(e.t, w, http.StatusOK)
 	return jbody(e.t, w)["access_token"].(string)
 }
@@ -206,6 +203,23 @@ func signWith(t *testing.T, d device, publicID string) []byte {
 	})
 	if err != nil {
 		t.Fatalf("sign: %v", err)
+	}
+	return res.SignedPDF
+}
+
+// coverAndSign runs the RB-2b flow: upload the original to the server's
+// cover-page endpoint, then sign what comes back on the "device".
+func (e *env) coverAndSign(userTok string, d device, publicID string) []byte {
+	e.t.Helper()
+	w := e.do("POST", "/api/v1/signatures/"+publicID+"/cover-page?reason=Persetujuan", userTok, testpdf.Sample())
+	mustCode(e.t, w, http.StatusOK)
+	augmented := w.Body.Bytes()
+
+	res, err := signing.SignPDF(augmented, d.keyPEM, d.chainPEM, signing.Options{
+		SignerName: "Tester", PublicID: publicID,
+	})
+	if err != nil {
+		e.t.Fatalf("sign: %v", err)
 	}
 	return res.SignedPDF
 }
@@ -351,7 +365,7 @@ func TestAdminEnrollmentExportAndApprove(t *testing.T) {
 		t.Fatalf("export did not return a CSR: %s", w.Body.String())
 	}
 	mustCode(t, e.do("POST", "/api/v1/admin/enrollments/"+enrID+"/approve", admin, nil), http.StatusOK)
-	// export requires MFA-admin
+	// admin routes require the admin role
 	mustCode(t, e.do("GET", "/api/v1/admin/enrollments/"+enrID+"/export", user, nil), http.StatusForbidden)
 }
 
@@ -370,48 +384,6 @@ func TestAuthGuards(t *testing.T) {
 	mustCode(t, e.do("GET", "/api/v1/devices", "", nil), http.StatusUnauthorized)
 	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", user, nil), http.StatusForbidden) // user != admin
 	mustCode(t, e.do("GET", "/api/v1/devices", user, nil), http.StatusOK)
-}
-
-func TestMFAEnforcement(t *testing.T) {
-	e := newEnv(t)
-
-	// register + login WITHOUT setting up MFA
-	mustCode(t, e.do("POST", "/api/v1/auth/register", "", map[string]string{
-		"email": "nomfa@test", "password": "password123", "role": store.RoleAdmin,
-	}), http.StatusCreated)
-	tok := e.login("nomfa@test", "")
-
-	// sensitive routes are blocked until MFA is set up + a coded login is used
-	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", tok, nil), http.StatusForbidden)
-	w := e.do("POST", "/api/v1/devices", tok, map[string]string{"label": "L"})
-	mustCode(t, w, http.StatusCreated)
-	dev := jbody(t, w)["device_id"].(string)
-	mustCode(t, e.do("POST", "/api/v1/devices/"+dev+"/report-lost", tok, nil), http.StatusForbidden)
-
-	// set up + confirm MFA
-	w = e.do("POST", "/api/v1/auth/mfa/setup", tok, nil)
-	mustCode(t, w, http.StatusOK)
-	secret := jbody(t, w)["secret"].(string)
-	code, _ := auth.TOTPAt(secret, time.Now())
-	mustCode(t, e.do("POST", "/api/v1/auth/mfa/verify", tok, map[string]string{"code": code}), http.StatusOK)
-
-	// a plain login is now rejected: MFA is required
-	pw := e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "nomfa@test", "password": "password123"})
-	mustCode(t, pw, http.StatusUnauthorized)
-	if jbody(t, pw)["mfa_required"] != true {
-		t.Fatalf("expected mfa_required: %s", pw.Body.String())
-	}
-
-	// a coded login yields an MFA-authorized session
-	code, _ = auth.TOTPAt(secret, time.Now())
-	mfaTok := e.login("nomfa@test", code)
-	mustCode(t, e.do("GET", "/api/v1/admin/enrollments", mfaTok, nil), http.StatusOK)
-
-	// wrong code is rejected
-	bad := e.do("POST", "/api/v1/auth/login", "", map[string]string{
-		"email": "nomfa@test", "password": "password123", "code": "000000",
-	})
-	mustCode(t, bad, http.StatusUnauthorized)
 }
 
 func TestRateLimit(t *testing.T) {

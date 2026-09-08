@@ -21,10 +21,12 @@ import (
 
 func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		DisplayName string `json:"display_name"`
-		Role        string `json:"role"`
+		Email        string `json:"email"`
+		Password     string `json:"password"`
+		DisplayName  string `json:"display_name"`
+		FullName     string `json:"full_name"`
+		Organization string `json:"organization"`
+		Role         string `json:"role"`
 	}
 	if err := decode(r, &in); err != nil || in.Email == "" || len(in.Password) < 8 {
 		writeErr(w, http.StatusBadRequest, "email and an 8+ char password are required")
@@ -35,26 +37,39 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "hash")
 		return
 	}
-	role := store.RoleUser
+	// A self-registered user starts pending and cannot log in until an admin
+	// approves (Rencana RB-1). Admin accounts are a lab convenience and are
+	// active immediately; real deployments seed them out of band.
+	role, status := store.RoleUser, store.AccountPending
 	if in.Role == store.RoleAdmin {
-		role = store.RoleAdmin // lab convenience; real deployments seed admins out of band
+		role, status = store.RoleAdmin, store.AccountActive
+	}
+	displayName := in.DisplayName
+	if displayName == "" {
+		displayName = in.FullName
 	}
 	a, err := s.st.CreateAccount(store.Account{
-		Email: in.Email, DisplayName: in.DisplayName, PasswordHash: hash, Role: role,
+		Email: in.Email, DisplayName: displayName, FullName: in.FullName, Organization: in.Organization,
+		PasswordHash: hash, Role: role, Status: status,
 	})
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	s.st.Append(store.AuditEvent{Type: "account.register", AccountID: a.ID, Result: "ok"})
-	writeJSON(w, http.StatusCreated, map[string]string{"account_id": a.ID, "role": a.Role})
+	s.st.Append(store.AuditEvent{Type: "account.register", AccountID: a.ID, Result: "ok", Detail: status})
+	msg := "akun dibuat"
+	if status == store.AccountPending {
+		msg = "akun dibuat, menunggu persetujuan admin"
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"account_id": a.ID, "role": a.Role, "status": a.Status, "message": msg,
+	})
 }
 
 func (s *Server) hLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
-		Code     string `json:"code"` // TOTP, required once MFA is confirmed
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -67,80 +82,28 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mfaOK := false
-	if cred, err := s.st.MFA(a.ID); err == nil && cred.Confirmed {
-		if in.Code == "" {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{
-				"error": "TOTP code required", "mfa_required": true,
-			})
-			return
-		}
-		if !auth.ValidateTOTP(cred.Secret, in.Code) {
-			s.st.Append(store.AuditEvent{Type: "auth.login", AccountID: a.ID, Result: "fail", Detail: "bad totp"})
-			writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
-			return
-		}
-		mfaOK = true
+	// Account lifecycle gate (Rencana RB-1): only an admin-approved account
+	// may obtain a session.
+	switch a.Status {
+	case store.AccountPending:
+		s.st.Append(store.AuditEvent{Type: "auth.login", AccountID: a.ID, Result: "fail", Detail: "pending"})
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "akun menunggu persetujuan admin", "account_status": store.AccountPending,
+		})
+		return
+	case store.AccountDisabled:
+		s.st.Append(store.AuditEvent{Type: "auth.login", AccountID: a.ID, Result: "fail", Detail: "disabled"})
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "akun dinonaktifkan, hubungi admin", "account_status": store.AccountDisabled,
+		})
+		return
 	}
 
 	s.st.Append(store.AuditEvent{Type: "auth.login", AccountID: a.ID, Result: "ok"})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token": s.signer.Issue(a.ID, a.Role, mfaOK),
+		"access_token": s.signer.Issue(a.ID, a.Role),
 		"token_type":   "Bearer",
 		"expires_in":   int(s.signer.TTL().Seconds()),
-		"mfa":          mfaOK,
-	})
-}
-
-// hMFASetup issues a fresh (unconfirmed) TOTP secret for the caller.
-func (s *Server) hMFASetup(w http.ResponseWriter, r *http.Request) {
-	c := claims(r)
-	secret, err := auth.GenerateTOTPSecret()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "secret")
-		return
-	}
-	if err := s.st.UpsertMFA(c.Sub, secret); err != nil {
-		writeErr(w, http.StatusInternalServerError, "store")
-		return
-	}
-	a, _ := s.st.Account(c.Sub)
-	label := a.Email
-	if label == "" {
-		label = c.Sub
-	}
-	s.audit("mfa.setup", c, "", "ok", "")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"secret":      secret,
-		"otpauth_url": auth.OTPAuthURL(s.issuer, label, secret),
-		"note":        "add to an authenticator app, then POST /api/v1/auth/mfa/verify with a code",
-	})
-}
-
-// hMFAVerify confirms a pending secret by proving one code.
-func (s *Server) hMFAVerify(w http.ResponseWriter, r *http.Request) {
-	c := claims(r)
-	var in struct {
-		Code string `json:"code"`
-	}
-	_ = decode(r, &in)
-	cred, err := s.st.MFA(c.Sub)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "no MFA secret; call /api/v1/auth/mfa/setup first")
-		return
-	}
-	if !auth.ValidateTOTP(cred.Secret, in.Code) {
-		s.audit("mfa.verify", c, "", "fail", "")
-		writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
-		return
-	}
-	if !cred.Confirmed {
-		_ = s.st.ConfirmMFA(c.Sub)
-	}
-	s.audit("mfa.verify", c, "", "ok", "")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"confirmed": true,
-		"note":      "log in again with \"code\" to get an MFA-authorized session",
 	})
 }
 
@@ -203,7 +166,24 @@ func (s *Server) hSubmitCSR(w http.ResponseWriter, r *http.Request) {
 		DeviceID: d.ID, AccountID: c.Sub, CSRPEM: body, CSRKeyFP: info.PublicKeyFP,
 	})
 	s.audit("csr.submit", c, d.ID, "accept", e.ID)
-	writeJSON(w, http.StatusCreated, map[string]string{"enrollment_id": e.ID, "status": e.Status})
+
+	// RB-1: for an approved account with an online CA, issue the device
+	// certificate right now so the app is ready in a single round-trip. If
+	// issuance fails the enrollment stays "submitted" for an admin to retry.
+	resp := map[string]any{"enrollment_id": e.ID, "status": e.Status}
+	if acc, _ := s.st.Account(c.Sub); s.cfg.LabIssuer != nil && acc.Status == store.AccountActive {
+		if leaf, err := s.issueViaCA(r.Context(), e); err != nil {
+			s.audit("certificate.issue", c, d.ID, "fail", err.Error())
+			resp["note"] = "penerbitan sertifikat tertunda, hubungi admin"
+		} else if stored, err := s.bindIssuedCert(e, leaf); err != nil {
+			s.audit("certificate.issue", c, d.ID, "fail", err.Error())
+			resp["note"] = "penerbitan sertifikat tertunda, hubungi admin"
+		} else {
+			resp["status"] = store.EnrollmentIssued
+			resp["certificate_serial"] = stored.Serial
+		}
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) hDeviceCertificate(w http.ResponseWriter, r *http.Request) {
@@ -285,39 +265,48 @@ func (s *Server) hIssueCertificate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "read")
 		return
 	}
-	cert, info, err := certutil.ParseAndValidateCertificate(body, time.Now())
+	stored, err := s.bindIssuedCert(e, body)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "certificate rejected: "+err.Error())
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"certificate_id": stored.ID, "serial": stored.Serial, "fingerprint": stored.Fingerprint,
+	})
+}
+
+// bindIssuedCert validates an offline-issued leaf certificate for enrollment e
+// — it must chain to the configured Root CA and its public key must match the
+// enrolled CSR — then records it as the active certificate for e's
+// account+device. Shared by hIssueCertificate (admin uploads the PEM) and the
+// dev-only lab issuer (hLabIssue drives ca-admin and passes the PEM here).
+func (s *Server) bindIssuedCert(e store.Enrollment, leafPEM []byte) (store.Certificate, error) {
+	cert, info, err := certutil.ParseAndValidateCertificate(leafPEM, time.Now())
+	if err != nil {
+		return store.Certificate{}, errors.New("certificate rejected: " + err.Error())
 	}
 	inter, _ := certutil.ParseChainPEM(s.cfg.CAChainPEM) // Root+Intermediate
 	chain := certutil.ValidateCertificateChain(cert, inter, s.cfg.RootCAPEM, time.Now())
 	if chain.Error != nil || !chain.TrustedChain {
-		writeErr(w, http.StatusBadRequest, "certificate does not chain to the configured Root CA")
-		return
+		return store.Certificate{}, errors.New("certificate does not chain to the configured Root CA")
 	}
-	// public key must match the CSR that was enrolled
 	csr, _, err := enrollment.ParseAndValidateCSR(e.CSRPEM)
 	if err != nil {
-		writeErr(w, http.StatusConflict, "stored CSR no longer parses")
-		return
+		return store.Certificate{}, errors.New("stored CSR no longer parses")
 	}
 	csrPub, _ := csr.PublicKey.(*mldsa.PublicKey)
 	certPub, _ := cert.PublicKey.(*mldsa.PublicKey)
 	if csrPub == nil || certPub == nil || !csrPub.Equal(certPub) {
-		writeErr(w, http.StatusBadRequest, "certificate public key does not match the enrolled CSR")
-		return
+		return store.Certificate{}, errors.New("certificate public key does not match the enrolled CSR")
 	}
 	stored, _ := s.st.CreateCertificate(store.Certificate{
 		EnrollmentID: e.ID, DeviceID: e.DeviceID, AccountID: e.AccountID,
-		Serial: info.SerialNumber, Fingerprint: info.FingerprintSHA256, PEM: body,
+		Serial: info.SerialNumber, Fingerprint: info.FingerprintSHA256, PEM: leafPEM,
 		NotBefore: cert.NotBefore, NotAfter: cert.NotAfter, Status: store.CertActive,
 	})
 	_ = s.st.SetEnrollmentStatus(e.ID, store.EnrollmentIssued)
 	s.st.Append(store.AuditEvent{Type: "certificate.issue", AccountID: e.AccountID, DeviceID: e.DeviceID, Result: "ok", Detail: stored.Serial})
-	writeJSON(w, http.StatusCreated, map[string]string{
-		"certificate_id": stored.ID, "serial": stored.Serial, "fingerprint": stored.Fingerprint,
-	})
+	return stored, nil
 }
 
 func (s *Server) hRevoke(w http.ResponseWriter, r *http.Request) {

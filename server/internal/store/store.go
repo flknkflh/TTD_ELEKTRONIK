@@ -18,6 +18,16 @@ const (
 	RoleAdmin = "admin"
 )
 
+// Account status values (Rencana RB-1). A self-registered account starts
+// pending; an admin's one-click approval flips it to active, which is what
+// authorises automatic certificate issuance. disabled cascades to every
+// device certificate the account holds.
+const (
+	AccountPending  = "pending"
+	AccountActive   = "active"
+	AccountDisabled = "disabled"
+)
+
 // Device / certificate / reservation status values.
 const (
 	DeviceActive = "active"
@@ -38,8 +48,11 @@ type Account struct {
 	ID           string
 	Email        string
 	DisplayName  string
+	FullName     string // legal name, printed on the certificate + QR page
+	Organization string // instansi, printed on the certificate + QR page
 	PasswordHash string
 	Role         string
+	Status       string // AccountPending | AccountActive | AccountDisabled
 	CreatedAt    time.Time
 }
 
@@ -115,13 +128,4 @@ type AuditEvent struct {
 	DeviceID  string
 	Result    string
 	Detail    string
-}
-
-// MFACredential is a per-account TOTP secret. Confirmed flips true once the
-// account proves a code (Rencana V1 §17 auth/mfa/*, §24).
-type MFACredential struct {
-	AccountID string
-	Secret    string // base32
-	Confirmed bool
-	CreatedAt time.Time
 }

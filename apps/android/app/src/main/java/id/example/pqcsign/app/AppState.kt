@@ -33,8 +33,12 @@ class AppState(context: Context) {
         get() = sp.getString("cert_serial", null)
         set(v) = sp.edit().putString("cert_serial", v).apply()
 
+    // Default false in the RB flow: enrolment runs silently right after login
+    // (no BiometricPrompt yet), so the wrapping key must be usable without a
+    // fresh auth. The app still shows a BiometricPrompt before every signature.
+    // Set true to additionally bind the key to biometric/PIN at the Keystore.
     var requireAuth: Boolean
-        get() = sp.getBoolean("require_auth", true)
+        get() = sp.getBoolean("require_auth", false)
         set(v) = sp.edit().putBoolean("require_auth", v).apply()
 
     fun clear() = sp.edit().clear().apply()

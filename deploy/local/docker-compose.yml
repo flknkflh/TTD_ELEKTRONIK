@@ -1,0 +1,48 @@
+# Local prototype: PostgreSQL + the receiver API. Signed-PDF blobs live in the
+# `objects` table (no MinIO). Everything persists in named volumes:
+#   pgdata  -> accounts, devices, certificates, signatures, audit
+#   cadata  -> the lab CA keys + revocation ledger
+# `docker compose up -d --build`  rebuilds the image, keeps the data.
+# `docker compose down`           stops containers, keeps the data.
+# `docker compose down -v`        ALSO deletes the data (fresh start).
+#
+# QR codes point at PQC_PUBLIC_BASE_URL. For phones on your Wi-Fi, start with:
+#   PQC_PUBLIC_BASE_URL=http://<your-LAN-IP>:8099 docker compose up -d --build
+
+name: pqc-pdf-sign-local
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pqc
+      POSTGRES_PASSWORD: pqc
+      POSTGRES_DB: pqc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pqc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/local/Dockerfile
+    environment:
+      PQC_DATABASE_URL: "postgres://pqc:pqc@postgres:5432/pqc?sslmode=disable"
+      PQC_JWT_SECRET: "local-prototype-secret-change-me-0123456789"
+      PQC_PUBLIC_BASE_URL: "${PQC_PUBLIC_BASE_URL:-http://localhost:8099}"
+    volumes:
+      - cadata:/ca
+    ports:
+      - "8099:8099"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  cadata:

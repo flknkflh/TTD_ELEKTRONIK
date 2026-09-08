@@ -23,8 +23,6 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
 
     private val base = baseUrl.trimEnd('/')
     private var token: String? = null
-    var mfaRequired: Boolean = false
-        private set
 
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -73,36 +71,25 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
 
     // ---- auth ----
 
-    fun register(email: String, password: String, displayName: String, role: String): String =
-        obj(req("POST", "/api/v1/auth/register", json(JSONObject().apply {
-            put("email", email); put("password", password); put("display_name", displayName); put("role", role)
-        }))).optString("account_id")
+    data class RegisterResult(val accountId: String, val status: String, val message: String)
 
-    /** Login stores the access token. Throws ApiException(401) with
-     *  mfaRequired=true if a TOTP code is needed and none was supplied. */
-    fun login(email: String, password: String, code: String?) {
-        val payload = JSONObject().apply {
+    /** Self-registers an account (Rencana RB-1). It is created pending; an
+     *  admin approves it before login works. */
+    fun register(fullName: String, org: String, email: String, password: String): RegisterResult {
+        val o = obj(req("POST", "/api/v1/auth/register", json(JSONObject().apply {
             put("email", email); put("password", password)
-            if (!code.isNullOrEmpty()) put("code", code)
-        }
-        try {
-            val o = obj(req("POST", "/api/v1/auth/login", json(payload)))
-            token = o.optString("access_token").ifEmpty { null }
-            mfaRequired = false
-            if (token == null) throw ApiException(500, "no access token")
-        } catch (e: ApiException) {
-            mfaRequired = e.status == 401 && e.message.orEmpty().contains("code", ignoreCase = true)
-            throw e
-        }
+            put("full_name", fullName); put("organization", org); put("display_name", fullName)
+        })))
+        return RegisterResult(o.optString("account_id"), o.optString("status"), o.optString("message"))
     }
 
-    fun mfaSetup(): Pair<String, String> {
-        val o = obj(req("POST", "/api/v1/auth/mfa/setup", null))
-        return o.optString("secret") to o.optString("otpauth_url")
-    }
-
-    fun mfaVerify(code: String) {
-        req("POST", "/api/v1/auth/mfa/verify", json(JSONObject().put("code", code)))
+    /** Login stores the access token. */
+    fun login(email: String, password: String) {
+        val o = obj(req("POST", "/api/v1/auth/login", json(JSONObject().apply {
+            put("email", email); put("password", password)
+        })))
+        token = o.optString("access_token").ifEmpty { null }
+        if (token == null) throw ApiException(500, "no access token")
     }
 
     // ---- devices & enrollment ----
@@ -142,6 +129,13 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
             put("device_id", deviceId); put("original_sha512", originalSha512); put("file_name", fileName)
         })))
         return Reservation(o.optString("public_id"), o.optString("verification_url"), o.optString("expires_at"))
+    }
+
+    /** Uploads the original PDF and returns it with the server-composed
+     *  verification page appended (Rencana RB-2b), ready to sign on-device. */
+    fun coverPage(publicId: String, pdf: ByteArray, reason: String): ByteArray {
+        val q = if (reason.isNotEmpty()) "?reason=" + java.net.URLEncoder.encode(reason, "UTF-8") else ""
+        return req("POST", "/api/v1/signatures/$publicId/cover-page$q", pdf.toRequestBody(PDF))
     }
 
     /** Returns the server's JSON result (status "accepted" on success). */

@@ -46,6 +46,16 @@ func main() {
 	if boolEnv("PQC_RATE_LIMIT_DISABLED") {
 		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
 	}
+	if bin := os.Getenv("PQC_DEV_LAB_CA_ADMIN"); bin != "" {
+		cfg.LabIssuer = &api.LabIssuer{
+			Bin:        bin,
+			Dir:        envOr("PQC_DEV_LAB_CA_DIR", "ca"),
+			Passphrase: os.Getenv("PQC_CA_PASSPHRASE"),
+			Operator:   envOr("PQC_CA_OPERATOR", "dev-admin-console"),
+		}
+		log.Printf("api: DEV lab issuer ENABLED (%s, dir %s) — must never be set in production",
+			cfg.LabIssuer.Bin, cfg.LabIssuer.Dir)
+	}
 	var err error
 	if cfg.RootCAPEM, err = os.ReadFile(*rootPath); err != nil {
 		log.Fatalf("api: read root CA: %v", err)

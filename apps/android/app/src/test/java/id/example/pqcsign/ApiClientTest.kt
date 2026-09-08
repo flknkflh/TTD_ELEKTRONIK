@@ -29,30 +29,29 @@ class ApiClientTest {
     private fun json(code: Int, body: String) =
         server.enqueue(MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody(body))
 
-    @Test fun login_stores_token_and_sends_code() {
-        json(200, """{"access_token":"tok123","token_type":"Bearer","mfa":true}""")
-        api.login("u@x", "pw", "654321")
+    @Test fun login_stores_token() {
+        json(200, """{"access_token":"tok123","token_type":"Bearer"}""")
+        api.login("u@x", "pw")
         assertEquals("tok123", api.token())
 
         val rec: RecordedRequest = server.takeRequest()
         assertEquals("POST /api/v1/auth/login", "${rec.method} ${rec.path}")
-        assertTrue(rec.body.readUtf8().contains("\"code\":\"654321\""))
+        assertTrue(rec.body.readUtf8().contains("\"email\":\"u@x\""))
     }
 
-    @Test fun login_flags_mfa_required_on_401() {
-        json(401, """{"error":"TOTP code required","mfa_required":true}""")
+    @Test fun login_throws_on_401() {
+        json(401, """{"error":"invalid credentials"}""")
         try {
-            api.login("u@x", "pw", null)
+            api.login("u@x", "pw")
             fail("expected ApiException")
         } catch (e: ApiClient.ApiException) {
             assertEquals(401, e.status)
         }
-        assertTrue(api.mfaRequired)
     }
 
     @Test fun bearer_token_is_attached_after_login() {
         json(200, """{"access_token":"abc"}""")
-        api.login("u", "p", null)
+        api.login("u", "p")
         server.takeRequest()
 
         json(201, """{"device_id":"dev_1","status":"active"}""")
@@ -83,6 +82,30 @@ class ApiClientTest {
         assertEquals("accepted", res.optString("status"))
         val rec = server.takeRequest()
         assertEquals("PUT /api/v1/signatures/sig_42/document", "${rec.method} ${rec.path}")
+        assertEquals("application/pdf", rec.getHeader("Content-Type"))
+    }
+
+    @Test fun register_sends_full_name_and_organization() {
+        json(201, """{"account_id":"acct_9","status":"pending","message":"menunggu persetujuan admin"}""")
+        val r = api.register("Budi Santoso", "Dinas Kominfo", "budi@x", "budi12345")
+        assertEquals("acct_9", r.accountId)
+        assertEquals("pending", r.status)
+        val body = server.takeRequest().body.readUtf8()
+        assertTrue(body.contains("\"full_name\":\"Budi Santoso\""))
+        assertTrue(body.contains("\"organization\":\"Dinas Kominfo\""))
+    }
+
+    @Test fun coverPage_posts_pdf_and_returns_augmented_bytes() {
+        api.setToken("t")
+        server.enqueue(
+            MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/pdf").setBody("%PDF-1.7 augmented"),
+        )
+        val out = api.coverPage("sig_1", "%PDF-1.7 orig".toByteArray(), "Persetujuan")
+        assertEquals("%PDF-1.7 augmented", String(out))
+        val rec = server.takeRequest()
+        assertEquals("POST", rec.method)
+        assertTrue(rec.path!!.startsWith("/api/v1/signatures/sig_1/cover-page?reason=Persetujuan"))
         assertEquals("application/pdf", rec.getHeader("Content-Type"))
     }
 

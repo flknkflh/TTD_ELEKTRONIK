@@ -30,6 +30,10 @@ type Options struct {
 	X               float64 `json:"x,omitempty"`
 	Y               float64 `json:"y,omitempty"`
 
+	// The RB-2 verification page is composed server-side (the client uploads
+	// the original to POST /signatures/{id}/cover-page and signs what comes
+	// back), so core stays free of a PDF-composition dependency.
+
 	// ClaimedSigningTime is written into the appearance. It is the client's
 	// clock and is NOT a trusted timestamp (Rencana V1 §4). Zero -> now.
 	ClaimedSigningTime time.Time `json:"client_claimed_signing_time,omitempty"`

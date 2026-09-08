@@ -27,27 +27,66 @@ class AppCore(private val context: Context, val state: AppState) {
         api = ApiClient(url, insecure)
     }
 
-    val mfaRequired get() = api.mfaRequired
-
     // ---- 1. Login ----
 
-    fun login(email: String, password: String, totpCode: String?) {
-        api.login(email, password, totpCode)
+    fun login(email: String, password: String) {
+        api.login(email, password)
         state.accountEmail = email
     }
 
-    // ---- 2. Register device ----
+    // ---- 1b. Self-registration (Rencana RB-1) ----
+
+    fun register(fullName: String, org: String, email: String, password: String): ApiClient.RegisterResult =
+        api.register(fullName, org, email, password)
+
+    // ---- 2. Device enrolment ----
 
     data class EnrollResult(val deviceId: String, val enrollmentId: String, val securityLevel: String)
 
-    /** Generates the device key, wraps it in the KeyVault, and enrolls. */
+    /**
+     * Silent enrolment (Rencana RB-3/4): on first run generate + enrol a key,
+     * then read the certificate the server auto-issues for an approved
+     * account. Also re-enrols automatically when the stored device id is
+     * unknown to the current server (fresh server / wiped database / switched
+     * server URL). Safe to call after every login.
+     */
+    fun ensureEnrolled(): CertStatus {
+        val stale = vault.hasKey() && deviceUnknownToServer()
+        if (!vault.hasKey() || stale) {
+            if (stale) wipeDeviceState()
+            enrollDevice("Android ${android.os.Build.MODEL}")
+        }
+        return certificateStatus()
+    }
+
+    /** True when we hold a key but the server has no such device (404). */
+    private fun deviceUnknownToServer(): Boolean {
+        val id = state.deviceId ?: return true
+        return try {
+            api.deviceCertificate(id) == null
+        } catch (_: Exception) {
+            false // network hiccup — assume known, don't wipe
+        }
+    }
+
+    private fun wipeDeviceState() {
+        vault.reset()
+        java.io.File(context.filesDir, CERT_FILE).delete()
+        state.deviceId = null
+        state.enrollmentId = null
+        state.certificateSerial = null
+    }
+
+    /** Explicit enrol entry point kept for tooling; refuses to clobber a key. */
     fun registerDevice(label: String): EnrollResult {
         check(!vault.hasKey()) { "a device key already exists; reset first in Security settings" }
-        vault.ensureWrappingKey(state.requireAuth)
+        return enrollDevice(label)
+    }
 
+    private fun enrollDevice(label: String): EnrollResult {
         val pkcs8 = SigningEngine.generateKey()
         return try {
-            vault.store(pkcs8)
+            vault.createAndStore(pkcs8, state.requireAuth)
 
             val deviceId = api.createDevice(label, "android")
             val csr = SigningEngine.createCsr(pkcs8, CsrRequest(commonName = label, deviceLabel = label, platform = "android"))
@@ -107,22 +146,31 @@ class AppCore(private val context: Context, val state: AppState) {
      */
     fun signPdf(inUri: Uri, reason: String, signerName: String): SignResult {
         val pdf = context.contentResolver.openInputStream(inUri)!!.use { it.readBytes() }
+        require(!looksSigned(pdf)) {
+            "Dokumen ini sudah memiliki tanda tangan digital — satu dokumen hanya boleh ditandatangani sekali; pilih PDF yang belum ditandatangani."
+        }
         val root = readCache(ROOT_FILE) ?: error("no Root CA cached; register the device")
         val chain = readCache(CHAIN_FILE) ?: error("no CA chain cached")
         val cert = readCache(CERT_FILE) ?: error("no device certificate yet; check Certificate status")
         val fullChain = cert + chain
 
         val deviceId = state.deviceId ?: error("device not registered")
-        val res = api.reserve(deviceId, sha512Hex(pdf), fileName(inUri))
+        val origSha = sha512Hex(pdf)
+        val res = api.reserve(deviceId, origSha, fileName(inUri))
+
+        // The verification page is composed server-side and appended BEFORE
+        // signing so it is inside the signed byte range (Rencana RB-2b). A PDF
+        // the server cannot process fails here with a clear message.
+        val toSign = api.coverPage(res.publicId, pdf, reason)
 
         var keyPem = vault.load()
         val signed: ByteArray
         try {
             signed = SigningEngine.signPdf(
-                pdf, keyPem, fullChain,
+                toSign, keyPem, fullChain,
                 SignOptions(
                     reason = reason, signerName = signerName, publicId = res.publicId,
-                    verificationUrl = res.verificationUrl, includeQr = true,
+                    verificationUrl = res.verificationUrl, includeQr = false,
                 ),
             )
         } finally {
@@ -141,17 +189,24 @@ class AppCore(private val context: Context, val state: AppState) {
 
         return SignResult(
             res.publicId, res.verificationUrl,
-            sha512Hex(pdf), sha512Hex(signed), serverStatus, signed,
+            origSha, sha512Hex(signed), serverStatus, signed,
         )
     }
 
-    // ---- 5. Verify (local) ----
+    // ---- 5. Verify ----
 
+    /** Local, offline verify against the cached Root CA (post-login). */
     fun verifyPdf(uri: Uri): String {
         val pdf = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         val root = readCache(ROOT_FILE) ?: error("no Root CA cached; register the device or import a Root CA")
         val crl = runCatching { api.publicCrl() }.getOrNull()
         return SigningEngine.verifyPdf(pdf, root, crl).pretty()
+    }
+
+    /** Public verifier on the server — no account needed. */
+    fun verifyPublic(serverUrl: String, uri: Uri): String {
+        val pdf = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+        return ApiClient(serverUrl, true).verifyPublic(pdf).toString(2)
     }
 
     // ---- 6. History ----
@@ -160,8 +215,6 @@ class AppCore(private val context: Context, val state: AppState) {
 
     // ---- 7. Security settings ----
 
-    fun startMfaSetup(): Pair<String, String> = api.mfaSetup()
-    fun confirmMfa(code: String) = api.mfaVerify(code)
     fun reportLost() { state.deviceId?.let { api.reportLost(it) } ?: error("no device id") }
 
     fun reset() {
@@ -179,6 +232,18 @@ class AppCore(private val context: Context, val state: AppState) {
 
     private fun sha512Hex(b: ByteArray): String =
         MessageDigest.getInstance("SHA-512").digest(b).joinToString("") { "%02x".format(it) }
+
+    /** Every PAdES/PDF signature dictionary carries "/ByteRange"; unsigned PDFs
+     *  don't. Cheap early check so we don't try to re-sign a signed document. */
+    private fun looksSigned(pdf: ByteArray): Boolean {
+        val n = "/ByteRange".toByteArray(Charsets.US_ASCII)
+        if (pdf.size < n.size) return false
+        outer@ for (i in 0..pdf.size - n.size) {
+            for (j in n.indices) if (pdf[i + j] != n[j]) continue@outer
+            return true
+        }
+        return false
+    }
 
     private fun readCache(name: String): ByteArray? =
         java.io.File(context.filesDir, name).let { if (it.exists()) it.readBytes() else null }

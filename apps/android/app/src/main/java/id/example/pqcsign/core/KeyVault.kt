@@ -41,38 +41,52 @@ class KeyVault(context: Context) {
 
     fun hasKey(): Boolean = vaultFile.exists()
 
-    /** Creates the Keystore wrapping key if absent. requireAuth gates use of
-     *  the key behind a recent device unlock / biometric. */
+    /** Back-compat: create the wrapping key if absent (does not verify it is
+     *  usable — prefer createAndStore for the enrol path). */
     fun ensureWrappingKey(requireAuth: Boolean) {
         val ks = KeyStore.getInstance(KS).apply { load(null) }
-        if (ks.containsAlias(WRAP_ALIAS)) return
+        if (ks.containsAlias(WRAP_ALIAS) && vaultFile.exists()) return
+        runCatching { ks.deleteEntry(WRAP_ALIAS) }
+        generate(specs(requireAuth).first())
+    }
 
-        val spec = KeyGenParameterSpec.Builder(
-            WRAP_ALIAS,
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-        ).apply {
-            setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            setKeySize(256)
-            setRandomizedEncryptionRequired(true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                setUnlockedDeviceRequired(true)
-                // Prefer StrongBox; fall back handled by catch in generate().
-                setIsStrongBoxBacked(true)
+    /**
+     * Creates a wrapping key and stores the PKCS#8 key under it, proving the
+     * key is actually usable (some OEMs let a key be *created* with a flag but
+     * throw at first *use*). It walks from the §12.2-ideal spec (StrongBox +
+     * unlocked-device [+ biometric when requireAuth]) down to a plain
+     * non-exportable AndroidKeyStore AES key, so enrolment — which runs
+     * silently right after login, before any BiometricPrompt — never
+     * dead-ends with "User not authenticated". requireAuth is honoured on
+     * every rung: when true, biometric/PIN binding is kept and only the
+     * device-state / StrongBox flags are shed.
+     */
+    fun createAndStore(pkcs8: ByteArray, requireAuth: Boolean) {
+        val ks = KeyStore.getInstance(KS).apply { load(null) }
+        var last: Exception? = null
+        for (spec in specs(requireAuth)) {
+            try {
+                runCatching { ks.deleteEntry(WRAP_ALIAS) }
+                generate(spec)
+                store(pkcs8) // real encrypt — surfaces use-time rejections
+                return
+            } catch (e: Exception) {
+                last = e
             }
-            if (requireAuth) {
-                setUserAuthenticationRequired(true)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    setUserAuthenticationParameters(30, KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL)
-                }
-            }
-        }.build()
+        }
+        runCatching { ks.deleteEntry(WRAP_ALIAS) }
+        throw IllegalStateException("KeyVault: no usable AndroidKeyStore wrapping key on this device", last)
+    }
 
-        try {
-            generate(spec)
-        } catch (_: Exception) {
-            // No StrongBox on this device — retry without it.
-            val fallback = KeyGenParameterSpec.Builder(
+    /** Wrapping-key specs, most-hardened first. */
+    private fun specs(requireAuth: Boolean): List<KeyGenParameterSpec> {
+        val rungs = listOf(
+            Pair(true, true),   // StrongBox + unlocked-device
+            Pair(false, true),  // TEE + unlocked-device
+            Pair(false, false), // TEE, no device-state gate
+        )
+        return rungs.map { (strongbox, unlockedOnly) ->
+            KeyGenParameterSpec.Builder(
                 WRAP_ALIAS,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             ).apply {
@@ -80,10 +94,19 @@ class KeyVault(context: Context) {
                 setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 setKeySize(256)
                 setRandomizedEncryptionRequired(true)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) setUnlockedDeviceRequired(true)
-                if (requireAuth) setUserAuthenticationRequired(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    if (strongbox) setIsStrongBoxBacked(true)
+                    if (unlockedOnly) setUnlockedDeviceRequired(true)
+                }
+                if (requireAuth) {
+                    setUserAuthenticationRequired(true)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        setUserAuthenticationParameters(
+                            30, KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL,
+                        )
+                    }
+                }
             }.build()
-            generate(fallback)
         }
     }
 

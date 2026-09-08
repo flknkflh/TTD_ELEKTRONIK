@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PQC PDF Sign — Konsol Admin</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background: #f4f5f7; color: #16181d; }
+  @media (prefers-color-scheme: dark) { body { background: #14161a; color: #e6e8ec; } }
+  header { background: #1f2937; color: #fff; padding: 14px 20px; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .sub { font-size: 12px; opacity: .75; margin-top: 2px; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px; }
+  .card { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; }
+  @media (prefers-color-scheme: dark) { .card { background: #1c1f25; border-color: #2c2f36; } }
+  .card h2 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+  label { display: block; font-size: 12px; opacity: .8; margin: 10px 0 3px; }
+  input[type=text], input[type=password] { width: 100%; padding: 8px 10px; border: 1px solid #cdd0d6;
+         border-radius: 7px; background: transparent; color: inherit; font: inherit; }
+  button { font: inherit; padding: 8px 14px; border: 0; border-radius: 7px; background: #2563eb; color: #fff;
+         cursor: pointer; }
+  button.secondary { background: #6b7280; }
+  button.ghost { background: transparent; color: #2563eb; border: 1px solid #2563eb; padding: 5px 10px; }
+  button.danger { background: #b91c1c; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .muted { opacity: .65; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e2e4e8; vertical-align: top; }
+  @media (prefers-color-scheme: dark) { th, td { border-color: #2c2f36; } }
+  th { font-size: 11px; text-transform: uppercase; opacity: .55; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .pill.submitted { background: #fef3c7; color: #92400e; }
+  .pill.approved  { background: #dbeafe; color: #1e40af; }
+  .pill.issued    { background: #dcfce7; color: #166534; }
+  .pill.pending   { background: #fef3c7; color: #92400e; }
+  .pill.active    { background: #dcfce7; color: #166534; }
+  .pill.disabled  { background: #fee2e2; color: #991b1b; }
+  #msg { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 90%;
+         padding: 10px 16px; border-radius: 8px; color: #fff; background: #111; box-shadow: 0 6px 24px #0005;
+         opacity: 0; transition: opacity .2s; pointer-events: none; white-space: pre-wrap; }
+  #msg.show { opacity: 1; }
+  #msg.err { background: #b91c1c; }
+  #msg.ok  { background: #15803d; }
+  .hidden { display: none; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  @media (max-width: 620px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>PQC PDF Sign — Konsol Admin</h1>
+  <div class="sub" id="whoami">belum masuk</div>
+</header>
+
+<main>
+  <!-- ------------------------------------------------------------------ -->
+  <section class="card" id="loginCard">
+    <h2>Masuk</h2>
+    <label>Email admin</label>
+    <input type="text" id="email" autocomplete="username" placeholder="admin@local">
+    <label>Password</label>
+    <input type="password" id="password" autocomplete="current-password">
+    <div class="row" style="margin-top:14px">
+      <button id="btnLogin">Masuk</button>
+      <button class="secondary" id="btnRegister">Daftar admin baru</button>
+      <button class="ghost" id="btnLogout">Keluar</button>
+    </div>
+    <p class="muted" id="loginHint" style="margin-top:10px">
+      Belum punya akun? Jalankan <code>bash deploy/local/seed.sh</code> di PC, atau klik “Daftar admin baru”.
+    </p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="card hidden" id="accountsCard">
+    <h2>Akun pengguna</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="btnAccRefresh">Muat ulang</button>
+      <span class="muted" id="accCount"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Dibuat</th><th>Nama / Email</th><th>Instansi</th><th>Sertifikat</th><th>Status</th><th>Aksi</th>
+        </tr></thead>
+        <tbody id="accBody"><tr><td colspan="6" class="muted">memuat…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="muted">Menonaktifkan / menghapus akun mencabut semua sertifikatnya dan menerbitkan CRL baru —
+       seluruh tanda tangan lama akun itu langsung berstatus <b>revoked</b> di verifier.</p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="card hidden" id="workCard">
+    <h2>Pendaftaran perangkat</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="btnRefresh">Muat ulang</button>
+      <label class="row" style="margin:0"><input type="checkbox" id="autoRefresh" checked>&nbsp;otomatis tiap 5 dtk</label>
+      <span class="muted" id="enrCount"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Dibuat</th><th>Akun / Perangkat</th><th>Sidik jari kunci</th><th>Status</th><th>Aksi</th>
+        </tr></thead>
+        <tbody id="enrBody"><tr><td colspan="5" class="muted">memuat…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="card hidden" id="utilCard">
+    <h2>Utilitas</h2>
+    <div class="grid2">
+      <div>
+        <label>Cabut sertifikat (certificate_id)</label>
+        <div class="row">
+          <input type="text" id="revId" class="mono" placeholder="cert_...">
+          <button class="danger" id="btnRevoke">Cabut</button>
+        </div>
+        <label>Alasan</label>
+        <input type="text" id="revReason" placeholder="keyCompromise / superseded / ...">
+      </div>
+      <div>
+        <label>Impor CRL (.pem)</label>
+        <input type="file" id="crlFile" accept=".pem,.crl">
+        <div class="row" style="margin-top:8px"><button id="btnCrl">Unggah CRL</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <section class="card hidden" id="auditCard">
+    <h2>Audit terakhir</h2>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Waktu</th><th>Tipe</th><th>Hasil</th><th>Detail</th></tr></thead>
+        <tbody id="auditBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="msg"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const API = ""; // same origin
+
+// ---- tiny toast -----------------------------------------------------------
+let msgTimer = null;
+function toast(text, kind) {
+  const m = $("msg");
+  m.textContent = text;
+  m.className = "show " + (kind || "");
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => (m.className = ""), kind === "err" ? 7000 : 3500);
+}
+
+// ---- state --------------------------------------------------------------
+const store = {
+  get token() { return localStorage.getItem("pqc_admin_token") || ""; },
+  set token(v) { v ? localStorage.setItem("pqc_admin_token", v) : localStorage.removeItem("pqc_admin_token"); },
+  get email() { return localStorage.getItem("pqc_admin_email") || ""; },
+  set email(v) { localStorage.setItem("pqc_admin_email", v || ""); },
+};
+let caps = { lab_issuer: false };
+
+// ---- HTTP -------------------------------------------------------------
+async function api(method, path, body, opts) {
+  opts = opts || {};
+  const h = {};
+  if (store.token) h["Authorization"] = "Bearer " + store.token;
+  if (body && !opts.raw) h["Content-Type"] = "application/json";
+  if (opts.contentType) h["Content-Type"] = opts.contentType;
+  const res = await fetch(API + path, {
+    method,
+    headers: h,
+    body: opts.raw ? body : (body ? JSON.stringify(body) : undefined),
+  });
+  const ct = res.headers.get("content-type") || "";
+  const payload = ct.includes("json") ? await res.json().catch(() => ({})) : await res.text();
+  if (!res.ok) {
+    const err = (payload && payload.error) || (typeof payload === "string" ? payload : "") || ("HTTP " + res.status);
+    const e = new Error(err); e.status = res.status; e.payload = payload;
+    throw e;
+  }
+  return payload;
+}
+
+// ---- login flow ------------------------------------------------------
+async function doLogin() {
+  const email = $("email").value.trim();
+  const password = $("password").value;
+  store.email = email;
+  try {
+    const r = await api("POST", "/api/v1/auth/login", { email, password });
+    store.token = r.access_token;
+    toast("Berhasil masuk", "ok");
+    await afterLogin();
+  } catch (e) {
+    toast("Gagal masuk: " + e.message, "err");
+  }
+}
+
+async function doRegister() {
+  const email = $("email").value.trim();
+  const password = $("password").value;
+  if (!email || password.length < 8) { toast("Isi email + password minimal 8 karakter", "err"); return; }
+  try {
+    await api("POST", "/api/v1/auth/register", { email, password, display_name: email, role: "admin" });
+    store.email = email;
+    const r = await api("POST", "/api/v1/auth/login", { email, password });
+    store.token = r.access_token;
+    toast("Akun admin dibuat & masuk.", "ok");
+    await afterLogin();
+  } catch (e) {
+    toast("Gagal daftar: " + e.message, "err");
+  }
+}
+
+function doLogout() {
+  store.token = "";
+  $("whoami").textContent = "belum masuk";
+  for (const id of ["accountsCard", "workCard", "utilCard", "auditCard"]) $(id).classList.add("hidden");
+  stopAuto();
+}
+
+// ---- after login: the work area -----------------------------------
+let autoTimer = null;
+function refreshAll() { refreshAccounts(); refresh(); }
+function startAuto() { stopAuto(); if ($("autoRefresh").checked) autoTimer = setInterval(refreshAll, 5000); }
+function stopAuto() { if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } }
+
+async function afterLogin() {
+  $("whoami").textContent = "masuk sebagai " + store.email;
+  for (const id of ["accountsCard", "workCard", "utilCard", "auditCard"]) $(id).classList.remove("hidden");
+  try { caps = await api("GET", "/api/v1/admin/capabilities"); } catch (_) { caps = { lab_issuer: false }; }
+  await refreshAccounts();
+  await refresh();
+  startAuto();
+}
+
+async function refreshAccounts() {
+  let list;
+  try {
+    list = (await api("GET", "/api/v1/admin/accounts")).accounts || [];
+  } catch (e) {
+    if (e.status === 403) { toast("Sesi tidak sah / bukan admin. Masuk lagi.", "err"); stopAuto(); }
+    else if (e.status === 401) { toast("Sesi kedaluwarsa, silakan Masuk lagi.", "err"); doLogout(); }
+    return;
+  }
+  const pending = list.filter((a) => a.status === "pending").length;
+  $("accCount").textContent = list.length + " akun" + (pending ? ` · ${pending} menunggu persetujuan` : "");
+  const body = $("accBody");
+  if (list.length === 0) { body.innerHTML = '<tr><td colspan="6" class="muted">belum ada akun</td></tr>'; return; }
+  body.innerHTML = list.map((a) => {
+    const id = a.account_id;
+    const isAdmin = a.role === "admin";
+    let acts = "";
+    if (isAdmin) {
+      acts = '<span class="muted">admin</span>';
+    } else if (a.status === "pending") {
+      acts = `<button class="ghost" data-act="acc-approve" data-id="${esc(id)}">Setujui</button>
+              <button class="ghost" data-act="acc-disable" data-id="${esc(id)}">Tolak</button>`;
+    } else if (a.status === "active") {
+      acts = `<button class="ghost" data-act="acc-edit" data-id="${esc(id)}"
+                 data-name="${esc(a.full_name)}" data-org="${esc(a.organization)}">Edit</button>
+              <button class="danger" data-act="acc-disable" data-id="${esc(id)}">Nonaktifkan</button>
+              <button class="danger" data-act="acc-delete" data-id="${esc(id)}">Hapus</button>`;
+    } else { // disabled
+      acts = `<button class="ghost" data-act="acc-enable" data-id="${esc(id)}">Aktifkan kembali</button>
+              <button class="danger" data-act="acc-delete" data-id="${esc(id)}">Hapus</button>`;
+    }
+    return `<tr>
+      <td class="mono">${esc((a.created_at || "").replace("T", " ").replace("Z", ""))}</td>
+      <td>${esc(a.full_name || "—")}<br><span class="muted mono">${esc(a.email)}</span></td>
+      <td>${esc(a.organization || "—")}</td>
+      <td class="mono">${esc(a.active_certificates)}/${esc(a.certificates)}</td>
+      <td><span class="pill ${esc(a.status)}">${esc(a.status)}</span></td>
+      <td class="row">${acts}</td></tr>`;
+  }).join("");
+}
+
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function shortFp(s) { s = s || ""; return s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-6) : s; }
+
+async function refresh() {
+  let list;
+  try {
+    list = (await api("GET", "/api/v1/admin/enrollments")).enrollments || [];
+  } catch (e) {
+    if (e.status === 403) { toast("Sesi tidak sah / bukan admin. Masuk lagi.", "err"); stopAuto(); }
+    else if (e.status === 401) { toast("Sesi kedaluwarsa, silakan Masuk lagi.", "err"); doLogout(); }
+    return;
+  }
+  $("enrCount").textContent = list.length + " pendaftaran";
+  const body = $("enrBody");
+  if (list.length === 0) { body.innerHTML = '<tr><td colspan="5" class="muted">belum ada pendaftaran perangkat</td></tr>'; }
+  else {
+    body.innerHTML = list.map((e) => {
+      const id = e.enrollment_id;
+      const labBtn = caps.lab_issuer && e.status !== "issued"
+        ? `<button class="ghost" data-act="lab" data-id="${esc(id)}">Terbitkan (lab CA)</button>` : "";
+      const approveBtn = e.status === "submitted"
+        ? `<button class="ghost" data-act="approve" data-id="${esc(id)}">Setujui</button>` : "";
+      return `<tr>
+        <td class="mono">${esc((e.created_at || "").replace("T", " ").replace("Z", ""))}</td>
+        <td>${esc(e.account_id)}<br><span class="muted mono">dev ${esc(e.device_id)}</span></td>
+        <td class="mono">${esc(shortFp(e.csr_key_fingerprint))}</td>
+        <td><span class="pill ${esc(e.status)}">${esc(e.status)}</span></td>
+        <td class="row">
+          ${approveBtn}
+          <button class="ghost" data-act="export" data-id="${esc(id)}">Unduh CSR</button>
+          ${labBtn}
+          <button class="ghost" data-act="upload" data-id="${esc(id)}">Unggah sertifikat…</button>
+        </td></tr>`;
+    }).join("");
+  }
+  refreshAudit();
+}
+
+async function refreshAudit() {
+  try {
+    const ev = (await api("GET", "/api/v1/admin/audit-events")).events || [];
+    $("auditBody").innerHTML = ev.slice(-25).reverse().map((e) => `<tr>
+      <td class="mono">${esc((e.Time || e.time || "").toString().replace("T", " ").slice(0, 19))}</td>
+      <td>${esc(e.Type || e.type)}</td>
+      <td>${esc(e.Result || e.result)}</td>
+      <td class="muted">${esc(e.Detail || e.detail)}</td></tr>`).join("");
+  } catch (_) {}
+}
+
+// ---- per-row actions --------------------------------------------
+document.addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const act = btn.dataset.act;
+  btn.disabled = true;
+  try {
+    if (act === "acc-approve") {
+      await api("POST", `/api/v1/admin/accounts/${id}/approve`, {});
+      toast("Akun disetujui", "ok"); refreshAccounts();
+    } else if (act === "acc-enable") {
+      await api("POST", `/api/v1/admin/accounts/${id}/enable`, {});
+      toast("Akun diaktifkan kembali (sertifikat lama tetap dicabut)", "ok"); refreshAccounts();
+    } else if (act === "acc-disable") {
+      if (!confirm("Nonaktifkan akun ini? Semua sertifikatnya dicabut dan tanda tangannya jadi tidak sah.")) { btn.disabled = false; return; }
+      const r = await api("POST", `/api/v1/admin/accounts/${id}/disable`, {});
+      toast(`Dinonaktifkan · ${r.certificates_revoked} sertifikat dicabut`, "ok"); refreshAll();
+    } else if (act === "acc-delete") {
+      if (!confirm("HAPUS akun ini? Sertifikat dicabut. Bila ada riwayat tanda tangan, akun disimpan sebagai tombstone nonaktif.")) { btn.disabled = false; return; }
+      const r = await api("DELETE", `/api/v1/admin/accounts/${id}`);
+      toast(r.note || `Dihapus · ${r.certificates_revoked} sertifikat dicabut`, "ok"); refreshAll();
+    } else if (act === "acc-edit") {
+      const name = prompt("Nama lengkap:", btn.dataset.name || "");
+      if (name === null) { btn.disabled = false; return; }
+      const org = prompt("Instansi:", btn.dataset.org || "");
+      if (org === null) { btn.disabled = false; return; }
+      await api("PATCH", `/api/v1/admin/accounts/${id}`, { full_name: name, organization: org });
+      toast("Profil diperbarui", "ok"); refreshAccounts();
+    } else if (act === "approve") {
+      await api("POST", `/api/v1/admin/enrollments/${id}/approve`, {});
+      toast("Disetujui", "ok"); refresh();
+    } else if (btn.dataset.act === "export") {
+      const pem = await api("GET", `/api/v1/admin/enrollments/${id}/export`);
+      const blob = new Blob([pem], { type: "application/x-pem-file" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = id + ".csr.pem"; a.click();
+      URL.revokeObjectURL(a.href);
+    } else if (btn.dataset.act === "lab") {
+      const r = await api("POST", `/api/v1/admin/enrollments/${id}/issue-lab`, {});
+      toast("Sertifikat terbit — serial " + r.serial, "ok"); refresh();
+    } else if (btn.dataset.act === "upload") {
+      const f = document.createElement("input");
+      f.type = "file"; f.accept = ".pem,.crt,.cer";
+      f.onchange = async () => {
+        if (!f.files[0]) return;
+        const text = await f.files[0].text();
+        try {
+          const r = await api("POST", `/api/v1/admin/enrollments/${id}/certificate`, text,
+            { raw: true, contentType: "application/x-pem-file" });
+          toast("Sertifikat terpasang — serial " + r.serial, "ok"); refresh();
+        } catch (e) { toast("Ditolak: " + e.message, "err"); }
+      };
+      f.click();
+    }
+  } catch (e) {
+    toast("Gagal: " + e.message, "err");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---- utilities ---------------------------------------------------
+$("btnRevoke").onclick = async () => {
+  const id = $("revId").value.trim();
+  if (!id) return;
+  try {
+    await api("POST", `/api/v1/admin/certificates/${id}/revoke`, { reason: $("revReason").value.trim() || "unspecified" });
+    toast("Dicabut. Jangan lupa terbitkan CRL baru dengan ca-admin.", "ok"); refreshAudit();
+  } catch (e) { toast("Gagal cabut: " + e.message, "err"); }
+};
+$("btnCrl").onclick = async () => {
+  const f = $("crlFile").files[0];
+  if (!f) { toast("Pilih file CRL dulu", "err"); return; }
+  try {
+    await api("POST", "/api/v1/admin/crl/import", await f.text(), { raw: true, contentType: "application/x-pem-file" });
+    toast("CRL diperbarui", "ok");
+  } catch (e) { toast("Gagal impor CRL: " + e.message, "err"); }
+};
+
+// ---- wiring ----------------------------------------------------
+$("btnLogin").onclick = doLogin;
+$("btnRegister").onclick = doRegister;
+$("btnLogout").onclick = doLogout;
+$("btnRefresh").onclick = refresh;
+$("btnAccRefresh").onclick = refreshAccounts;
+$("autoRefresh").onchange = startAuto;
+
+$("email").value = store.email;
+if (store.token) { afterLogin().catch(() => {}); }
+</script>
+</body>
+</html>

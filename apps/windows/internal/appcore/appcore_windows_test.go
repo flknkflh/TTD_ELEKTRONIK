@@ -35,7 +35,7 @@ func TestClientEndToEnd(t *testing.T) {
 	})
 	must(t, err)
 
-	must(t, app.Login("user@c", "password123", "000000"))
+	must(t, app.Login("user@c", "password123"))
 
 	enr, err := app.RegisterDevice("Test Laptop", "1357")
 	must(t, err)
@@ -81,6 +81,19 @@ func TestClientEndToEnd(t *testing.T) {
 		t.Fatalf("local verify not valid: %s", vjson)
 	}
 
+	// Public verifier must work from a fresh client with NO login.
+	nolo, err := appcore.New(appcore.Config{
+		VaultDir: filepath.Join(t.TempDir(), "vault2"), ServerURL: ts.URL, InsecureTLS: true,
+	})
+	must(t, err)
+	pjson, err := nolo.VerifyPublic(ts.URL, out)
+	must(t, err)
+	var pv map[string]any
+	must(t, json.Unmarshal(pjson, &pv))
+	if v, _ := pv["verification"].(map[string]any); v["valid"] != true || pv["registered"] != true {
+		t.Fatalf("public verify (no login) failed: %s", pjson)
+	}
+
 	hist, err := app.History()
 	must(t, err)
 	if len(hist) != 1 {
@@ -95,6 +108,43 @@ func TestClientEndToEnd(t *testing.T) {
 	must(t, app.Reset())
 	if cs, _ := app.CertificateStatus("1357"); cs.State != "none" {
 		t.Fatalf("post-reset state = %q, want none", cs.State)
+	}
+}
+
+// TestRegisterAndSilentEnrol covers the RB-3 path: self-register, then a
+// single EnsureEnrolled that generates the key and enrols with no manual
+// step, and is a safe no-op when called again.
+func TestRegisterAndSilentEnrol(t *testing.T) {
+	root, err := labpki.NewRootCA("RB Root", 24*time.Hour)
+	must(t, err)
+	inter, err := labpki.NewIntermediateCA(root, "RB Intermediate", 24*time.Hour)
+	must(t, err)
+	ts := newFakeReceiver(t, root, inter)
+	defer ts.Close()
+
+	app, err := appcore.New(appcore.Config{
+		VaultDir: filepath.Join(t.TempDir(), "vault"), ServerURL: ts.URL, InsecureTLS: true,
+	})
+	must(t, err)
+
+	rr, err := app.Register("Budi Santoso", "Dinas Kominfo", "budi@c", "budi12345")
+	must(t, err)
+	if rr.AccountID == "" {
+		t.Fatalf("register returned no account id: %+v", rr)
+	}
+
+	must(t, app.Login("budi@c", "budi12345"))
+
+	cs, err := app.EnsureEnrolled("") // first run: key generated + enrolled
+	must(t, err)
+	if cs.State != "pending" { // the fake CA has not issued yet
+		t.Fatalf("state after first enrol = %q, want pending", cs.State)
+	}
+
+	cs2, err := app.EnsureEnrolled("") // idempotent
+	must(t, err)
+	if cs2.State != "pending" {
+		t.Fatalf("second EnsureEnrolled state = %q", cs2.State)
 	}
 }
 

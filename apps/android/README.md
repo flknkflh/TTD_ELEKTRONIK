@@ -43,11 +43,27 @@ On the PC:
 bash tools/dev-up.sh          # builds + starts the receiver on 0.0.0.0:8099
 ```
 
-It prints the LAN URL to type into the app (`Login` → `Server URL`), the Root
-CA path, and where `ca-admin` is for issuing device certs offline. The **debug**
-APK allows plain HTTP to the LAN; the release APK is HTTPS-only (use Caddy).
-If the printed IP is a virtual adapter, run `ipconfig` and use your Wi-Fi
-IPv4 instead.
+It prints the LAN URL to type into the app (`Masuk` → `Server URL`). The
+**debug** APK allows plain HTTP to the LAN; the release APK is HTTPS-only (use
+Caddy). If the printed IP is a virtual adapter, run `ipconfig` and use your
+Wi-Fi IPv4 instead. `dev-up.sh` starts the receiver with the online lab CA
+issuer and `PQC_MFA_NOT_REQUIRED=1`.
+
+Then, in another shell, provision the accounts:
+
+```sh
+bash tools/dev-admin.sh http://127.0.0.1:8099
+# -> admin@local / admin12345  (the /admin console)
+# -> user@local  / user12345   (the app; already approved)
+```
+
+RB flow: in the app, `Masuk` with `user@local` / `user12345` (leave the TOTP
+field blank). The app then **silently** generates the key, submits the CSR, and
+the server **auto-issues** the certificate — no manual enrolment screen, no
+admin click. Then `Tanda Tangani Dokumen` → pick a PDF → the signed result
+carries a verification page with a QR. The `/admin` console's **Akun pengguna**
+tab is where an admin approves new self-registrations and disables/deletes
+accounts.
 
 ## 3. Test on a phone
 

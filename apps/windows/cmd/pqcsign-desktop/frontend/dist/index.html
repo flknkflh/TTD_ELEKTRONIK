@@ -5,105 +5,567 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>PQC PDF Sign</title>
 <style>
-  :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
-  body { margin: 0; }
-  header { padding: 12px 16px; border-bottom: 1px solid #8883; font-weight: 600; }
-  nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 16px; border-bottom: 1px solid #8883; }
-  nav button { padding: 6px 10px; }
-  main { padding: 16px; }
-  section { display: none; }
-  section.active { display: block; }
-  label { display: block; margin: 8px 0 2px; }
-  input, textarea { width: 320px; max-width: 100%; padding: 4px; }
-  pre { background: #8881; padding: 8px; overflow: auto; white-space: pre-wrap; }
-  .row { margin: 10px 0; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --bg-elev: #ffffff;
+    --fg: #1c1e21;
+    --fg-soft: #5c6169;
+    --fg-faint: #8a9099;
+    --border: #e4e6ea;
+    --border-strong: #d0d3d9;
+    --accent: #4f46e5;
+    --accent-fg: #ffffff;
+    --accent-soft: #eef0fe;
+    --ok: #15803d;
+    --ok-soft: #dcfce7;
+    --bad: #b91c1c;
+    --bad-soft: #fee2e2;
+    --warn: #92400e;
+    --warn-soft: #fef3c7;
+    --shadow: 0 1px 2px rgba(20,22,25,.04), 0 8px 24px rgba(20,22,25,.06);
+    --radius: 14px;
+    --radius-sm: 9px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101114;
+      --bg-elev: #1a1c20;
+      --fg: #e8eaed;
+      --fg-soft: #a8adb5;
+      --fg-faint: #71767e;
+      --border: #2a2d33;
+      --border-strong: #3a3e46;
+      --accent: #7c7cf3;
+      --accent-fg: #0e0f12;
+      --accent-soft: #23233a;
+      --ok: #4ade80; --ok-soft: #13291c;
+      --bad: #f87171; --bad-soft: #2a1414;
+      --warn: #fbbf24; --warn-soft: #2a2210;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.55 -apple-system, "Segoe UI Variable", "Segoe UI", system-ui, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-soft); }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
+  .brand .dot { width: 22px; height: 22px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), #9333ea); }
+  .acct { position: relative; }
+  .acct-btn {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); background: transparent; color: var(--fg-soft);
+    padding: 6px 10px; border-radius: 999px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  .acct-btn:hover { border-color: var(--border-strong); color: var(--fg); }
+  .acct-menu {
+    position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
+    min-width: 210px; background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 6px;
+  }
+  .acct-menu button {
+    display: block; width: 100%; text-align: left; border: 0; background: transparent;
+    color: var(--fg); font: inherit; padding: 9px 10px; border-radius: 7px; cursor: pointer;
+  }
+  .acct-menu button:hover { background: var(--bg); }
+  .acct-menu button.danger { color: var(--bad); }
+  .acct-menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+
+  main { max-width: 560px; margin: 0 auto; padding: 34px 20px 60px; }
+
+  .screen { display: none; }
+  .screen.active { display: block; animation: pop .24s cubic-bezier(.2,.7,.3,1); }
+  @keyframes pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  h1 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 4px; }
+  .sub { color: var(--fg-soft); margin: 0 0 22px; }
+
+  .card {
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px;
+  }
+  .card + .card { margin-top: 14px; }
+
+  label { display: block; font-size: 12.5px; color: var(--fg-soft); margin: 14px 0 6px; font-weight: 550; }
+  label:first-child { margin-top: 0; }
+  input[type=text], input[type=password] {
+    width: 100%; padding: 10px 12px; font: inherit;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  input::placeholder { color: var(--fg-faint); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 16px; font: inherit; font-weight: 560; cursor: pointer;
+    border: 1px solid transparent; border-radius: var(--radius-sm);
+    background: var(--accent); color: var(--accent-fg);
+    transition: transform .1s, filter .15s, background .15s;
+  }
+  .btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: .55; cursor: default; transform: none; filter: none; }
+  .btn.secondary { background: var(--bg); color: var(--fg); border-color: var(--border-strong); }
+  .btn.secondary:hover { border-color: var(--fg-faint); }
+  .btn.ghost { background: transparent; color: var(--accent); }
+  .btn.block { width: 100%; }
+  .btn .spin {
+    width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent;
+    border-radius: 50%; animation: spin .7s linear infinite; display: none;
+  }
+  .btn.loading .spin { display: inline-block; }
+  .btn.loading .txt { opacity: .7; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .tabs { display: inline-flex; padding: 4px; gap: 4px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 999px; margin-bottom: 18px; }
+  .tabs button { border: 0; background: transparent; color: var(--fg-soft); font: inherit; font-weight: 550;
+    padding: 7px 16px; border-radius: 999px; cursor: pointer; transition: .15s; }
+  .tabs button.on { background: var(--accent); color: var(--accent-fg); }
+
+  .action {
+    display: flex; align-items: center; gap: 16px; width: 100%; text-align: left;
+    padding: 18px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-elev); cursor: pointer; transition: border-color .15s, transform .1s, box-shadow .15s;
+  }
+  .action + .action { margin-top: 12px; }
+  .action:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
+  .action:disabled { opacity: .5; cursor: default; transform: none; box-shadow: none; border-color: var(--border); }
+  .action .ic { width: 42px; height: 42px; flex: none; border-radius: 12px; display: grid; place-items: center;
+    background: var(--accent-soft); font-size: 20px; }
+  .action .t { font-weight: 600; font-size: 15px; }
+  .action .d { color: var(--fg-soft); font-size: 12.5px; margin-top: 1px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+
+  .filepick {
+    display: flex; align-items: center; gap: 12px; padding: 14px;
+    border: 1.5px dashed var(--border-strong); border-radius: var(--radius-sm);
+    cursor: pointer; transition: .15s; color: var(--fg-soft);
+  }
+  .filepick:hover { border-color: var(--accent); color: var(--fg); background: var(--bg); }
+  .filepick .fn { color: var(--fg); font-weight: 550; }
+
+  .result { margin-top: 16px; }
+  .verdict { display: flex; align-items: center; gap: 12px; font-size: 16px; font-weight: 650; margin-bottom: 12px; }
+  .verdict .mark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 18px; }
+  .verdict.ok .mark { background: var(--ok); }
+  .verdict.bad .mark { background: var(--bad); }
+  dl.kv { margin: 0; display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; font-size: 13px; }
+  dl.kv dt { color: var(--fg-soft); }
+  dl.kv dd { margin: 0; word-break: break-word; }
+  dl.kv dd.mono { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 12px; }
+
+  .note { color: var(--fg-faint); font-size: 12px; margin-top: 14px; }
+  .msg { color: var(--bad); font-size: 13px; margin-top: 10px; min-height: 1.2em; }
+  .hint { color: var(--fg-soft); font-size: 12.5px; margin-top: 12px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);
+    background: #16181d; color: #fff; padding: 11px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 500; box-shadow: 0 10px 40px rgba(0,0,0,.35);
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: 90vw;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.ok { background: #15803d; }
+  #toast.bad { background: #b91c1c; }
 </style>
 </head>
 <body>
-<header>PQC PDF Sign — Windows client (M4 skeleton)</header>
-<nav id="nav"></nav>
+<header>
+  <div class="brand"><span class="dot"></span> PQC PDF Sign</div>
+  <div class="acct" id="acct" hidden>
+    <button class="acct-btn" id="acctBtn"><span id="acctEmail"></span> ▾</button>
+    <div class="acct-menu" id="acctMenu" hidden>
+      <button data-act="report">Laporkan perangkat hilang</button>
+      <button data-act="reset" class="danger">Reset perangkat ini</button>
+      <hr>
+      <button data-act="logout">Keluar</button>
+    </div>
+  </div>
+</header>
+
 <main>
-  <section id="login" class="active">
-    <h3>Login</h3>
-    <div class="row"><label>Server URL</label><input id="srv" value="https://localhost:8443" /></div>
-    <div class="row"><label>Email</label><input id="email" /></div>
-    <div class="row"><label>Password</label><input id="pw" type="password" /></div>
-    <div class="row"><label>Kode TOTP (jika MFA aktif)</label><input id="totp" /></div>
-    <button onclick="doLogin()">Masuk</button>
+  <!-- AUTH -->
+  <section class="screen active" id="scAuth">
+    <h1>Masuk</h1>
+    <p class="sub">Tanda tangan digital pasca-kuantum untuk dokumen PDF.</p>
+    <div class="tabs">
+      <button id="tabLogin" class="on">Masuk</button>
+      <button id="tabReg">Daftar akun</button>
+      <button id="tabVerify">Verifikasi</button>
+    </div>
+
+    <div class="card" id="paneLogin">
+      <label>Alamat server</label>
+      <input type="text" id="srv" placeholder="http://localhost:8099" />
+      <label>Email</label>
+      <input type="text" id="lemail" autocomplete="username" placeholder="nama@instansi.go.id" />
+      <label>Kata sandi</label>
+      <input type="password" id="lpw" autocomplete="current-password" />
+      <div style="margin-top:18px"><button class="btn block" id="btnLogin"><span class="spin"></span><span class="txt">Masuk</span></button></div>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+
+    <div class="card" id="paneReg" hidden>
+      <label>Alamat server</label>
+      <input type="text" id="rsrv" placeholder="http://localhost:8099" />
+      <label>Nama lengkap</label>
+      <input type="text" id="rname" placeholder="Nama sesuai identitas" />
+      <label>Instansi</label>
+      <input type="text" id="rorg" placeholder="Nama instansi / organisasi" />
+      <label>Email</label>
+      <input type="text" id="remail" />
+      <label>Kata sandi <span style="color:var(--fg-faint)">(min. 8 karakter)</span></label>
+      <input type="password" id="rpw" />
+      <div style="margin-top:18px"><button class="btn block" id="btnReg"><span class="spin"></span><span class="txt">Daftar</span></button></div>
+      <div class="msg" id="regMsg"></div>
+      <p class="hint">Akun perlu disetujui admin sebelum bisa dipakai.</p>
+    </div>
+
+    <div class="card" id="paneVerify" hidden>
+      <p class="hint" style="margin-top:0">Verifikasi terbuka untuk umum — tidak perlu akun.</p>
+      <label>Alamat server</label>
+      <input type="text" id="vsrv" placeholder="http://localhost:8099" />
+      <div class="filepick" id="vpPick" style="margin-top:14px">
+        <span>📄</span><span id="vpName">Pilih berkas PDF…</span>
+      </div>
+      <div class="result" id="vpResult" hidden></div>
+    </div>
   </section>
 
-  <section id="register">
-    <h3>Registrasi perangkat</h3>
-    <div class="row"><label>Label perangkat</label><input id="devlabel" value="Windows Laptop" /></div>
-    <div class="row"><label>PIN (opsional)</label><input id="devpin" type="password" /></div>
-    <button onclick="call('RegisterDevice', devlabel.value, devpin.value)">Daftarkan</button>
+  <!-- HOME -->
+  <section class="screen" id="scHome">
+    <h1>Halo 👋</h1>
+    <p class="sub" id="homeSub">Perangkat siap digunakan.</p>
+    <button class="action" id="goSign">
+      <div class="ic">✍️</div>
+      <div><div class="t">Tanda Tangani Dokumen</div><div class="d">Pilih PDF, tandatangani di perangkat ini, unduh hasilnya ber-QR</div></div>
+    </button>
+    <button class="action" id="goVerify">
+      <div class="ic">🔍</div>
+      <div><div class="t">Verifikasi Dokumen</div><div class="d">Periksa keaslian & keutuhan sebuah PDF bertanda tangan</div></div>
+    </button>
+    <p class="note" id="homeNote"></p>
   </section>
 
-  <section id="cert">
-    <h3>Status sertifikat</h3>
-    <div class="row"><label>PIN</label><input id="certpin" type="password" /></div>
-    <button onclick="call('CertificateStatus', certpin.value)">Periksa</button>
+  <!-- SIGN -->
+  <section class="screen" id="scSign">
+    <h1>Tanda tangani dokumen</h1>
+    <p class="sub">Berkas asli tidak dikirim ke server. Halaman verifikasi ber-QR ditambahkan di akhir.</p>
+    <div class="card">
+      <div class="filepick" id="pickIn">
+        <span>📄</span><span id="inName">Pilih berkas PDF…</span>
+      </div>
+      <label>Alasan penandatanganan</label>
+      <input type="text" id="sreason" value="Persetujuan" />
+      <div style="display:flex; gap:10px; margin-top:18px">
+        <button class="btn" id="btnSign" disabled><span class="spin"></span><span class="txt">Tandatangani &amp; simpan</span></button>
+        <button class="btn secondary" id="signBack">Kembali</button>
+      </div>
+      <div class="msg" id="signMsg"></div>
+      <div class="result" id="signResult" hidden></div>
+    </div>
   </section>
 
-  <section id="sign">
-    <h3>Tanda tangan PDF</h3>
-    <div class="row"><label>PDF masukan (path)</label><input id="sin" /></div>
-    <div class="row"><label>PDF keluaran (path, opsional)</label><input id="sout" /></div>
-    <div class="row"><label>Alasan</label><input id="sreason" value="Persetujuan" /></div>
-    <div class="row"><label>Nama penanda tangan</label><input id="sname" /></div>
-    <div class="row"><label>PIN</label><input id="spin" type="password" /></div>
-    <button onclick="call('SignPDF', sin.value, sout.value, sreason.value, sname.value, spin.value)">Tanda tangani</button>
+  <!-- VERIFY -->
+  <section class="screen" id="scVerify">
+    <h1>Verifikasi dokumen</h1>
+    <p class="sub">Pemeriksaan kriptografis penuh dilakukan di perangkat ini.</p>
+    <div class="card">
+      <div class="filepick" id="pickVerify">
+        <span>📄</span><span id="vName">Pilih berkas PDF…</span>
+      </div>
+      <div style="margin-top:16px"><button class="btn secondary" id="verifyBack">Kembali</button></div>
+      <div class="result" id="verifyResult" hidden></div>
+    </div>
   </section>
-
-  <section id="verify">
-    <h3>Verifikasi PDF</h3>
-    <div class="row"><label>PDF (path)</label><input id="vin" /></div>
-    <button onclick="call('VerifyPDF', vin.value)">Verifikasi</button>
-  </section>
-
-  <section id="history">
-    <h3>Riwayat</h3>
-    <button onclick="call('History')">Muat</button>
-  </section>
-
-  <section id="security">
-    <h3>Pengaturan keamanan</h3>
-    <div class="row"><button onclick="call('StartMFASetup')">Aktifkan MFA (tampilkan secret)</button></div>
-    <div class="row"><label>Kode konfirmasi MFA</label><input id="mfacode" />
-      <button onclick="call('ConfirmMFA', mfacode.value)">Konfirmasi</button></div>
-    <div class="row"><label>PIN lama</label><input id="oldpin" type="password" />
-      <label>PIN baru</label><input id="newpin" type="password" />
-      <button onclick="call('SetPIN', oldpin.value, newpin.value)">Ubah PIN</button></div>
-    <div class="row"><button onclick="call('ReportLost')">Laporkan perangkat hilang</button></div>
-    <div class="row"><button onclick="if(confirm('Hapus seluruh vault lokal?')) call('Reset')">Reset (hapus vault)</button></div>
-  </section>
-
-  <h4>Hasil</h4>
-  <pre id="out">—</pre>
 </main>
 
+<div id="toast"></div>
+
 <script>
-  const pages = ["login","register","cert","sign","verify","history","security"];
-  const labels = {login:"Login",register:"Registrasi",cert:"Sertifikat",sign:"Tanda tangan",verify:"Verifikasi",history:"Riwayat",security:"Keamanan"};
-  const nav = document.getElementById("nav");
-  pages.forEach(p => { const b=document.createElement("button"); b.textContent=labels[p];
-    b.onclick=()=>{document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
-    document.getElementById(p).classList.add("active");}; nav.appendChild(b); });
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const api = () => window.go && window.go.main && window.go.main.App;
 
-  const out = document.getElementById("out");
-  function show(v){ out.textContent = (typeof v === "string") ? v : JSON.stringify(v, null, 2); }
+  let currentScreen = "scAuth";
+  const state = {
+    get srv() { return localStorage.getItem("pqc_srv") || "http://localhost:8099"; },
+    set srv(v) { try { localStorage.setItem("pqc_srv", v); } catch (_) {} },
+    get email() { return localStorage.getItem("pqc_email") || ""; },
+    set email(v) { try { localStorage.setItem("pqc_email", v); } catch (_) {} },
+  };
+  let signIn = "", signOut = "", verifyPath = "";
 
-  async function call(method, ...args){
+  // ---------- helpers ----------
+  function screen(id) {
+    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+    $(id).classList.add("active");
+    currentScreen = id;
+  }
+  let toastT;
+  function toast(text, kind) {
+    const t = $("toast");
+    t.textContent = text;
+    t.className = "show " + (kind || "");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => (t.className = ""), kind === "bad" ? 5500 : 2800);
+  }
+  function bindingsReady() {
+    return new Promise((res) => {
+      let n = 0;
+      const t = setInterval(() => {
+        if (api()) { clearInterval(t); res(true); }
+        else if (++n > 120) { clearInterval(t); res(false); }
+      }, 50);
+    });
+  }
+  async function call(method, ...args) {
+    if (!api() || !api()[method]) await bindingsReady();
+    const fn = api() && api()[method];
+    if (!fn) throw new Error("Aplikasi belum siap (jalankan lewat PQC-PDF-Sign.exe).");
+    return await fn(...args);
+  }
+  async function withBtn(btn, fn) {
+    btn.classList.add("loading"); btn.disabled = true;
+    try { return await fn(); }
+    finally { btn.classList.remove("loading"); btn.disabled = false; }
+  }
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+  // ---------- auth ----------
+  function tab(which) {
+    if (which === true) which = "login";
+    if (which === false) which = "reg";
+    for (const [id, pane] of [["tabLogin", "paneLogin"], ["tabReg", "paneReg"], ["tabVerify", "paneVerify"]]) {
+      const on = id === "tab" + which[0].toUpperCase() + which.slice(1);
+      $(id).classList.toggle("on", on);
+      $(pane).hidden = !on;
+    }
+  }
+  $("tabLogin").addEventListener("click", () => tab("login"));
+  $("tabReg").addEventListener("click", () => tab("reg"));
+  $("tabVerify").addEventListener("click", () => { $("vsrv").value = $("vsrv").value || state.srv; tab("verify"); });
+
+  $("vpPick").addEventListener("click", async () => {
     try {
-      const fn = window.go?.main?.App?.[method];
-      if (!fn) { show("binding go.main.App." + method + " not available (run via `wails dev`/build)"); return; }
-      show(await fn(...args));
-    } catch (e) { show("ERROR: " + (e?.message || e)); }
+      const p = await call("PickPDF"); if (!p) return;
+      $("vpName").textContent = p.split(/[\\/]/).pop();
+      $("vpResult").hidden = false;
+      $("vpResult").innerHTML = '<div class="hint">Memeriksa…</div>';
+      const raw = await call("VerifyPublic", $("vsrv").value.trim(), p);
+      $("vpResult").innerHTML = renderVerdict(raw);
+    } catch (e) {
+      $("vpResult").hidden = false;
+      $("vpResult").innerHTML = '<div class="verdict bad"><span class="mark">✕</span> Gagal memverifikasi</div><div class="hint">' + esc(friendly(e)) + "</div>";
+    }
+  });
+
+  $("btnReg").addEventListener("click", () => withBtn($("btnReg"), async () => {
+    $("regMsg").textContent = "";
+    const email = $("remail").value.trim();
+    if (!email || $("rpw").value.length < 8) { $("regMsg").textContent = "Isi email dan kata sandi minimal 8 karakter."; return; }
+    try {
+      await call("Connect", $("rsrv").value.trim(), true);
+      const r = await call("Register", $("rname").value.trim(), $("rorg").value.trim(), email, $("rpw").value);
+      state.srv = $("rsrv").value.trim(); state.email = email;
+      $("srv").value = state.srv; $("lemail").value = email;
+      tab(true);
+      toast(r.message || "Akun dibuat, menunggu persetujuan admin.", "ok");
+    } catch (e) { $("regMsg").textContent = friendly(e); }
+  }));
+
+  $("btnLogin").addEventListener("click", () => withBtn($("btnLogin"), async () => {
+    $("loginMsg").textContent = "";
+    const email = $("lemail").value.trim();
+    try {
+      await call("Connect", $("srv").value.trim(), true);
+      await call("Login", email, $("lpw").value);
+      state.srv = $("srv").value.trim(); state.email = email;
+      $("loginMsg").textContent = "";
+      $("acctEmail").textContent = email;
+      $("acct").hidden = false;
+      toast("Menyiapkan sertifikat…");
+      const cs = await call("Prepare", "");
+      renderHome(cs);
+      screen("scHome");
+    } catch (e) { $("loginMsg").textContent = friendly(e); }
+  }));
+
+  function friendly(e) {
+    const m = (e && e.message) || String(e);
+    if (/pending|menunggu persetujuan/i.test(m)) return "Akun belum disetujui admin.";
+    if (/disabled|dinonaktifkan/i.test(m)) return "Akun dinonaktifkan. Hubungi admin.";
+    if (/invalid credentials/i.test(m)) return "Email atau kata sandi salah.";
+    if (/connection refused|dial tcp|no such host/i.test(m)) return "Tidak bisa terhubung ke server. Cek alamat server.";
+    if (/sudah memiliki tanda tangan|message digest mismatch|exactly one signature|already been completed/i.test(m))
+      return "Dokumen ini sudah ditandatangani. Sistem hanya mendukung satu tanda tangan per dokumen — pilih PDF yang belum ditandatangani.";
+    if (/device not found|different device|no active certificate/i.test(m))
+      return "Perangkat ini belum dikenali server. Menu akun → “Reset perangkat ini”, lalu masuk lagi.";
+    return m;
   }
-  async function doLogin(){
-    await call("Connect", document.getElementById("srv").value, true);
-    await call("Login", email.value, pw.value, totp.value);
+
+  // ---------- home ----------
+  function renderHome(cs) {
+    const active = cs && cs.state === "active";
+    $("goSign").disabled = !active;
+    if (active) {
+      $("homeSub").textContent = "Perangkat terverifikasi dan siap menandatangani.";
+      $("homeNote").textContent = cs.serial ? "Sertifikat: " + cs.serial : "";
+    } else if (cs && cs.state === "pending") {
+      $("homeSub").innerHTML = 'Sertifikat belum terbit. Coba lagi sebentar atau hubungi admin.';
+      $("homeNote").textContent = "";
+    } else {
+      $("homeSub").textContent = "Status sertifikat: " + (cs ? cs.state : "tidak diketahui");
+    }
   }
+  $("goSign").addEventListener("click", () => { resetSign(); screen("scSign"); });
+  $("goVerify").addEventListener("click", () => { resetVerify(); screen("scVerify"); });
+  $("signBack").addEventListener("click", () => screen("scHome"));
+  $("verifyBack").addEventListener("click", () => screen("scHome"));
+
+  // ---------- account menu ----------
+  $("acctBtn").addEventListener("click", () => { $("acctMenu").hidden = !$("acctMenu").hidden; });
+  document.addEventListener("click", (e) => {
+    if (!$("acct").contains(e.target)) $("acctMenu").hidden = true;
+  });
+  $("acctMenu").addEventListener("click", async (e) => {
+    const act = e.target.dataset.act; if (!act) return;
+    $("acctMenu").hidden = true;
+    if (act === "logout") { $("acct").hidden = true; $("lpw").value = ""; screen("scAuth"); tab(true); return; }
+    if (act === "report") {
+      try { await call("ReportLost"); toast("Perangkat dilaporkan hilang.", "ok"); }
+      catch (err) { toast(friendly(err), "bad"); }
+      return;
+    }
+    if (act === "reset") {
+      if (!confirm("Hapus kunci & sertifikat di perangkat ini? Anda perlu masuk lagi untuk membuat yang baru.")) return;
+      try { await call("Reset"); toast("Perangkat direset.", "ok"); $("acct").hidden = true; screen("scAuth"); }
+      catch (err) { toast(friendly(err), "bad"); }
+    }
+  });
+
+  // ---------- sign ----------
+  function resetSign() {
+    signIn = ""; signOut = "";
+    $("inName").textContent = "Pilih berkas PDF…"; $("inName").classList.remove("fn");
+    $("btnSign").disabled = true; $("signMsg").textContent = "";
+    $("signResult").hidden = true; $("signResult").innerHTML = "";
+  }
+  $("pickIn").addEventListener("click", async () => {
+    try {
+      const p = await call("PickPDF"); if (!p) return;
+      signIn = p;
+      const base = p.split(/[\\/]/).pop();
+      $("inName").textContent = base; $("inName").classList.add("fn");
+      const save = await call("SaveSignedPDF", base.replace(/\.pdf$/i, "") + "-bertandatangan.pdf");
+      signOut = save || "";
+      $("btnSign").disabled = !signIn;
+    } catch (e) { $("signMsg").textContent = friendly(e); }
+  });
+  $("btnSign").addEventListener("click", () => withBtn($("btnSign"), async () => {
+    $("signMsg").textContent = ""; $("signResult").hidden = true;
+    try {
+      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "");
+      $("signResult").innerHTML =
+        '<div class="verdict ok"><span class="mark">✓</span> Dokumen ditandatangani</div>' +
+        '<dl class="kv">' +
+        row("Status server", r.server_status) +
+        row("ID verifikasi", r.public_id, true) +
+        row("Tautan / QR", r.verification_url, true) +
+        row("Tersimpan di", r.output_path) +
+        "</dl>";
+      $("signResult").hidden = false;
+      toast("Berhasil ditandatangani & disimpan.", "ok");
+    } catch (e) { $("signMsg").textContent = friendly(e); }
+  }));
+
+  // ---------- verify ----------
+  function resetVerify() {
+    verifyPath = "";
+    $("vName").textContent = "Pilih berkas PDF…"; $("vName").classList.remove("fn");
+    $("verifyResult").hidden = true; $("verifyResult").innerHTML = "";
+  }
+  $("pickVerify").addEventListener("click", async () => {
+    try {
+      const p = await call("PickPDF"); if (!p) return;
+      verifyPath = p;
+      $("vName").textContent = p.split(/[\\/]/).pop(); $("vName").classList.add("fn");
+      $("verifyResult").hidden = false;
+      $("verifyResult").innerHTML = '<div class="hint">Memeriksa…</div>';
+      const raw = await call("VerifyPDF", verifyPath);
+      $("verifyResult").innerHTML = renderVerdict(raw);
+    } catch (e) {
+      $("verifyResult").hidden = false;
+      $("verifyResult").innerHTML = '<div class="verdict bad"><span class="mark">✕</span> Gagal memverifikasi</div><div class="hint">' + esc(friendly(e)) + "</div>";
+    }
+  });
+
+  function renderVerdict(raw) {
+    let top; try { top = JSON.parse(raw); } catch (_) { return "<div class='hint'>Hasil tidak terbaca.</div>"; }
+    // Local verify returns the core result directly; the public /verify wraps
+    // it as { verification, registered, record }.
+    const o = top.verification || top;
+    const sigs = o.signatures || [];
+    if (o.valid && sigs.length) {
+      const s = sigs[0];
+      const subj = s.subject || "";
+      const name = (subj.match(/CN=([^,]+)/) || [, "-"])[1];
+      const org = (subj.match(/O=([^,]+)/) || [, "-"])[1];
+      const pid = String(s.contact || "").replace("pqc-public-id:", "");
+      return '<div class="verdict ok"><span class="mark">✓</span> Tanda tangan SAH</div>' +
+        '<dl class="kv">' +
+        row("Penanda tangan", name) +
+        row("Instansi", org) +
+        row("Algoritma", s.algorithm) +
+        row("Alasan", s.reason || "-") +
+        row("Waktu (klaim perangkat)", s.client_claimed_signing_time) +
+        row("No. sertifikat", s.certificate_serial, true) +
+        row("Rantai tepercaya", s.trusted_chain ? "ya" : "TIDAK") +
+        row("Sertifikat dicabut", s.revoked ? "YA" : "tidak") +
+        (top.registered === true ? row("Terdaftar di server", "ya") : "") +
+        (pid ? row("ID verifikasi", pid, true) : "") +
+        "</dl>" +
+        '<p class="note">Waktu di atas berasal dari jam perangkat penandatangan, bukan stempel waktu tepercaya.</p>';
+    }
+    const errs = (o.errors || (sigs[0] && sigs[0].errors) || []);
+    return '<div class="verdict bad"><span class="mark">✕</span> Tanda tangan TIDAK sah / tidak ditemukan</div>' +
+      (errs.length ? '<ul class="hint">' + errs.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>"
+        : '<div class="hint">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</div>');
+  }
+  function row(k, v, mono) {
+    if (v == null || v === "") return "";
+    return "<dt>" + esc(k) + "</dt><dd" + (mono ? ' class="mono"' : "") + ">" + esc(v) + "</dd>";
+  }
+
+  // ---------- init ----------
+  $("srv").value = state.srv;
+  $("rsrv").value = state.srv;
+  $("lemail").value = state.email;
+})();
 </script>
 </body>
 </html>

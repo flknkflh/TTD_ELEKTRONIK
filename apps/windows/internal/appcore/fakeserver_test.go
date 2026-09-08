@@ -63,12 +63,6 @@ func (f *fakeReceiver) mux(t *testing.T) http.Handler {
 	m.HandleFunc("POST /api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		j(w, 200, map[string]any{"access_token": "tok", "token_type": "Bearer", "expires_in": 900})
 	})
-	m.HandleFunc("POST /api/v1/auth/mfa/setup", func(w http.ResponseWriter, r *http.Request) {
-		j(w, 200, map[string]string{"secret": "AAAAAAAAAAAAAAAA", "otpauth_url": "otpauth://totp/x?secret=AAAAAAAAAAAAAAAA"})
-	})
-	m.HandleFunc("POST /api/v1/auth/mfa/verify", func(w http.ResponseWriter, r *http.Request) {
-		j(w, 200, map[string]bool{"confirmed": true})
-	})
 
 	m.HandleFunc("POST /api/v1/devices", func(w http.ResponseWriter, r *http.Request) {
 		j(w, 201, map[string]string{"device_id": f.id("dev"), "status": "active"})
@@ -131,6 +125,11 @@ func (f *fakeReceiver) mux(t *testing.T) http.Handler {
 		f.mu.Unlock()
 		j(w, 201, map[string]string{"public_id": pid, "verification_url": "https://verify.test/v/" + pid, "expires_at": "later"})
 	})
+	m.HandleFunc("POST /api/v1/signatures/{public_id}/cover-page", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body) // no real composition in the fake; echo the PDF
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write(body)
+	})
 	m.HandleFunc("PUT /api/v1/signatures/{public_id}/document", func(w http.ResponseWriter, r *http.Request) {
 		pid := r.PathValue("public_id")
 		body, _ := io.ReadAll(r.Body)
@@ -157,6 +156,31 @@ func (f *fakeReceiver) mux(t *testing.T) http.Handler {
 		f.accepted[pid] = true
 		f.mu.Unlock()
 		j(w, 200, map[string]string{"public_id": pid, "status": "accepted"})
+	})
+	m.HandleFunc("POST /api/v1/verify", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(32 << 20)
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			j(w, 400, map[string]string{"error": "missing file"})
+			return
+		}
+		defer file.Close()
+		pdf, _ := io.ReadAll(file)
+		vr, verr := verification.VerifyPDF(pdf, verification.Options{
+			RootPEM: labpki.CertPEM(f.root.Cert), IntermediatePEM: labpki.CertPEM(f.inter.Cert),
+			RequireMLDSAOnly: true, Timeout: 15 * time.Second,
+		})
+		if verr != nil {
+			j(w, 422, map[string]string{"error": verr.Error()})
+			return
+		}
+		registered := false
+		if len(vr.Signatures) > 0 {
+			f.mu.Lock()
+			registered = f.accepted[vr.Signatures[0].PublicID()]
+			f.mu.Unlock()
+		}
+		j(w, 200, map[string]any{"verification": vr, "registered": registered})
 	})
 	m.HandleFunc("GET /api/v1/me/signatures", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()

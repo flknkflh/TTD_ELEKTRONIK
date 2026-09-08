@@ -19,7 +19,6 @@ type Memory struct {
 	certificates map[string]Certificate
 	reservations map[string]Reservation
 	signatures   map[string]Signature
-	mfa          map[string]MFACredential
 	audit        []AuditEvent
 	objects      map[string][]byte
 }
@@ -33,40 +32,8 @@ func NewMemory() *Memory {
 		certificates: map[string]Certificate{},
 		reservations: map[string]Reservation{},
 		signatures:   map[string]Signature{},
-		mfa:          map[string]MFACredential{},
 		objects:      map[string][]byte{},
 	}
-}
-
-// --- MFA ---
-
-func (m *Memory) UpsertMFA(accountID, secret string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.mfa[accountID] = MFACredential{AccountID: accountID, Secret: secret, Confirmed: false, CreatedAt: time.Now().UTC()}
-	return nil
-}
-
-func (m *Memory) MFA(accountID string) (MFACredential, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	c, ok := m.mfa[accountID]
-	if !ok {
-		return MFACredential{}, ErrNotFound
-	}
-	return c, nil
-}
-
-func (m *Memory) ConfirmMFA(accountID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	c, ok := m.mfa[accountID]
-	if !ok {
-		return ErrNotFound
-	}
-	c.Confirmed = true
-	m.mfa[accountID] = c
-	return nil
 }
 
 // ID makes a random opaque id with the given prefix (e.g. "dev", "sig").
@@ -90,10 +57,60 @@ func (m *Memory) CreateAccount(a Account) (Account, error) {
 	if a.Role == "" {
 		a.Role = RoleUser
 	}
+	if a.Status == "" {
+		a.Status = AccountActive
+	}
 	a.CreatedAt = time.Now().UTC()
 	m.accounts[a.ID] = a
 	m.byEmail[a.Email] = a.ID
 	return a, nil
+}
+
+func (m *Memory) ListAccounts() []Account {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Account, 0, len(m.accounts))
+	for _, a := range m.accounts {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+func (m *Memory) SetAccountStatus(id, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.accounts[id]
+	if !ok {
+		return ErrNotFound
+	}
+	a.Status = status
+	m.accounts[id] = a
+	return nil
+}
+
+func (m *Memory) UpdateAccountProfile(id, fullName, org string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.accounts[id]
+	if !ok {
+		return ErrNotFound
+	}
+	a.FullName, a.Organization = fullName, org
+	m.accounts[id] = a
+	return nil
+}
+
+func (m *Memory) DeleteAccount(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.accounts[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.accounts, id)
+	delete(m.byEmail, a.Email)
+	return nil
 }
 
 func (m *Memory) AccountByEmail(email string) (Account, error) {
@@ -271,6 +288,19 @@ func (m *Memory) CertificateByDevice(deviceID string) (Certificate, error) {
 		return Certificate{}, ErrNotFound
 	}
 	return latest, nil
+}
+
+func (m *Memory) CertificatesByAccount(accountID string) []Certificate {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Certificate
+	for _, c := range m.certificates {
+		if c.AccountID == accountID {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NotBefore.Before(out[j].NotBefore) })
+	return out
 }
 
 func (m *Memory) CertificateBySerial(serial string) (Certificate, error) {

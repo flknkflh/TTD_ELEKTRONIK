@@ -75,6 +75,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity:1.9.3")
     implementation("androidx.biometric:biometric:1.1.0")
+    implementation("com.google.android.material:material:1.12.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
@@ -85,38 +86,6 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
 }
 
-// --- spike test fixtures -----------------------------------------------------
-// Generates app/src/main/assets/{sample*.pdf, lab/*} via `pqcsign-cli genpki`.
-// Nothing here is committed: a lab private key must not enter git history
-// (Rencana V1 §5.3, §9.3). Requires a Go 1.27 toolchain on PATH.
-val assetsDir = layout.projectDirectory.dir("src/main/assets")
-val cliModuleDir = rootProject.layout.projectDirectory.dir("../windows").asFile
-val coreTestPdfDir = rootProject.layout.projectDirectory.dir("../../core/testpdf").asFile
-
-val generateSpikeFixtures by tasks.registering(Exec::class) {
-    description = "Generate lab PKI + sample PDFs into src/main/assets (spike only)"
-    val labDir = assetsDir.dir("lab").asFile
-    // Regenerated whenever this marker is missing; bump the name when the
-    // fixture set changes so existing checkouts refresh.
-    val marker = File(labDir, "unrelated-root.crt.pem")
-    outputs.file(marker)
-    onlyIf { !marker.exists() }
-    doFirst { labDir.mkdirs() }
-    workingDir = cliModuleDir
-    commandLine(
-        "go", "run", "./cmd/pqcsign-cli", "genpki",
-        "--out", labDir.absolutePath,
-        "--device-cn", "Android Spike Device",
-        "--platform", "android",
-    )
-    doLast {
-        File(labDir, "device-key.pkcs8.pem").let { if (it.exists()) it.renameTo(File(labDir, "device-test-key.pem")) }
-        File(labDir, "device.csr.pem").delete()
-        copy {
-            from(coreTestPdfDir) { include("sample.pdf", "sample-multipage.pdf") }
-            into(assetsDir)
-        }
-    }
-}
-
-tasks.named("preBuild") { dependsOn(generateSpikeFixtures) }
+// The M1 on-device spike (SpikeRunner + generated lab fixtures) has been
+// removed — the app now does real enrolment against the server. If you have a
+// stale src/main/assets/lab/ from an earlier build, delete it.

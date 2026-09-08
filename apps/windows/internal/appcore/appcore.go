@@ -52,13 +52,28 @@ func New(cfg Config) (*App, error) {
 
 // ---- 1. Login ----
 
-func (a *App) Login(email, password, totpCode string) error {
-	if err := a.api.Login(email, password, totpCode); err != nil {
+func (a *App) Login(email, password string) error {
+	if err := a.api.Login(email, password); err != nil {
 		return err
 	}
 	s, _ := a.store.State()
 	s.AccountEmail = email
 	return a.store.SaveState(s)
+}
+
+// VerifyPublic checks a PDF against a server's public verifier
+// (POST /api/v1/verify, no login). Returns the raw JSON result.
+func (a *App) VerifyPublic(serverURL, path string) (json.RawMessage, error) {
+	pdf, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	res, err := apiclient.New(serverURL, true).VerifyPublic(pdf)
+	if err != nil {
+		return nil, err
+	}
+	b, _ := json.Marshal(res)
+	return b, nil
 }
 
 func (a *App) SetServerURL(u string, insecure bool) error {
@@ -68,19 +83,86 @@ func (a *App) SetServerURL(u string, insecure bool) error {
 	return a.store.SaveState(s)
 }
 
-// ---- 2. Register device ----
+// ---- 1b. Self-registration (Rencana RB-1) ----
+
+// RegisterResult mirrors the server's register response.
+type RegisterResult struct {
+	AccountID string `json:"account_id"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+}
+
+// Register creates a pending account. An admin approves it before Login works.
+func (a *App) Register(fullName, org, email, password string) (RegisterResult, error) {
+	r, err := a.api.Register(fullName, org, email, password)
+	return RegisterResult(r), err
+}
+
+// ---- 2. Device enrolment ----
 
 type EnrollResult struct {
 	DeviceID     string `json:"device_id"`
 	EnrollmentID string `json:"enrollment_id"`
 }
 
-// RegisterDevice generates the device key, wraps it, and enrolls with the
-// server. pin may be "" (no PIN). It refuses to clobber an existing key.
+// EnsureEnrolled makes this device ready to sign with no manual step
+// (Rencana RB-3): on first run it generates + enrols a key; then it fetches
+// the certificate the server auto-issues for an approved account. It also
+// re-enrols automatically when the stored device id is unknown to the current
+// server (a fresh server / wiped database / switched server URL). Safe to
+// call after every Login.
+func (a *App) EnsureEnrolled(pin string) (CertStatus, error) {
+	if !a.store.HasKey() || a.deviceUnknownToServer() {
+		label, _ := os.Hostname()
+		if label == "" {
+			label = "Windows"
+		} else {
+			label = "Windows " + label
+		}
+		a.wipeDeviceState()
+		if _, err := a.enrollDevice(label, pin); err != nil {
+			return CertStatus{}, err
+		}
+	}
+	return a.CertificateStatus(pin)
+}
+
+// deviceUnknownToServer reports true when we hold a key + device id but the
+// server has no such device (404 on its certificate endpoint). Any other
+// error (network, not-issued-yet) is treated as "known".
+func (a *App) deviceUnknownToServer() bool {
+	s, _ := a.store.State()
+	if s.DeviceID == "" {
+		return true
+	}
+	_, err := a.api.DeviceCertificate(s.DeviceID)
+	return errors.Is(err, apiclient.ErrNotYetIssued)
+}
+
+// wipeDeviceState removes the stale key blob + cached certificate and clears
+// the recorded device id, so the following enrolment starts clean. It keeps
+// the vault directory (and the server URL / account email in state) intact so
+// SaveKey can write straight away.
+func (a *App) wipeDeviceState() {
+	_ = a.store.DeleteKey()
+	_ = a.store.SaveDeviceCertPEM([]byte{}) // invalidate the cached cert
+	s, _ := a.store.State()
+	s.DeviceID, s.EnrollmentID, s.CertificateSN = "", "", ""
+	_ = a.store.SaveState(s)
+}
+
+// RegisterDevice is the explicit enrol entry point kept for tooling/tests. It
+// refuses to clobber an existing key; EnsureEnrolled is the app path.
 func (a *App) RegisterDevice(label, pin string) (EnrollResult, error) {
 	if a.store.HasKey() {
 		return EnrollResult{}, errors.New("a device key already exists; use Security settings to reset first")
 	}
+	return a.enrollDevice(label, pin)
+}
+
+// enrollDevice generates the device key, wraps it, and enrols with the server.
+// pin may be "" (no PIN).
+func (a *App) enrollDevice(label, pin string) (EnrollResult, error) {
 	sk, err := keys.GenerateMLDSA65Key()
 	if err != nil {
 		return EnrollResult{}, err
@@ -200,6 +282,12 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string) (SignResu
 	if err != nil {
 		return SignResult{}, err
 	}
+	// One document, one signature (Rencana V1 §15.3). Re-signing an already
+	// signed PDF would break the first signature and the server rejects
+	// multi-signature uploads — catch it early with a clear message.
+	if sigs, _ := verification.ListPDFSignatures(pdf); len(sigs) > 0 {
+		return SignResult{}, fmt.Errorf("dokumen ini sudah memiliki tanda tangan digital — satu dokumen hanya boleh ditandatangani sekali; pilih PDF yang belum ditandatangani")
+	}
 	chainPEM, err := a.store.ChainPEM()
 	if err != nil {
 		return SignResult{}, errors.New("no CA chain cached; register the device first")
@@ -215,21 +303,30 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string) (SignResu
 	fullChain := append(append([]byte(nil), devCertPEM...), chainPEM...)
 
 	s, _ := a.store.State()
-	res, err := a.api.Reserve(s.DeviceID, hashutil.CalculateSHA512(pdf), filepath.Base(inPath))
+	origHash := hashutil.CalculateSHA512(pdf)
+	res, err := a.api.Reserve(s.DeviceID, origHash, filepath.Base(inPath))
 	if err != nil {
 		return SignResult{}, fmt.Errorf("reserve: %w", err)
+	}
+
+	// The verification page is composed server-side and appended BEFORE
+	// signing so it is inside the signed byte range (Rencana RB-2b). A PDF
+	// the server cannot process fails here with a clear message.
+	toSign, err := a.api.CoverPage(res.PublicID, pdf, reason)
+	if err != nil {
+		return SignResult{}, fmt.Errorf("halaman verifikasi: %w", err)
 	}
 
 	keyPEM, err := a.store.LoadKey(keystore.Options{PIN: pin})
 	if err != nil {
 		return SignResult{}, err
 	}
-	signed, serr := signing.SignPDF(pdf, keyPEM, fullChain, signing.Options{
+	signed, serr := signing.SignPDF(toSign, keyPEM, fullChain, signing.Options{
 		Reason:          reason,
 		SignerName:      signerName,
 		PublicID:        res.PublicID,
 		VerificationURL: res.VerificationURL,
-		IncludeQR:       true,
+		IncludeQR:       false, // the appended page carries the QR
 		Timeout:         20 * time.Second,
 	})
 	wipe(keyPEM)
@@ -261,7 +358,7 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string) (SignResu
 	}
 	return SignResult{
 		OutputPath: outPath, PublicID: res.PublicID, VerificationURL: res.VerificationURL,
-		OriginalSHA512: signed.OriginalSHA512, SignedSHA512: signed.SignedSHA512, ServerStatus: status,
+		OriginalSHA512: origHash, SignedSHA512: signed.SignedSHA512, ServerStatus: status,
 	}, nil
 }
 
@@ -297,18 +394,6 @@ func (a *App) VerifyPDF(path string) (json.RawMessage, error) {
 func (a *App) History() ([]map[string]any, error) { return a.api.MySignatures() }
 
 // ---- 7. Security settings ----
-
-type MFASetup struct {
-	Secret     string `json:"secret"`
-	OTPAuthURL string `json:"otpauth_url"`
-}
-
-func (a *App) StartMFASetup() (MFASetup, error) {
-	sec, url, err := a.api.MFASetup()
-	return MFASetup{Secret: sec, OTPAuthURL: url}, err
-}
-
-func (a *App) ConfirmMFA(code string) error { return a.api.MFAVerify(code) }
 
 // SetPIN re-wraps the existing key: unwrap with oldPIN, wrap with newPIN.
 func (a *App) SetPIN(oldPIN, newPIN string) error {

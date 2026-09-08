@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#4F46E5</color>
+    <color name="brand_on">#FFFFFF</color>
+    <color name="brand_container">#E4E5FD</color>
+    <color name="brand_on_container">#20206B</color>
+
+    <color name="ok">#15803D</color>
+    <color name="ok_container">#DCFCE7</color>
+    <color name="bad">#B91C1C</color>
+    <color name="bad_container">#FEE2E2</color>
+</resources>

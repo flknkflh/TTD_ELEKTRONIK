@@ -11,15 +11,15 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
 type Client struct {
-	base   string
-	http   *http.Client
-	token  string
-	MFAReq bool // set by Login when the server wants a TOTP code
+	base  string
+	http  *http.Client
+	token string
 }
 
 // New returns a client for baseURL (e.g. https://localhost:8443). insecureTLS
@@ -92,57 +92,41 @@ func (c *Client) postJSON(path string, in any, out any) error {
 
 // ---- auth ----
 
-func (c *Client) Register(email, password, displayName, role string) (string, error) {
-	var out struct {
-		AccountID string `json:"account_id"`
-	}
-	err := c.postJSON("/api/v1/auth/register", map[string]string{
-		"email": email, "password": password, "display_name": displayName, "role": role,
-	}, &out)
-	return out.AccountID, err
+// RegisterResult mirrors the server's RB-1 register response.
+type RegisterResult struct {
+	AccountID string `json:"account_id"`
+	Status    string `json:"status"` // "pending" for a self-registered user
+	Message   string `json:"message"`
 }
 
-// Login stores the access token. If the server needs a TOTP code and none was
-// given, c.MFAReq is set and a non-nil error is returned.
-func (c *Client) Login(email, password, code string) error {
-	body := map[string]string{"email": email, "password": password}
-	if code != "" {
-		body["code"] = code
-	}
-	var buf bytes.Buffer
-	_ = json.NewEncoder(&buf).Encode(body)
-	raw, status, err := c.do(http.MethodPost, "/api/v1/auth/login", &buf, "application/json")
+// Register self-registers an account (Rencana RB-1). The account is created
+// pending; an admin approves it before the user can log in.
+func (c *Client) Register(fullName, org, email, password string) (RegisterResult, error) {
+	var out RegisterResult
+	err := c.postJSON("/api/v1/auth/register", map[string]string{
+		"email": email, "password": password,
+		"full_name": fullName, "organization": org, "display_name": fullName,
+	}, &out)
+	return out, err
+}
 
-	var out struct {
-		AccessToken string `json:"access_token"`
-		MFARequired bool   `json:"mfa_required"`
-	}
-	_ = json.Unmarshal(raw, &out)
-	c.MFAReq = out.MFARequired
+// Login stores the access token on success.
+func (c *Client) Login(email, password string) error {
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(map[string]string{"email": email, "password": password})
+	raw, _, err := c.do(http.MethodPost, "/api/v1/auth/login", &buf, "application/json")
 	if err != nil {
-		if status == http.StatusUnauthorized && out.MFARequired {
-			return fmt.Errorf("a TOTP code is required")
-		}
 		return err
 	}
+	var out struct {
+		AccessToken string `json:"access_token"`
+	}
+	_ = json.Unmarshal(raw, &out)
 	if out.AccessToken == "" {
 		return fmt.Errorf("login: no access token in response")
 	}
 	c.token = out.AccessToken
 	return nil
-}
-
-func (c *Client) MFASetup() (secret, otpauthURL string, err error) {
-	var out struct {
-		Secret     string `json:"secret"`
-		OTPAuthURL string `json:"otpauth_url"`
-	}
-	err = c.postJSON("/api/v1/auth/mfa/setup", nil, &out)
-	return out.Secret, out.OTPAuthURL, err
-}
-
-func (c *Client) MFAVerify(code string) error {
-	return c.postJSON("/api/v1/auth/mfa/verify", map[string]string{"code": code}, nil)
 }
 
 // ---- devices & enrollment ----
@@ -260,6 +244,17 @@ func (c *Client) Reserve(deviceID, originalSHA512, fileName string) (Reservation
 		"device_id": deviceID, "original_sha512": originalSHA512, "file_name": fileName,
 	}, &out)
 	return out, err
+}
+
+// CoverPage uploads the original PDF and returns it with the server-composed
+// verification page appended (Rencana RB-2b), ready to sign on-device.
+func (c *Client) CoverPage(publicID string, pdf []byte, reason string) ([]byte, error) {
+	p := "/api/v1/signatures/" + publicID + "/cover-page"
+	if reason != "" {
+		p += "?reason=" + url.QueryEscape(reason)
+	}
+	raw, _, err := c.do(http.MethodPost, p, bytes.NewReader(pdf), "application/pdf")
+	return raw, err
 }
 
 func (c *Client) SubmitDocument(publicID string, signedPDF []byte) (map[string]any, error) {

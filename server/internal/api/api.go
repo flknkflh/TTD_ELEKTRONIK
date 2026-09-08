@@ -35,6 +35,13 @@ type Config struct {
 	// RateLimits are per-minute caps. nil applies sane defaults; pass
 	// &RateLimits{} to disable every bucket (tests do this).
 	RateLimits *RateLimits
+
+	// LabIssuer, when non-nil, mounts a DEV-ONLY endpoint
+	// (POST /api/v1/admin/enrollments/{id}/issue-lab) that drives the bundled
+	// offline ca-admin binary to issue a device certificate straight from an
+	// enrollment, so the /admin console is one click. NEVER set this in
+	// production — real issuance is air-gapped (docs/pki-ceremony.md).
+	LabIssuer *LabIssuer
 }
 
 // RateLimits — per-minute request caps (Rencana V1 §24). A zero value
@@ -57,6 +64,10 @@ type Store interface {
 	CreateAccount(store.Account) (store.Account, error)
 	AccountByEmail(string) (store.Account, error)
 	Account(string) (store.Account, error)
+	ListAccounts() []store.Account
+	SetAccountStatus(id, status string) error
+	UpdateAccountProfile(id, fullName, org string) error
+	DeleteAccount(id string) error
 
 	CreateDevice(store.Device) (store.Device, error)
 	Device(string) (store.Device, error)
@@ -72,6 +83,7 @@ type Store interface {
 	Certificate(string) (store.Certificate, error)
 	CertificateByDevice(string) (store.Certificate, error)
 	CertificateBySerial(string) (store.Certificate, error)
+	CertificatesByAccount(string) []store.Certificate
 	RevokeCertificate(id, reason string) error
 
 	CreateReservation(store.Reservation) (store.Reservation, error)
@@ -81,10 +93,6 @@ type Store interface {
 	CreateSignature(store.Signature) (store.Signature, error)
 	Signature(string) (store.Signature, error)
 	SignaturesByAccount(string) []store.Signature
-
-	UpsertMFA(accountID, secret string) error
-	MFA(accountID string) (store.MFACredential, error)
-	ConfirmMFA(accountID string) error
 
 	PutObject(key string, data []byte) error
 	GetObject(key string) ([]byte, error)
@@ -152,16 +160,14 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("POST /api/v1/auth/register", s.hRegister)
 	mux.HandleFunc("POST /api/v1/auth/login", s.limit(s.rlLogin, byIP, s.hLogin))
-	mux.HandleFunc("POST /api/v1/auth/mfa/setup", s.user(s.hMFASetup))
-	mux.HandleFunc("POST /api/v1/auth/mfa/verify", s.user(s.hMFAVerify))
-
 	mux.HandleFunc("POST /api/v1/devices", s.user(s.hCreateDevice))
 	mux.HandleFunc("GET /api/v1/devices", s.user(s.hListDevices))
-	mux.HandleFunc("POST /api/v1/devices/{device_id}/csr", s.user(s.mfaRequired(s.hSubmitCSR)))
+	mux.HandleFunc("POST /api/v1/devices/{device_id}/csr", s.user(s.hSubmitCSR))
 	mux.HandleFunc("GET /api/v1/devices/{device_id}/certificate", s.user(s.hDeviceCertificate))
-	mux.HandleFunc("POST /api/v1/devices/{device_id}/report-lost", s.user(s.mfaRequired(s.hReportLost)))
+	mux.HandleFunc("POST /api/v1/devices/{device_id}/report-lost", s.user(s.hReportLost))
 
 	mux.HandleFunc("POST /api/v1/signatures/reserve", s.user(s.limit(s.rlReserve, byAccount, s.hReserve)))
+	mux.HandleFunc("POST /api/v1/signatures/{public_id}/cover-page", s.user(s.limit(s.rlSubmit, byAccount, s.hCoverPage)))
 	mux.HandleFunc("PUT /api/v1/signatures/{public_id}/document", s.user(s.limit(s.rlSubmit, byAccount, s.hSubmitDocument)))
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}", s.user(s.hGetSignature))
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}/download", s.user(s.hDownload))
@@ -169,19 +175,42 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
+	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)              // human landing page for the QR
+	mux.HandleFunc("GET /v/{public_id}/document", s.hPublicDocument) // authoritative signed PDF behind the QR
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
 
-	mux.HandleFunc("GET /api/v1/admin/enrollments", s.admin(s.mfaRequired(s.hListEnrollments)))
-	mux.HandleFunc("GET /api/v1/admin/enrollments/{id}/export", s.admin(s.mfaRequired(s.hExportEnrollment)))
-	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/approve", s.admin(s.mfaRequired(s.hApproveEnrollment)))
-	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/certificate", s.admin(s.mfaRequired(s.hIssueCertificate)))
-	mux.HandleFunc("POST /api/v1/admin/certificates/{id}/revoke", s.admin(s.mfaRequired(s.hRevoke)))
-	mux.HandleFunc("POST /api/v1/admin/crl/import", s.admin(s.mfaRequired(s.hImportCRL)))
-	mux.HandleFunc("GET /api/v1/admin/audit-events", s.admin(s.mfaRequired(s.hAudit)))
+	mux.HandleFunc("GET /api/v1/admin/capabilities", s.admin(s.hCapabilities))
+
+	mux.HandleFunc("GET /api/v1/admin/accounts", s.admin(s.hListAccounts))
+	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/approve", s.admin(s.hApproveAccount))
+	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/disable", s.admin(s.hDisableAccount))
+	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/enable", s.admin(s.hEnableAccount))
+	mux.HandleFunc("PATCH /api/v1/admin/accounts/{id}", s.admin(s.hUpdateAccount))
+	mux.HandleFunc("DELETE /api/v1/admin/accounts/{id}", s.admin(s.hDeleteAccount))
+
+	mux.HandleFunc("GET /api/v1/admin/enrollments", s.admin(s.hListEnrollments))
+	mux.HandleFunc("GET /api/v1/admin/enrollments/{id}/export", s.admin(s.hExportEnrollment))
+	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/approve", s.admin(s.hApproveEnrollment))
+	mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/certificate", s.admin(s.hIssueCertificate))
+	mux.HandleFunc("POST /api/v1/admin/certificates/{id}/revoke", s.admin(s.hRevoke))
+	mux.HandleFunc("POST /api/v1/admin/crl/import", s.admin(s.hImportCRL))
+	mux.HandleFunc("GET /api/v1/admin/audit-events", s.admin(s.hAudit))
+	if s.cfg.LabIssuer != nil {
+		mux.HandleFunc("POST /api/v1/admin/enrollments/{id}/issue-lab", s.admin(s.hLabIssue))
+	}
+
+	// Static admin console (Rencana V1 §14 operator workflow, in a browser).
+	mux.HandleFunc("GET /admin", s.hAdminUI)
+	mux.HandleFunc("GET /admin/", s.hAdminUI)
 
 	return mux
+}
+
+// hCapabilities lets the /admin console feature-detect optional endpoints.
+func (s *Server) hCapabilities(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"lab_issuer": s.cfg.LabIssuer != nil})
 }
 
 // ---- helpers ----
@@ -216,20 +245,6 @@ func (s *Server) authed(minRole string, h http.HandlerFunc) http.HandlerFunc {
 func claims(r *http.Request) auth.Claims {
 	c, _ := r.Context().Value(claimsKey).(auth.Claims)
 	return c
-}
-
-// mfaRequired gates the sensitive actions of Rencana V1 §24 (enrollment,
-// device loss reporting, every admin action) behind a session that presented
-// a valid TOTP code at login.
-func (s *Server) mfaRequired(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !claims(r).Mfa {
-			writeErr(w, http.StatusForbidden,
-				"this action requires MFA: POST /api/v1/auth/mfa/setup, then log in again with a TOTP code")
-			return
-		}
-		h(w, r)
-	}
 }
 
 func (s *Server) pem(get func() []byte) http.HandlerFunc {

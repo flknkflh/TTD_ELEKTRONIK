@@ -26,7 +26,7 @@ func serialOf(t *testing.T, chainPEM []byte) string {
 
 // These cover the Rencana V1 §25 acceptance items that the receiver is
 // responsible for and that TestHappyPath / TestSubmissionRejections /
-// TestMFAEnforcement don't already exercise. docs/acceptance-v1.md maps every
+// existing tests don't already exercise. docs/acceptance-v1.md maps every
 // §25 checkbox to its check.
 
 // §25.6 — revoking one device's certificate must not disable the account's

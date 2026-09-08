@@ -109,6 +109,8 @@ func norm(err error) error {
 
 // --- accounts ---
 
+const acctCols = `id,email,display_name,full_name,organization,password_hash,role,status,created_at`
+
 func (p *Postgres) CreateAccount(a Account) (Account, error) {
 	if a.ID == "" {
 		a.ID = ID("acct")
@@ -116,31 +118,60 @@ func (p *Postgres) CreateAccount(a Account) (Account, error) {
 	if a.Role == "" {
 		a.Role = RoleUser
 	}
+	if a.Status == "" {
+		a.Status = AccountActive
+	}
 	a.CreatedAt = time.Now().UTC()
 	_, err := p.db.Exec(
-		`INSERT INTO accounts(id,email,display_name,password_hash,role,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6)`,
-		a.ID, a.Email, a.DisplayName, a.PasswordHash, a.Role, a.CreatedAt)
+		`INSERT INTO accounts(id,email,display_name,full_name,organization,password_hash,role,status,created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		a.ID, a.Email, a.DisplayName, a.FullName, a.Organization, a.PasswordHash, a.Role, a.Status, a.CreatedAt)
 	if err != nil {
 		return Account{}, fmt.Errorf("store: email already registered")
 	}
 	return a, nil
 }
 
-func (p *Postgres) scanAccount(row *sql.Row) (Account, error) {
+func scanAccountRow(s interface{ Scan(...any) error }) (Account, error) {
 	var a Account
-	err := row.Scan(&a.ID, &a.Email, &a.DisplayName, &a.PasswordHash, &a.Role, &a.CreatedAt)
+	err := s.Scan(&a.ID, &a.Email, &a.DisplayName, &a.FullName, &a.Organization,
+		&a.PasswordHash, &a.Role, &a.Status, &a.CreatedAt)
 	return a, norm(err)
 }
 
 func (p *Postgres) AccountByEmail(email string) (Account, error) {
-	return p.scanAccount(p.db.QueryRow(
-		`SELECT id,email,display_name,password_hash,role,created_at FROM accounts WHERE email=$1`, email))
+	return scanAccountRow(p.db.QueryRow(`SELECT `+acctCols+` FROM accounts WHERE email=$1`, email))
 }
 
 func (p *Postgres) Account(id string) (Account, error) {
-	return p.scanAccount(p.db.QueryRow(
-		`SELECT id,email,display_name,password_hash,role,created_at FROM accounts WHERE id=$1`, id))
+	return scanAccountRow(p.db.QueryRow(`SELECT `+acctCols+` FROM accounts WHERE id=$1`, id))
+}
+
+func (p *Postgres) ListAccounts() []Account {
+	rows, err := p.db.Query(`SELECT ` + acctCols + ` FROM accounts ORDER BY created_at`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []Account
+	for rows.Next() {
+		if a, err := scanAccountRow(rows); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (p *Postgres) SetAccountStatus(id, status string) error {
+	return affected(p.db.Exec(`UPDATE accounts SET status=$1 WHERE id=$2`, status, id))
+}
+
+func (p *Postgres) UpdateAccountProfile(id, fullName, org string) error {
+	return affected(p.db.Exec(`UPDATE accounts SET full_name=$1, organization=$2 WHERE id=$3`, fullName, org, id))
+}
+
+func (p *Postgres) DeleteAccount(id string) error {
+	return affected(p.db.Exec(`DELETE FROM accounts WHERE id=$1`, id))
 }
 
 // --- devices ---
@@ -282,6 +313,21 @@ func (p *Postgres) CertificateBySerial(serial string) (Certificate, error) {
 	return scanCert(p.db.QueryRow(`SELECT `+certCols+` FROM certificates WHERE serial=$1`, serial))
 }
 
+func (p *Postgres) CertificatesByAccount(accountID string) []Certificate {
+	rows, err := p.db.Query(`SELECT `+certCols+` FROM certificates WHERE account_id=$1 ORDER BY not_before`, accountID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []Certificate
+	for rows.Next() {
+		if c, err := scanCert(rows); err == nil {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (p *Postgres) RevokeCertificate(id, reason string) error {
 	return affected(p.db.Exec(
 		`UPDATE certificates SET status=$1, revoked_at=now(), rev_reason=$2 WHERE id=$3`,
@@ -361,28 +407,6 @@ func (p *Postgres) SignaturesByAccount(accountID string) []Signature {
 		}
 	}
 	return out
-}
-
-// --- MFA ---
-
-func (p *Postgres) UpsertMFA(accountID, secret string) error {
-	_, err := p.db.Exec(
-		`INSERT INTO mfa_credentials(account_id,secret,confirmed) VALUES($1,$2,FALSE)
-		 ON CONFLICT(account_id) DO UPDATE SET secret=EXCLUDED.secret, confirmed=FALSE, created_at=now()`,
-		accountID, secret)
-	return err
-}
-
-func (p *Postgres) MFA(accountID string) (MFACredential, error) {
-	var c MFACredential
-	err := p.db.QueryRow(
-		`SELECT account_id,secret,confirmed,created_at FROM mfa_credentials WHERE account_id=$1`, accountID).
-		Scan(&c.AccountID, &c.Secret, &c.Confirmed, &c.CreatedAt)
-	return c, norm(err)
-}
-
-func (p *Postgres) ConfirmMFA(accountID string) error {
-	return affected(p.db.Exec(`UPDATE mfa_credentials SET confirmed=TRUE WHERE account_id=$1`, accountID))
 }
 
 // --- objects & audit ---
