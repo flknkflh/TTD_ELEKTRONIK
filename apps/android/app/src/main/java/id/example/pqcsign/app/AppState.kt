@@ -6,10 +6,18 @@ import android.content.Context
 class AppState(context: Context) {
     private val sp = context.applicationContext.getSharedPreferences("pqc_state", Context.MODE_PRIVATE)
 
+    companion object {
+        const val DEFAULT_SERVER_URL = "http://136.244.116.132:8099"
+        private val LOOPBACK = Regex("localhost|127\\.0\\.0\\.1|10\\.0\\.2\\.2|0\\.0\\.0\\.0", RegexOption.IGNORE_CASE)
+    }
+
     var serverUrl: String
-        // Default matches tools/dev-up.sh (plain HTTP on :8099). For a TLS
-        // server (Caddy) use https:// and keep insecureTls on for a lab cert.
-        get() = sp.getString("server_url", "http://136.244.116.132:8099") ?: ""
+        // A stored loopback address left over from a local build is treated as
+        // stale so upgraded installs migrate to the current default.
+        get() {
+            val v = sp.getString("server_url", null)
+            return if (v.isNullOrBlank() || LOOPBACK.containsMatchIn(v)) DEFAULT_SERVER_URL else v
+        }
         set(v) = sp.edit().putString("server_url", v.trim().trimEnd('/'))
             .apply()
 

@@ -63,6 +63,8 @@
     background: var(--bg-elev);
   }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
+  .brand .ver { font-weight: 500; font-size: 11px; color: var(--fg-faint);
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
   .brand .dot { width: 22px; height: 22px; border-radius: 7px;
     background: linear-gradient(135deg, var(--accent), #9333ea); }
   .acct { position: relative; }
@@ -222,7 +224,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span> PQC PDF Sign</div>
+  <div class="brand"><span class="dot"></span> PQC PDF Sign <span class="ver" id="verTag"></span></div>
   <div class="acct" id="acct" hidden>
     <button class="acct-btn" id="acctBtn"><span id="acctEmail"></span> ▾</button>
     <div class="acct-menu" id="acctMenu" hidden>
@@ -370,9 +372,17 @@
   if (pdfjs) pdfjs.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
   const STAMP_ASPECT = 1.0; // square QR — must match the server
 
+  const APP_VERSION = "v0.3.0";
+  const DEFAULT_SRV = "http://136.244.116.132";
+
   let currentScreen = "scAuth";
   const state = {
-    get srv() { return localStorage.getItem("pqc_srv") || "http://136.244.116.132"; },
+    // Ignore a stale loopback address left over from a local build so old
+    // installs migrate to the current default automatically.
+    get srv() {
+      const v = localStorage.getItem("pqc_srv");
+      return (v && !/localhost|127\.0\.0\.1|10\.0\.2\.2|0\.0\.0\.0/i.test(v)) ? v : DEFAULT_SRV;
+    },
     set srv(v) { try { localStorage.setItem("pqc_srv", v); } catch (_) {} },
     get email() { return localStorage.getItem("pqc_email") || ""; },
     set email(v) { try { localStorage.setItem("pqc_email", v); } catch (_) {} },
@@ -751,6 +761,7 @@
   }
 
   // ---------- init ----------
+  $("verTag").textContent = APP_VERSION;
   $("srv").value = state.srv;
   $("rsrv").value = state.srv;
   $("lemail").value = state.email;

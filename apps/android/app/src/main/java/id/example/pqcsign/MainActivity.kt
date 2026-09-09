@@ -48,6 +48,8 @@ import kotlin.concurrent.thread
  * Verifikasi (public, no account). Post-login: Beranda / Tanda Tangan /
  * Verifikasi / Akun. All crypto stays in AppCore / the AAR.
  */
+private const val APP_VERSION = "v0.3.0"
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var core: AppCore
@@ -194,6 +196,7 @@ class MainActivity : AppCompatActivity() {
             })
         })
         addView(hint("Belum punya akun? Buka tab “Daftar”."))
+        addView(hint("Versi $APP_VERSION"))
     }
 
     private fun screenRegister(): View = page {
