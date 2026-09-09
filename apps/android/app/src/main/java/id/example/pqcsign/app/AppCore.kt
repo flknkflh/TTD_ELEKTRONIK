@@ -169,9 +169,15 @@ class AppCore(private val context: Context, val state: AppState) {
         // The QR stamps are drawn server-side BEFORE signing so they are
         // inside the signed byte range (Rencana RB-2c). A PDF the server
         // cannot process fails here with a clear message.
-        val toSign = api.stamp(res.publicId, pdf, places.ifEmpty {
-            listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
-        }, reason)
+        val toSign = try {
+            api.stamp(res.publicId, pdf, places.ifEmpty {
+                listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
+            }, reason)
+        } catch (e: ApiClient.ApiException) {
+            // 413: too big for a server-drawn QR stamp (docs/large-files.md).
+            // Sign the original as-is; the QR link still comes from the record.
+            if (e.status == 413) pdf else throw e
+        }
 
         var keyPem = vault.load()
         val signed: ByteArray
@@ -187,12 +193,20 @@ class AppCore(private val context: Context, val state: AppState) {
             keyPem.fill(0)
         }
 
-        // Local verification before upload (§15.2 step 10).
-        val local = SigningEngine.verifyPdf(signed, root, null)
-        require(local.valid) { "local verification failed; not uploading" }
+        // Local verification before upload (§15.2 step 10). Skipped for very
+        // large documents — verifyPdf is not streaming; the server records
+        // those store-only anyway.
+        if (signed.size <= LOCAL_VERIFY_MAX_BYTES) {
+            val local = SigningEngine.verifyPdf(signed, root, null)
+            require(local.valid) { "local verification failed; not uploading" }
+        }
 
         val serverStatus = try {
-            api.submitDocument(res.publicId, signed).optString("status", "submitted")
+            when (val st = api.submitDocument(res.publicId, signed).optString("status", "submitted")) {
+                "stored_unverified" ->
+                    "tersimpan — TIDAK diverifikasi server (berkas besar); verifikasi manual lewat halaman verifikasi"
+                else -> st
+            }
         } catch (e: Exception) {
             "local-only (upload failed: ${e.message})"
         }
@@ -332,5 +346,9 @@ class AppCore(private val context: Context, val state: AppState) {
         private const val CERT_FILE = "device.crt.pem"
         private const val CHAIN_FILE = "ca-chain.pem"
         private const val ROOT_FILE = "root-ca.crt.pem"
+
+        // Above this the client skips the pre-upload local verify pass
+        // (verifyPdf is not streaming).
+        private const val LOCAL_VERIFY_MAX_BYTES = 200 * 1024 * 1024
     }
 }

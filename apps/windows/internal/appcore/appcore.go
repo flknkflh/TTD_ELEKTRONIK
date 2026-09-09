@@ -353,7 +353,13 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 	}
 	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason)
 	if err != nil {
-		return SignResult{}, fmt.Errorf("penempelan QR: %w", err)
+		if apiclient.IsTooLarge(err) {
+			// Too big for a server-drawn QR stamp (docs/large-files.md) — sign
+			// the original as-is; the QR link still comes from the record.
+			toSign = pdf
+		} else {
+			return SignResult{}, fmt.Errorf("penempelan QR: %w", err)
+		}
 	}
 
 	keyPEM, err := a.store.LoadKey(keystore.Options{PIN: pin})
@@ -373,12 +379,16 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 		return SignResult{}, fmt.Errorf("sign: %w", serr)
 	}
 
-	// Local verification before upload (§15.2 step 10).
-	vr, err := verification.VerifyPDF(signed.SignedPDF, verification.Options{
-		RootPEM: rootPEM, IntermediatePEM: chainPEM, RequireMLDSAOnly: true, Timeout: 20 * time.Second,
-	})
-	if err != nil || !vr.Valid {
-		return SignResult{}, fmt.Errorf("local verification failed; not uploading: %v", firstErr(vr, err))
+	// Local verification before upload (§15.2 step 10). Skipped for very large
+	// documents — verification.VerifyPDF is not streaming and would take
+	// minutes / a lot of RAM; the server records those store-only anyway.
+	if len(signed.SignedPDF) <= localVerifyMaxBytes {
+		vr, verr := verification.VerifyPDF(signed.SignedPDF, verification.Options{
+			RootPEM: rootPEM, IntermediatePEM: chainPEM, RequireMLDSAOnly: true, Timeout: 20 * time.Second,
+		})
+		if verr != nil || !vr.Valid {
+			return SignResult{}, fmt.Errorf("local verification failed; not uploading: %v", firstErr(vr, verr))
+		}
 	}
 
 	if outPath == "" {
@@ -394,6 +404,9 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 		status = "local-only (upload failed: " + err.Error() + ")"
 	} else if v, ok := sub["status"].(string); ok {
 		status = v
+		if v == "stored_unverified" {
+			status = "tersimpan — TIDAK diverifikasi server (berkas besar); verifikasi manual lewat halaman verifikasi"
+		}
 	}
 	return SignResult{
 		OutputPath: outPath, PublicID: res.PublicID, VerificationURL: res.VerificationURL,
@@ -461,6 +474,10 @@ func (a *App) ReportLost() error {
 func (a *App) Reset() error { return a.store.Reset() }
 
 // ---- helpers ----
+
+// localVerifyMaxBytes: above this the client skips the pre-upload local
+// verification pass (verification.VerifyPDF is not streaming).
+const localVerifyMaxBytes = 200 << 20
 
 func wipe(b []byte) {
 	for i := range b {

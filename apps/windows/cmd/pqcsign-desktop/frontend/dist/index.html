@@ -766,6 +766,11 @@
     // it as { verification, registered, record }.
     const o = top.verification || top;
     const sigs = o.signatures || [];
+    const rec = top.record || {};
+    const storedOnly = rec.verification_status === "stored_unverified" || rec.certificate_status === "not_server_verified";
+    const storedBanner = storedOnly
+      ? '<div class="hint" style="margin-top:8px">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis di server — server hanya mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung di aplikasi ini.</div>'
+      : "";
     if (o.valid && sigs.length) {
       const s = sigs[0];
       const subj = s.subject || "";
@@ -782,9 +787,9 @@
         row("No. sertifikat", s.certificate_serial, true) +
         row("Rantai tepercaya", s.trusted_chain ? "ya" : "TIDAK") +
         row("Sertifikat dicabut", s.revoked ? "YA" : "tidak") +
-        (top.registered === true ? row("Terdaftar di server", "ya") : "") +
+        (top.registered === true ? row("Terdaftar di server", storedOnly ? "ya (disimpan, tidak diverifikasi server)" : "ya") : "") +
         (pid ? row("ID verifikasi", pid, true) : "") +
-        "</dl>" +
+        "</dl>" + storedBanner +
         '<p class="note">Waktu di atas berasal dari jam perangkat penandatangan, bukan stempel waktu tepercaya.</p>';
     }
     const errs = (o.errors || (sigs[0] && sigs[0].errors) || []);

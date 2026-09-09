@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -16,6 +17,11 @@ import (
 	"strings"
 	"time"
 )
+
+// uploadChunkBytes is the size of one resumable-upload chunk, and the
+// threshold above which a body is pushed through /api/v1/uploads instead of a
+// single request (docs/large-files.md).
+const uploadChunkBytes = 8 << 20
 
 type Client struct {
 	base  string
@@ -32,8 +38,16 @@ func New(baseURL string, insecureTLS bool) *Client {
 	}
 	return &Client{
 		base: strings.TrimRight(baseURL, "/"),
-		http: &http.Client{Timeout: 60 * time.Second, Transport: tr},
+		// enough headroom for one ~8 MiB resumable-upload chunk on a slow link
+		http: &http.Client{Timeout: 2 * time.Minute, Transport: tr},
 	}
+}
+
+// IsTooLarge reports whether err is a 413 from the server — the payload is
+// past a size tier (e.g. too big for a server-drawn QR stamp).
+func IsTooLarge(err error) bool {
+	var e *apiError
+	return errors.As(err, &e) && e.Status == http.StatusRequestEntityTooLarge
 }
 
 func (c *Client) SetToken(t string) { c.token = t }
@@ -280,20 +294,77 @@ func (c *Client) Stamp(publicID string, pdf []byte, placements []StampPlacement,
 		q.Set("y", strconv.FormatFloat(p.Y, 'f', 4, 64))
 		q.Set("w", strconv.FormatFloat(p.W, 'f', 4, 64))
 	}
-	path := "/api/v1/signatures/" + publicID + "/stamp?" + q.Encode()
-	raw, _, err := c.do(http.MethodPost, path, bytes.NewReader(pdf), "application/pdf")
+	base := "/api/v1/signatures/" + publicID + "/stamp"
+	if len(pdf) > uploadChunkBytes {
+		id, uerr := c.uploadBytes(pdf)
+		if uerr != nil {
+			return nil, fmt.Errorf("unggah bertahap: %w", uerr)
+		}
+		q.Set("upload_id", id)
+		raw, _, err := c.do(http.MethodPost, base+"?"+q.Encode(), nil, "")
+		return raw, err
+	}
+	raw, _, err := c.do(http.MethodPost, base+"?"+q.Encode(), bytes.NewReader(pdf), "application/pdf")
 	return raw, err
 }
 
 func (c *Client) SubmitDocument(publicID string, signedPDF []byte) (map[string]any, error) {
-	raw, _, err := c.do(http.MethodPut, "/api/v1/signatures/"+publicID+"/document",
-		bytes.NewReader(signedPDF), "application/pdf")
+	path := "/api/v1/signatures/" + publicID + "/document"
+	var (
+		raw []byte
+		err error
+	)
+	if len(signedPDF) > uploadChunkBytes {
+		id, uerr := c.uploadBytes(signedPDF)
+		if uerr != nil {
+			return nil, fmt.Errorf("unggah bertahap: %w", uerr)
+		}
+		raw, _, err = c.do(http.MethodPut, path+"?upload_id="+id, nil, "")
+	} else {
+		raw, _, err = c.do(http.MethodPut, path, bytes.NewReader(signedPDF), "application/pdf")
+	}
 	if err != nil {
 		return nil, err
 	}
 	var out map[string]any
 	_ = json.Unmarshal(raw, &out)
 	return out, nil
+}
+
+// uploadBytes pushes data to a fresh resumable upload (POST /api/v1/uploads +
+// PATCH chunks) and returns the upload id to hand to ?upload_id=.
+func (c *Client) uploadBytes(data []byte) (string, error) {
+	raw, _, err := c.do(http.MethodPost, "/api/v1/uploads", nil, "")
+	if err != nil {
+		return "", err
+	}
+	var mk struct {
+		UploadID string `json:"upload_id"`
+	}
+	if json.Unmarshal(raw, &mk); mk.UploadID == "" {
+		return "", fmt.Errorf("respons unggah tanpa upload_id")
+	}
+	for off := int64(0); off < int64(len(data)); {
+		end := off + uploadChunkBytes
+		if end > int64(len(data)) {
+			end = int64(len(data))
+		}
+		resp, _, cerr := c.do(http.MethodPatch,
+			"/api/v1/uploads/"+mk.UploadID+"?offset="+strconv.FormatInt(off, 10),
+			bytes.NewReader(data[off:end]), "application/octet-stream")
+		if cerr != nil {
+			return "", cerr
+		}
+		var pr struct {
+			Received int64 `json:"received"`
+		}
+		_ = json.Unmarshal(resp, &pr)
+		if pr.Received <= off {
+			return "", fmt.Errorf("unggah macet di offset %d", off)
+		}
+		off = pr.Received
+	}
+	return mk.UploadID, nil
 }
 
 func (c *Client) MySignatures() ([]map[string]any, error) {

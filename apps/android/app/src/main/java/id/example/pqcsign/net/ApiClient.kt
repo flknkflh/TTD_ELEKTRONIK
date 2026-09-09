@@ -26,7 +26,8 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
 
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.MINUTES)   // headroom for one ~8 MiB upload chunk on a slow link
+        .writeTimeout(2, TimeUnit.MINUTES)
         .apply { if (insecureTls) trustEverything(this) }
         .build()
 
@@ -35,6 +36,11 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
     private val JSON = "application/json".toMediaType()
     private val PEM = "application/x-pem-file".toMediaType()
     private val PDF = "application/pdf".toMediaType()
+    private val OCTET = "application/octet-stream".toMediaType()
+
+    // Bodies larger than this are pushed through /api/v1/uploads in chunks
+    // instead of one request (docs/large-files.md).
+    private val uploadChunkBytes = 8 * 1024 * 1024
 
     fun setToken(t: String) { token = t }
     fun token(): String? = token
@@ -46,6 +52,7 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
             "GET" -> b.get()
             "POST" -> b.post(body ?: emptyBody())
             "PUT" -> b.put(body ?: emptyBody())
+            "PATCH" -> b.patch(body ?: emptyBody())
             else -> error("method $method")
         }
         val resp = try {
@@ -158,12 +165,39 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
             q.append("&x=").append(f(p.x)).append("&y=").append(f(p.y)).append("&w=").append(f(p.w))
             if (p.page > 0) q.append("&page=").append(p.page)
         }
+        if (pdf.size > uploadChunkBytes) {
+            val id = uploadBytes(pdf)
+            q.append("&upload_id=").append(id)
+            return req("POST", "/api/v1/signatures/$publicId/stamp$q", null)
+        }
         return req("POST", "/api/v1/signatures/$publicId/stamp$q", pdf.toRequestBody(PDF))
     }
 
-    /** Returns the server's JSON result (status "accepted" on success). */
-    fun submitDocument(publicId: String, signedPdf: ByteArray): JSONObject =
-        obj(req("PUT", "/api/v1/signatures/$publicId/document", signedPdf.toRequestBody(PDF)))
+    /** Returns the server's JSON result (status "accepted", or
+     *  "stored_unverified" for a document too large to verify server-side). */
+    fun submitDocument(publicId: String, signedPdf: ByteArray): JSONObject {
+        if (signedPdf.size > uploadChunkBytes) {
+            val id = uploadBytes(signedPdf)
+            return obj(req("PUT", "/api/v1/signatures/$publicId/document?upload_id=$id", null))
+        }
+        return obj(req("PUT", "/api/v1/signatures/$publicId/document", signedPdf.toRequestBody(PDF)))
+    }
+
+    /** Pushes [data] to a fresh resumable upload and returns its id. */
+    private fun uploadBytes(data: ByteArray): String {
+        val id = obj(req("POST", "/api/v1/uploads", null)).optString("upload_id")
+        require(id.isNotEmpty()) { "respons unggah tanpa upload_id" }
+        var off = 0
+        while (off < data.size) {
+            val end = minOf(off + uploadChunkBytes, data.size)
+            val part = data.copyOfRange(off, end)
+            val res = obj(req("PATCH", "/api/v1/uploads/$id?offset=$off", part.toRequestBody(OCTET)))
+            val got = res.optInt("received", off)
+            require(got > off) { "unggah macet di offset $off" }
+            off = got
+        }
+        return id
+    }
 
     fun mySignatures(): List<JSONObject> {
         val arr = obj(req("GET", "/api/v1/me/signatures", null)).optJSONArray("signatures") ?: return emptyList()

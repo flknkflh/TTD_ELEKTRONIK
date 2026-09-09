@@ -651,18 +651,21 @@ class MainActivity : AppCompatActivity() {
         val title = when (status) {
             "revoked" -> "Sertifikat DICABUT — tanda tangan tidak sah"
             "device_reported_lost" -> "Perangkat DILAPORKAN HILANG"
+            "not_server_verified" -> "Terdaftar — TIDAK diverifikasi server"
             else -> "Terdaftar & terverifikasi"
         }
         val id = rec.optString("public_id")
-        val rows = listOf(
-            "Penanda tangan" to rec.optString("signer_name"),
-            "Perangkat" to rec.optString("device_label"),
-            "No. sertifikat" to rec.optString("certificate_serial"),
-            "Sidik jari sertifikat" to rec.optString("certificate_fingerprint"),
-            "Waktu (klaim perangkat)" to rec.optString("client_claimed_signing_time"),
-            "Diterima server" to rec.optString("server_received_at"),
-            "ID verifikasi" to id,
-        )
+        val rows = buildList {
+            add("Penanda tangan" to rec.optString("signer_name"))
+            add("Perangkat" to rec.optString("device_label"))
+            if (status == "not_server_verified")
+                add("Status verifikasi" to "hanya disimpan (berkas besar) — SHA-512 dicatat")
+            add("No. sertifikat" to rec.optString("certificate_serial"))
+            add("Sidik jari sertifikat" to rec.optString("certificate_fingerprint"))
+            add("Waktu (klaim perangkat)" to rec.optString("client_claimed_signing_time"))
+            add("Diterima server" to rec.optString("server_received_at"))
+            add("ID verifikasi" to id)
+        }
         val wrap = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
         wrap.addView(
             verdictCard(
@@ -705,11 +708,16 @@ class MainActivity : AppCompatActivity() {
                 "Rantai tepercaya" to if (s.optBoolean("trusted_chain")) "ya" else "TIDAK",
                 "Sertifikat dicabut" to if (s.optBoolean("revoked")) "YA" else "tidak",
             )
-            if (top.optBoolean("registered")) rows += "Terdaftar di server" to "ya"
+            val storedOnly = top.optJSONObject("record")?.optString("verification_status") == "stored_unverified"
+            if (top.optBoolean("registered"))
+                rows += "Terdaftar di server" to if (storedOnly) "ya (disimpan, tidak diverifikasi server)" else "ya"
             if (pid.isNotEmpty()) rows += "ID verifikasi" to pid
             return verdictCard(
                 true, "Tanda tangan SAH", rows,
-                "Waktu di atas dari jam perangkat penandatangan, bukan stempel waktu tepercaya.",
+                if (storedOnly)
+                    "Berkas terlalu besar untuk diverifikasi otomatis di server — server hanya mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung di aplikasi ini."
+                else
+                    "Waktu di atas dari jam perangkat penandatangan, bukan stempel waktu tepercaya.",
             )
         }
         val errs = o.optJSONArray("errors") ?: sigs?.optJSONObject(0)?.optJSONArray("errors")
