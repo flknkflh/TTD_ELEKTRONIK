@@ -86,6 +86,7 @@ type Store interface {
 	ListAccounts() []store.Account
 	SetAccountStatus(id, status string) error
 	UpdateAccountProfile(id, fullName, org string) error
+	SetAccountPassword(id, passwordHash string) error
 	DeleteAccount(id string) error
 
 	CreateDevice(store.Device) (store.Device, error)
@@ -272,6 +273,8 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/admin/admins", s.superadmin(s.hListAdmins))
 	mux.HandleFunc("POST /api/v1/admin/admins", s.superadmin(s.hCreateAdmin))
+	mux.HandleFunc("PATCH /api/v1/admin/admins/{id}", s.superadmin(s.hUpdateAdmin))
+	mux.HandleFunc("DELETE /api/v1/admin/admins/{id}", s.superadmin(s.hDeleteAdmin))
 
 	mux.HandleFunc("GET /api/v1/admin/accounts", s.admin(s.hListAccounts))
 	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/approve", s.admin(s.hApproveAccount))

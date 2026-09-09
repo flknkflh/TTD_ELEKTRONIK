@@ -93,6 +93,96 @@ func (s *Server) hListAdmins(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"admins": out})
 }
 
+// hUpdateAdmin (super admin only): PATCH /api/v1/admin/admins/{id}.
+// {"password":"..."} resets the password; {"status":"active"|"disabled"}
+// toggles login. The super-admin row itself cannot be changed here.
+func (s *Server) hUpdateAdmin(w http.ResponseWriter, r *http.Request) {
+	a, err := s.st.Account(r.PathValue("id"))
+	if err != nil || (a.Role != store.RoleAdmin && a.Role != store.RoleSuperAdmin) {
+		writeErr(w, http.StatusNotFound, "admin tidak ditemukan")
+		return
+	}
+	if a.Role == store.RoleSuperAdmin {
+		writeErr(w, http.StatusForbidden, "akun super admin tidak bisa diubah dari sini")
+		return
+	}
+	var in struct {
+		Password string `json:"password"`
+		Status   string `json:"status"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad body")
+		return
+	}
+	if in.Password != "" {
+		if len(in.Password) < 8 {
+			writeErr(w, http.StatusBadRequest, "kata sandi minimal 8 karakter")
+			return
+		}
+		hash, herr := auth.HashPassword(in.Password)
+		if herr != nil {
+			writeErr(w, http.StatusInternalServerError, "hash")
+			return
+		}
+		if e := s.st.SetAccountPassword(a.ID, hash); e != nil {
+			writeErr(w, http.StatusInternalServerError, "update")
+			return
+		}
+		s.st.Append(store.AuditEvent{Type: "admin.password", AccountID: a.ID, Result: "ok", Detail: claims(r).Sub})
+	}
+	switch in.Status {
+	case store.AccountActive, store.AccountDisabled:
+		if e := s.st.SetAccountStatus(a.ID, in.Status); e != nil {
+			writeErr(w, http.StatusInternalServerError, "update")
+			return
+		}
+		s.st.Append(store.AuditEvent{Type: "admin.status", AccountID: a.ID, Result: "ok", Detail: in.Status})
+	case "":
+		// nothing
+	default:
+		writeErr(w, http.StatusBadRequest, "status harus active atau disabled")
+		return
+	}
+	na, _ := s.st.Account(a.ID)
+	writeJSON(w, http.StatusOK, s.accountView(na))
+}
+
+// hDeleteAdmin (super admin only): DELETE /api/v1/admin/admins/{id}.
+func (s *Server) hDeleteAdmin(w http.ResponseWriter, r *http.Request) {
+	a, err := s.st.Account(r.PathValue("id"))
+	if err != nil || a.Role != store.RoleAdmin {
+		writeErr(w, http.StatusNotFound, "admin tidak ditemukan")
+		return
+	}
+	if err := s.st.DeleteAccount(a.ID); err != nil {
+		_ = s.st.SetAccountStatus(a.ID, store.AccountDisabled)
+		s.st.Append(store.AuditEvent{Type: "admin.delete", AccountID: a.ID, Result: "tombstone"})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"account_id": a.ID, "status": store.AccountDisabled,
+			"note": "akun masih dirujuk; dinonaktifkan permanen alih-alih dihapus",
+		})
+		return
+	}
+	s.st.Append(store.AuditEvent{Type: "admin.delete", AccountID: a.ID, Result: "ok", Detail: claims(r).Sub})
+	writeJSON(w, http.StatusOK, map[string]any{"account_id": a.ID, "status": "deleted"})
+}
+
+// clientTarget loads the account for a /admin/accounts/{id} route and refuses
+// anything that is not a plain end user. Admin accounts are managed only via
+// the super-admin "Admin" menu (/api/v1/admin/admins).
+func (s *Server) clientTarget(w http.ResponseWriter, r *http.Request) (store.Account, bool) {
+	a, err := s.st.Account(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "account not found")
+		return store.Account{}, false
+	}
+	if a.Role != store.RoleUser {
+		writeErr(w, http.StatusForbidden, "akun admin dikelola di menu Admin (khusus super admin)")
+		return store.Account{}, false
+	}
+	return a, true
+}
+
 func (s *Server) hListAccounts(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for _, a := range s.st.ListAccounts() {
@@ -102,50 +192,41 @@ func (s *Server) hListAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) hApproveAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	a, err := s.st.Account(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "account not found")
+	a, ok := s.clientTarget(w, r)
+	if !ok {
 		return
 	}
 	if a.Status == store.AccountActive {
 		writeJSON(w, http.StatusOK, s.accountView(a))
 		return
 	}
-	if err := s.st.SetAccountStatus(id, store.AccountActive); err != nil {
+	if err := s.st.SetAccountStatus(a.ID, store.AccountActive); err != nil {
 		writeErr(w, http.StatusInternalServerError, "update")
 		return
 	}
-	s.st.Append(store.AuditEvent{Type: "account.approve", AccountID: id, Result: "ok"})
-	a, _ = s.st.Account(id)
+	s.st.Append(store.AuditEvent{Type: "account.approve", AccountID: a.ID, Result: "ok"})
+	a, _ = s.st.Account(a.ID)
 	writeJSON(w, http.StatusOK, s.accountView(a))
 }
 
 func (s *Server) hEnableAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	a, err := s.st.Account(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "account not found")
+	a, ok := s.clientTarget(w, r)
+	if !ok {
 		return
 	}
-	if a.Role == store.RoleAdmin && claims(r).Role != store.RoleSuperAdmin {
-		writeErr(w, http.StatusForbidden, "hanya super admin yang bisa mengaktifkan admin")
-		return
-	}
-	if err := s.st.SetAccountStatus(id, store.AccountActive); err != nil {
+	if err := s.st.SetAccountStatus(a.ID, store.AccountActive); err != nil {
 		writeErr(w, http.StatusInternalServerError, "update")
 		return
 	}
-	s.st.Append(store.AuditEvent{Type: "account.enable", AccountID: id, Result: "ok",
+	s.st.Append(store.AuditEvent{Type: "account.enable", AccountID: a.ID, Result: "ok",
 		Detail: "prior certificates stay revoked; the user re-enrols on next login"})
-	a, _ = s.st.Account(id)
+	a, _ = s.st.Account(a.ID)
 	writeJSON(w, http.StatusOK, s.accountView(a))
 }
 
 func (s *Server) hUpdateAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if _, err := s.st.Account(id); err != nil {
-		writeErr(w, http.StatusNotFound, "account not found")
+	a, ok := s.clientTarget(w, r)
+	if !ok {
 		return
 	}
 	var in struct {
@@ -156,12 +237,12 @@ func (s *Server) hUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
-	if err := s.st.UpdateAccountProfile(id, in.FullName, in.Organization); err != nil {
+	if err := s.st.UpdateAccountProfile(a.ID, in.FullName, in.Organization); err != nil {
 		writeErr(w, http.StatusInternalServerError, "update")
 		return
 	}
-	s.st.Append(store.AuditEvent{Type: "account.update", AccountID: id, Result: "ok"})
-	a, _ := s.st.Account(id)
+	s.st.Append(store.AuditEvent{Type: "account.update", AccountID: a.ID, Result: "ok"})
+	a, _ = s.st.Account(a.ID)
 	writeJSON(w, http.StatusOK, s.accountView(a))
 }
 
@@ -194,23 +275,11 @@ func (s *Server) disableCascade(r *http.Request, accountID, reason string) int {
 }
 
 func (s *Server) hDisableAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	a, err := s.st.Account(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "account not found")
+	a, ok := s.clientTarget(w, r)
+	if !ok {
 		return
 	}
-	// The super admin can never be disabled — that would lock the console.
-	if a.Role == store.RoleSuperAdmin {
-		writeErr(w, http.StatusForbidden, "akun super admin tidak bisa dinonaktifkan")
-		return
-	}
-	// An active admin may only be toggled by the super admin. A *pending* row
-	// (there are none in the new model, but keep the carve-out) is fair game.
-	if a.Role == store.RoleAdmin && a.Status != store.AccountPending && claims(r).Role != store.RoleSuperAdmin {
-		writeErr(w, http.StatusForbidden, "hanya super admin yang bisa menonaktifkan admin")
-		return
-	}
+	id := a.ID
 	_ = s.st.SetAccountStatus(id, store.AccountDisabled)
 	revoked := s.disableCascade(r, id, "account disabled")
 	s.st.Append(store.AuditEvent{Type: "account.disable", AccountID: id, Result: "ok"})
@@ -220,20 +289,11 @@ func (s *Server) hDisableAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) hDeleteAccount(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	a, err := s.st.Account(id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "account not found")
+	a, ok := s.clientTarget(w, r)
+	if !ok {
 		return
 	}
-	if a.Role == store.RoleSuperAdmin {
-		writeErr(w, http.StatusForbidden, "akun super admin tidak bisa dihapus")
-		return
-	}
-	if a.Role == store.RoleAdmin && a.Status != store.AccountPending {
-		writeErr(w, http.StatusForbidden, "tidak bisa menghapus akun admin yang sudah aktif; nonaktifkan saja")
-		return
-	}
+	id := a.ID
 	_ = s.st.SetAccountStatus(id, store.AccountDisabled)
 	revoked := s.disableCascade(r, id, "account deleted")
 	// True row deletion only succeeds when nothing references the account

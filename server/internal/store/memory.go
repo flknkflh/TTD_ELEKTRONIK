@@ -103,6 +103,18 @@ func (m *Memory) UpdateAccountProfile(id, fullName, org string) error {
 	return nil
 }
 
+func (m *Memory) SetAccountPassword(id, passwordHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.accounts[id]
+	if !ok {
+		return ErrNotFound
+	}
+	a.PasswordHash = passwordHash
+	m.accounts[id] = a
+	return nil
+}
+
 func (m *Memory) DeleteAccount(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -34,12 +34,14 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ POST /api/v1/admin/crl/import
 ✔ GET  /api/v1/admin/audit-events
 ✔ GET  /api/v1/admin/capabilities                   ({lab_issuer:bool, role})
-✔ GET  /api/v1/admin/admins                          (super admin only: admin roster)
-✔ POST /api/v1/admin/admins                          (super admin only: {username,password} -> active admin)
-✔ GET  /api/v1/admin/accounts                       (RB-1)
-✔ POST /api/v1/admin/accounts/{id}/approve|disable|enable   (disable/enable of an admin: super admin only)
-✔ PATCH  /api/v1/admin/accounts/{id}                ({full_name,organization})
-✔ DELETE /api/v1/admin/accounts/{id}                (cascade revoke + CRL; tombstone if it has history)
+✔ GET    /api/v1/admin/admins                        (super admin only: admin roster — admins only, no client accounts)
+✔ POST   /api/v1/admin/admins                        (super admin only: {username,password} -> active admin)
+✔ PATCH  /api/v1/admin/admins/{id}                   (super admin only: {password} reset and/or {status:"active"|"disabled"})
+✔ DELETE /api/v1/admin/admins/{id}                   (super admin only: delete an admin)
+✔ GET  /api/v1/admin/accounts                       (RB-1; client + admin rows — mutations below are client-only)
+✔ POST /api/v1/admin/accounts/{id}/approve|disable|enable   (CLIENT accounts only — 403 for any admin/superadmin target)
+✔ PATCH  /api/v1/admin/accounts/{id}                ({full_name,organization}; client only)
+✔ DELETE /api/v1/admin/accounts/{id}                (cascade revoke + CRL; tombstone if it has history; client only)
 ✔ GET  /admin                                       (static operator console)
 ```
 
@@ -133,14 +135,21 @@ the signing API when only verification should be reachable.
 ## Admin
 ```
 GET    /api/v1/admin/capabilities                ({lab_issuer, role})
-GET    /api/v1/admin/admins                       (super admin only)
+GET    /api/v1/admin/admins                       (super admin only: admin roster)
 POST   /api/v1/admin/admins                       (super admin only: {username,password} -> active admin)
+PATCH  /api/v1/admin/admins/{id}                  (super admin only: {password} reset, {status:"active"|"disabled"})
+DELETE /api/v1/admin/admins/{id}                  (super admin only)
 GET    /api/v1/admin/accounts
-POST   /api/v1/admin/accounts/{id}/approve
-POST   /api/v1/admin/accounts/{id}/disable       (cascade: revoke all certs + republish CRL; admin target -> super admin only)
-POST   /api/v1/admin/accounts/{id}/enable        (admin target -> super admin only)
-PATCH  /api/v1/admin/accounts/{id}               ({full_name, organization})
-DELETE /api/v1/admin/accounts/{id}               (cascade; kept as a disabled tombstone if it has signatures)
+POST   /api/v1/admin/accounts/{id}/approve        (CLIENT accounts only)
+POST   /api/v1/admin/accounts/{id}/disable        (client only; cascade: revoke all certs + republish CRL)
+POST   /api/v1/admin/accounts/{id}/enable         (client only)
+PATCH  /api/v1/admin/accounts/{id}                (client only; {full_name, organization})
+DELETE /api/v1/admin/accounts/{id}                (client only; cascade; tombstone if it has signatures)
+
+Admin accounts are managed ONLY via /admin/admins (super admin, full CRUD).
+The /admin/accounts/* mutation routes return 403 for any admin/superadmin
+target. In the /admin console the super admin sees ONLY the "Admin" view;
+regular admins see the client-account views and no "Admin" menu.
 GET    /api/v1/admin/enrollments
 POST   /api/v1/admin/enrollments/{id}/approve
 GET    /api/v1/admin/enrollments/{id}/export

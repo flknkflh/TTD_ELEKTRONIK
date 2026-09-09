@@ -173,6 +173,10 @@ func (p *Postgres) UpdateAccountProfile(id, fullName, org string) error {
 	return affected(p.db.Exec(`UPDATE accounts SET full_name=$1, organization=$2 WHERE id=$3`, fullName, org, id))
 }
 
+func (p *Postgres) SetAccountPassword(id, passwordHash string) error {
+	return affected(p.db.Exec(`UPDATE accounts SET password_hash=$1 WHERE id=$2`, passwordHash, id))
+}
+
 func (p *Postgres) DeleteAccount(id string) error {
 	return affected(p.db.Exec(`DELETE FROM accounts WHERE id=$1`, id))
 }

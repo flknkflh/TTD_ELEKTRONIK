@@ -49,15 +49,15 @@ func TestAccountApprovalGate(t *testing.T) {
 	mustCode(t, e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "pegawai@test", "password": "password123"}), http.StatusOK)
 }
 
-// Admins can no longer self-register: only the bootstrapped super admin
-// creates them, and only the super admin can disable/enable an admin.
+// Admin accounts are managed ONLY by the super admin, ONLY via /admin/admins
+// (full CRUD). The regular /admin/accounts/* routes are for client (user)
+// accounts and refuse any admin/superadmin target.
 func TestAdminManagedBySuperAdmin(t *testing.T) {
 	e := newEnv(t) // api.New bootstrapped the super admin; e.su is its token
 	admin := e.account("admin@test", store.RoleAdmin)
 
-	login := func(email string) int {
-		return e.do("POST", "/api/v1/auth/login", "", map[string]string{
-			"email": email, "password": "password123"}).Code
+	login := func(email, pw string) int {
+		return e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": email, "password": pw}).Code
 	}
 
 	// role in the register body is ignored — you get a pending end user
@@ -69,11 +69,9 @@ func TestAdminManagedBySuperAdmin(t *testing.T) {
 		t.Fatalf("register role/status = %v/%v, want user/pending", b["role"], b["status"])
 	}
 
-	// a plain admin cannot create admins
+	// CREATE — a plain admin cannot; the super admin can, and it is active
 	mustCode(t, e.do("POST", "/api/v1/admin/admins", admin, map[string]string{
 		"username": "x@test", "password": "password123"}), http.StatusForbidden)
-
-	// the super admin creates one -> active immediately, can use admin routes
 	w = e.do("POST", "/api/v1/admin/admins", e.su, map[string]string{
 		"username": "admin2@test", "password": "password123"})
 	mustCode(t, w, http.StatusCreated)
@@ -82,38 +80,67 @@ func TestAdminManagedBySuperAdmin(t *testing.T) {
 		t.Fatalf("new admin = %v/%v, want admin/active", nb["role"], nb["status"])
 	}
 	id2 := nb["account_id"].(string)
-	if login("admin2@test") != http.StatusOK {
+	if login("admin2@test", "password123") != http.StatusOK {
 		t.Fatal("new admin cannot log in")
 	}
-	mustCode(t, e.do("GET", "/api/v1/admin/accounts", e.login("admin2@test"), nil), http.StatusOK)
 
-	// a plain admin cannot disable another active admin; the super admin can
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id2+"/disable", admin, nil), http.StatusForbidden)
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id2+"/disable", e.su, nil), http.StatusOK)
-	if login("admin2@test") != http.StatusForbidden {
-		t.Fatal("disabled admin still logs in")
-	}
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id2+"/enable", e.su, nil), http.StatusOK)
-	if login("admin2@test") != http.StatusOK {
-		t.Fatal("re-enabled admin cannot log in")
-	}
-
-	// the super admin roster lists both, and the super admin itself is locked
+	// READ — roster is admins only (no client accounts)
+	e.account("someuser@test", store.RoleUser)
 	admins := jbody(t, e.do("GET", "/api/v1/admin/admins", e.su, nil))["admins"].([]any)
+	for _, a := range admins {
+		if role := a.(map[string]any)["role"]; role != store.RoleAdmin && role != store.RoleSuperAdmin {
+			t.Fatalf("admin roster leaked a %v", role)
+		}
+	}
 	if len(admins) < 3 { // _su@test + admin@test + admin2@test
 		t.Fatalf("admin roster too short: %v", admins)
 	}
-	var suID string
-	for _, a := range jbody(t, e.do("GET", "/api/v1/admin/accounts", e.su, nil))["accounts"].([]any) {
-		if m := a.(map[string]any); m["role"] == store.RoleSuperAdmin {
-			suID = m["account_id"].(string)
+
+	// UPDATE — reset password + toggle status, super admin only, via /admin/admins/{id}
+	mustCode(t, e.do("PATCH", "/api/v1/admin/admins/"+id2, admin, map[string]string{"password": "newpass123"}), http.StatusForbidden)
+	mustCode(t, e.do("PATCH", "/api/v1/admin/admins/"+id2, e.su, map[string]string{"password": "newpass123"}), http.StatusOK)
+	if login("admin2@test", "password123") != http.StatusUnauthorized {
+		t.Fatal("old password still works after reset")
+	}
+	if login("admin2@test", "newpass123") != http.StatusOK {
+		t.Fatal("new password does not work after reset")
+	}
+	mustCode(t, e.do("PATCH", "/api/v1/admin/admins/"+id2, e.su, map[string]string{"status": store.AccountDisabled}), http.StatusOK)
+	if login("admin2@test", "newpass123") != http.StatusForbidden {
+		t.Fatal("disabled admin still logs in")
+	}
+	mustCode(t, e.do("PATCH", "/api/v1/admin/admins/"+id2, e.su, map[string]string{"status": store.AccountActive}), http.StatusOK)
+	if login("admin2@test", "newpass123") != http.StatusOK {
+		t.Fatal("re-enabled admin cannot log in")
+	}
+
+	// DELETE — super admin only
+	mustCode(t, e.do("DELETE", "/api/v1/admin/admins/"+id2, admin, nil), http.StatusForbidden)
+	mustCode(t, e.do("DELETE", "/api/v1/admin/admins/"+id2, e.su, nil), http.StatusOK)
+	if login("admin2@test", "newpass123") != http.StatusUnauthorized {
+		t.Fatal("deleted admin can still log in")
+	}
+
+	// the client-account routes refuse an admin target
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+adminID(t, e, "admin@test")+"/disable", e.su, nil), http.StatusForbidden)
+
+	// the super admin itself is locked everywhere
+	su := adminID(t, e, "_su@test")
+	mustCode(t, e.do("PATCH", "/api/v1/admin/admins/"+su, e.su, map[string]string{"status": store.AccountDisabled}), http.StatusForbidden)
+	mustCode(t, e.do("DELETE", "/api/v1/admin/admins/"+su, e.su, nil), http.StatusNotFound) // hDeleteAdmin only touches RoleAdmin
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+su+"/disable", e.su, nil), http.StatusForbidden)
+}
+
+// adminID resolves an account id by username from the super-admin roster.
+func adminID(t *testing.T, e *env, username string) string {
+	t.Helper()
+	for _, a := range jbody(t, e.do("GET", "/api/v1/admin/admins", e.su, nil))["admins"].([]any) {
+		if m := a.(map[string]any); m["username"] == username {
+			return m["account_id"].(string)
 		}
 	}
-	if suID == "" {
-		t.Fatal("super admin not in account list")
-	}
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+suID+"/disable", e.su, nil), http.StatusForbidden)
-	mustCode(t, e.do("DELETE", "/api/v1/admin/accounts/"+suID, e.su, nil), http.StatusForbidden)
+	t.Fatalf("admin %q not in roster", username)
+	return ""
 }
 
 func TestAccountDisableCascadesRevocation(t *testing.T) {

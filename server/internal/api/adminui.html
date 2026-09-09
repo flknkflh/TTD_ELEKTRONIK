@@ -569,14 +569,23 @@ async function afterLogin() {
   $("whoami").textContent = store.email;
   $("loginView").classList.add("hidden");
   $("appShell").classList.remove("hidden");
-  showView("dashboard");
   try { caps = await api("GET", "/api/v1/admin/capabilities"); } catch (_) { caps = { lab_issuer: false }; }
-  if (caps.role === "superadmin") {
-    $("navAdmins").classList.remove("hidden");
-    refreshAdmins().catch(() => {});
-  } else {
-    $("navAdmins").classList.add("hidden");
+
+  // The super admin console does ONE job: manage admin accounts. Hide every
+  // client-facing view for it; regular admins never see the "Admin" view.
+  const su = caps.role === "superadmin";
+  $("navAdmins").classList.toggle("hidden", !su);
+  ["dashboard", "approvals", "accounts", "devices", "ops"].forEach((v) => {
+    const b = document.querySelector('.nav-item[data-view="' + v + '"]');
+    if (b) b.classList.toggle("hidden", su);
+  });
+  if (su) {
+    showView("admins");
+    await refreshAdmins().catch(() => {});
+    return;   // no client-account / device polling for the super admin
   }
+
+  showView("dashboard");
   await refreshAccounts();
   await refresh();
   startAuto();
@@ -589,10 +598,17 @@ async function refreshAdmins() {
   catch (e) { if (e.status === 403) return; throw e; }
   const rows = list.map((a) => {
     const id = a.account_id;
-    let act = '<span class="muted">—</span>';
-    if (a.role === "superadmin") act = '<span class="pill approved">super admin</span>';
-    else if (a.status === "active") act = `<button class="btn btn-sm btn-danger" data-act="acc-disable" data-id="${esc(id)}">Nonaktifkan</button>`;
-    else act = `<button class="btn btn-sm btn-ghost" data-act="acc-enable" data-id="${esc(id)}">Aktifkan</button>`;
+    let act;
+    if (a.role === "superadmin") {
+      act = '<span class="pill approved">super admin</span>';
+    } else {
+      const toggle = a.status === "active"
+        ? `<button class="btn btn-sm btn-danger" data-act="admin-disable" data-id="${esc(id)}">Nonaktifkan</button>`
+        : `<button class="btn btn-sm btn-ghost" data-act="admin-enable" data-id="${esc(id)}">Aktifkan</button>`;
+      act = `<button class="btn btn-sm btn-ghost" data-act="admin-reset" data-id="${esc(id)}" data-user="${esc(a.username)}">Reset sandi</button> ` +
+            toggle +
+            ` <button class="btn btn-sm btn-danger" data-act="admin-delete" data-id="${esc(id)}" data-user="${esc(a.username)}">Hapus</button>`;
+    }
     return `<tr><td class="mono">${esc(a.username)}</td><td>${esc(a.role)}</td>` +
            `<td><span class="pill ${a.status === "active" ? "approved" : "pending"}">${esc(a.status)}</span></td><td>${act}</td></tr>`;
   }).join("");
@@ -651,22 +667,17 @@ async function refreshAccounts() {
     else if (e.status === 401) { toast("Sesi kedaluwarsa, silakan Masuk lagi.", "err"); doLogout(); }
     return;
   }
-  lastAccounts = list;
-  const pending = list.filter((a) => a.status === "pending").length;
-  $("accCount").textContent = list.length + " akun" + (pending ? ` · ${pending} menunggu persetujuan` : "");
+  // This console page is client (end-user) accounts only. Admin accounts are
+  // managed by the super admin in the "Admin" view.
+  lastAccounts = list.filter((a) => a.role === "user");
+  const pending = lastAccounts.filter((a) => a.status === "pending").length;
+  $("accCount").textContent = lastAccounts.length + " akun" + (pending ? ` · ${pending} menunggu persetujuan` : "");
   const body = $("accBody");
-  if (list.length === 0) { body.innerHTML = '<tr><td colspan="6" class="muted">belum ada akun</td></tr>'; updateDashboard(); return; }
-  body.innerHTML = list.map((a) => {
+  if (lastAccounts.length === 0) { body.innerHTML = '<tr><td colspan="6" class="muted">belum ada akun</td></tr>'; updateDashboard(); return; }
+  body.innerHTML = lastAccounts.map((a) => {
     const id = a.account_id;
-    const isAdmin = a.role === "admin";
     let acts = "";
-    if (isAdmin && a.status === "pending") {
-      // an admin sign-up waiting for an existing admin to vouch for it
-      acts = `<button class="btn btn-sm btn-primary" data-act="acc-approve" data-id="${esc(id)}">Setujui admin</button>
-              <button class="btn btn-sm btn-danger" data-act="acc-reject" data-id="${esc(id)}">Tolak</button>`;
-    } else if (isAdmin) {
-      acts = '<span class="muted">admin</span>';
-    } else if (a.status === "pending") {
+    if (a.status === "pending") {
       acts = `<button class="btn btn-sm btn-primary" data-act="acc-approve" data-id="${esc(id)}">Setujui</button>
               <button class="btn btn-sm btn-danger" data-act="acc-reject" data-id="${esc(id)}">Tolak</button>`;
     } else if (a.status === "active") {
@@ -704,12 +715,11 @@ function renderApprovals() {
   }
   body.innerHTML = pend.map((a) => {
     const id = a.account_id;
-    const isAdmin = a.role === "admin";
     return `<tr>
       <td class="mono">${esc((a.created_at || "").replace("T", " ").replace("Z", ""))}</td>
       <td>${esc(a.full_name || "—")}<br><span class="muted mono">${esc(a.email)}</span></td>
       <td>${esc(a.organization || "—")}</td>
-      <td><span class="pill ${isAdmin ? "approved" : "pending"}">${isAdmin ? "admin" : "pengguna"}</span></td>
+      <td><span class="pill pending">pengguna</span></td>
       <td class="row">
         <button class="btn btn-sm btn-primary" data-act="acc-approve" data-id="${esc(id)}">Setujui</button>
         <button class="btn btn-sm btn-danger" data-act="acc-reject" data-id="${esc(id)}">Tolak</button>
@@ -835,7 +845,25 @@ document.addEventListener("click", async (ev) => {
   const act = btn.dataset.act;
   btn.disabled = true;
   try {
-    if (act === "acc-approve") {
+    if (act === "admin-reset") {
+      const u = btn.dataset.user || "admin";
+      const pw = prompt("Kata sandi baru untuk " + u + " (min. 8 karakter):");
+      if (pw === null) { btn.disabled = false; return; }
+      if (pw.length < 8) { toast("Minimal 8 karakter", "err"); btn.disabled = false; return; }
+      await api("PATCH", `/api/v1/admin/admins/${id}`, { password: pw });
+      toast("Kata sandi " + u + " diganti", "ok"); refreshAdmins();
+    } else if (act === "admin-disable") {
+      await api("PATCH", `/api/v1/admin/admins/${id}`, { status: "disabled" });
+      toast("Admin dinonaktifkan", "ok"); refreshAdmins();
+    } else if (act === "admin-enable") {
+      await api("PATCH", `/api/v1/admin/admins/${id}`, { status: "active" });
+      toast("Admin diaktifkan", "ok"); refreshAdmins();
+    } else if (act === "admin-delete") {
+      const u = btn.dataset.user || "admin";
+      if (!confirm("HAPUS akun admin " + u + "? Tidak bisa masuk lagi.")) { btn.disabled = false; return; }
+      const r = await api("DELETE", `/api/v1/admin/admins/${id}`);
+      toast(r.note || ("Admin " + u + " dihapus"), "ok"); refreshAdmins();
+    } else if (act === "acc-approve") {
       await api("POST", `/api/v1/admin/accounts/${id}/approve`, {});
       toast("Akun disetujui — sekarang bisa masuk", "ok"); refreshAccounts();
     } else if (act === "acc-reject") {
