@@ -97,14 +97,21 @@ POST /api/v1/devices/{device_id}/report-lost
 
 ## Signatures
 ```
+POST   /api/v1/uploads                              (resumable upload: -> {upload_id})
+PATCH  /api/v1/uploads/{id}?offset=<N>              (append a chunk; offset must == current size; -> {received})
+GET    /api/v1/uploads/{id}                         (-> {received}, for resume)
 POST /api/v1/signatures/reserve
 POST /api/v1/signatures/{public_id}/stamp        (body: application/pdf; ?reason=&issued_place=&stamps=<url-encoded JSON array>. Each array entry {"page":1,"x":0.62,"y":0.80,"w":0.30}: page 1-based (0/absent = last page), x,y = top-left of the QR box as page fractions, w = width fraction. The server draws one caption+QR stamp per entry: name/jabatan/NIP come from the verified account (never the client); "Dikeluarkan di <kota>" is the ?issued_place= value for this signature (omitted if absent); the date is server time in Asia/Jakarta. Returns the PDF, page count unchanged. If ?stamps= is absent it falls back to a single stamp from ?page=&x=&y=&w=. 422 if the PDF cannot be processed or an entry cannot be placed.)
-PUT  /api/v1/signatures/{public_id}/document
+PUT  /api/v1/signatures/{public_id}/document     (body: application/pdf, OR ?upload_id=<id> with no body. Large-document tiers, docs/large-files.md: <= PQC_MAX_VERIFY_MB -> strict re-verify + store; larger -> store-only, verification_status "stored_unverified", SHA-512 recorded, no cert linkage.)
 GET  /api/v1/signatures/{public_id}
 GET  /api/v1/signatures/{public_id}/download
 GET  /api/v1/me/signatures
 ```
 Client sign flow: `reserve` → `stamp` (sign the returned bytes on-device) → `document`.
+For a document over `PQC_MAX_STAMP_MB`, skip `stamp` (413) and submit the
+on-device-signed PDF straight to `document`; over `PQC_MAX_VERIFY_MB` the
+server records it store-only. Push large PDFs through `/api/v1/uploads` in
+chunks, then `document?upload_id=` / `stamp?upload_id=`.
 
 ## Public verification
 ```

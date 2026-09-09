@@ -122,6 +122,10 @@ func (s *Server) hVerifyPage(w http.ResponseWriter, r *http.Request) {
 	case "device_reported_lost":
 		badge = `<span class="badge warn">PERANGKAT DILAPORKAN HILANG</span>`
 		statusNote = "Perangkat penanda tangan dilaporkan hilang. Perlakukan tanda tangan ini dengan hati-hati."
+	case "not_server_verified":
+		badge = `<span class="badge warn">TIDAK DIVERIFIKASI SERVER</span>`
+		statusNote = "Berkas terlalu besar untuk diverifikasi otomatis di server — hanya SHA-512 yang dicatat. " +
+			"Unggah PDF di halaman verifikasi untuk memeriksa tanda tangannya."
 	}
 
 	rows := ""

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"sort"
 	"strings"
@@ -415,6 +416,12 @@ func (p *Postgres) SignaturesByAccount(accountID string) []Signature {
 
 func (p *Postgres) PutObject(key string, data []byte) error { return p.objs.PutObject(key, data) }
 func (p *Postgres) GetObject(key string) ([]byte, error)    { return p.objs.GetObject(key) }
+func (p *Postgres) PutObjectFrom(key string, r io.Reader, size int64) error {
+	return p.objs.PutObjectFrom(key, r, size)
+}
+func (p *Postgres) OpenObject(key string) (io.ReadCloser, int64, error) {
+	return p.objs.OpenObject(key)
+}
 
 func (p *Postgres) Append(ev AuditEvent) {
 	_, _ = p.db.Exec(

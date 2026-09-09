@@ -46,6 +46,10 @@ func main() {
 	cfg := api.Config{JWTSecret: secret, PublicBaseURL: *baseURL, AccessTTL: 15 * time.Minute}
 	cfg.SuperAdminUsername = envOr("PQC_SUPERADMIN_USERNAME", "superadmin")
 	cfg.SuperAdminPassword = os.Getenv("PQC_SUPERADMIN_PASSWORD") // "" -> generated + logged once
+	cfg.MaxUploadBytes = mbEnv("PQC_MAX_UPLOAD_MB", 25)           // absolute ceiling
+	cfg.MaxStampBytes = mbEnv("PQC_MAX_STAMP_MB", 150)            // server QR stamp (pdfcpu) cap
+	cfg.MaxVerifyBytes = mbEnv("PQC_MAX_VERIFY_MB", 350)          // strict re-verify cap; larger = store-only
+	cfg.UploadDir = os.Getenv("PQC_UPLOAD_DIR")                   // "" -> os.TempDir()
 	if boolEnv("PQC_RATE_LIMIT_DISABLED") {
 		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
 	}
@@ -130,6 +134,7 @@ func openStore() (api.Store, string, error) {
 		return store.NewMemory(), "in-memory", nil
 	}
 	var objs store.ObjectStore
+	label := "postgres"
 	if ep := os.Getenv("PQC_S3_ENDPOINT"); ep != "" {
 		var err error
 		objs, err = store.NewS3Objects(store.S3Config{
@@ -143,15 +148,30 @@ func openStore() (api.Store, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
+		label = "postgres + s3"
+	} else if dir := os.Getenv("PQC_OBJECT_DIR"); dir != "" {
+		// Signed PDFs go to a mounted volume, not a Postgres bytea value
+		// (bytea caps at 1 GiB and buffers whole). Needed for large documents.
+		var err error
+		if objs, err = store.NewFSObjects(dir); err != nil {
+			return nil, "", err
+		}
+		label = "postgres + fs:" + dir
 	}
 	pg, err := store.OpenPostgres(dsn, objs)
 	if err != nil {
 		return nil, "", err
 	}
-	if objs != nil {
-		return pg, "postgres + s3", nil
+	return pg, label, nil
+}
+
+func mbEnv(k string, def int64) int64 {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n << 20
+		}
 	}
-	return pg, "postgres", nil
+	return def << 20
 }
 
 func envOr(k, def string) string {

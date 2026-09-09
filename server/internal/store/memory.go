@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -421,6 +423,22 @@ func (m *Memory) GetObject(key string) ([]byte, error) {
 	cp := make([]byte, len(b))
 	copy(cp, b)
 	return cp, nil
+}
+
+func (m *Memory) PutObjectFrom(key string, r io.Reader, _ int64) error {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return m.PutObject(key, b)
+}
+
+func (m *Memory) OpenObject(key string) (io.ReadCloser, int64, error) {
+	b, err := m.GetObject(key)
+	if err != nil {
+		return nil, 0, err
+	}
+	return io.NopCloser(bytes.NewReader(b)), int64(len(b)), nil
 }
 
 // --- audit ---

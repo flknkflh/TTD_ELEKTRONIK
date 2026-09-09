@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -31,7 +32,15 @@ type Config struct {
 	CRLPEM         []byte // current CRL; replaceable via /admin/crl/import
 	JWTSecret      []byte
 	PublicBaseURL  string // e.g. https://verify.example.id
-	MaxUploadBytes int64  // 0 -> 25 MiB (§24)
+	MaxUploadBytes int64  // absolute request-body ceiling; 0 -> 25 MiB (§24)
+	// Large-document tiers (see docs/large-files.md). Each defaults to
+	// min(MaxUploadBytes, its own soft cap):
+	//   size <= MaxStampBytes   -> server may draw the QR stamp (pdfcpu)
+	//   size <= MaxVerifyBytes  -> server strict-verifies on submit
+	//   MaxVerifyBytes < size   -> store-only: hash recorded, NOT verified
+	MaxStampBytes  int64  // 0 -> min(MaxUploadBytes, 150 MiB)
+	MaxVerifyBytes int64  // 0 -> min(MaxUploadBytes, 350 MiB)
+	UploadDir      string // resumable-upload scratch dir; "" -> os.TempDir()
 	AccessTTL      time.Duration
 	Issuer         string // TOTP issuer label; "" -> "PQC PDF Sign"
 
@@ -106,17 +115,20 @@ type Store interface {
 
 	PutObject(key string, data []byte) error
 	GetObject(key string) ([]byte, error)
+	PutObjectFrom(key string, r io.Reader, size int64) error
+	OpenObject(key string) (io.ReadCloser, int64, error)
 
 	Append(store.AuditEvent)
 	AuditEvents(limit int) []store.AuditEvent
 }
 
 type Server struct {
-	st     Store
-	signer *auth.Signer
-	cfg    Config
-	crl    []byte // mutable copy of cfg.CRLPEM
-	issuer string
+	st      Store
+	signer  *auth.Signer
+	cfg     Config
+	crl     []byte // mutable copy of cfg.CRLPEM
+	issuer  string
+	uploads *uploadManager
 
 	rlLogin, rlReserve, rlSubmit, rlVerify *limiterSet
 }
@@ -133,6 +145,18 @@ func New(st Store, cfg Config) (*Server, error) {
 	}
 	if cfg.MaxUploadBytes == 0 {
 		cfg.MaxUploadBytes = 25 << 20
+	}
+	if cfg.MaxStampBytes <= 0 || cfg.MaxStampBytes > cfg.MaxUploadBytes {
+		cfg.MaxStampBytes = min(cfg.MaxUploadBytes, 150<<20)
+	}
+	if cfg.MaxVerifyBytes <= 0 || cfg.MaxVerifyBytes > cfg.MaxUploadBytes {
+		cfg.MaxVerifyBytes = min(cfg.MaxUploadBytes, 350<<20)
+	}
+	if cfg.MaxVerifyBytes < cfg.MaxStampBytes {
+		cfg.MaxVerifyBytes = cfg.MaxStampBytes
+	}
+	if cfg.UploadDir == "" {
+		cfg.UploadDir = os.TempDir()
 	}
 	if cfg.AccessTTL == 0 {
 		cfg.AccessTTL = 15 * time.Minute
@@ -157,6 +181,7 @@ func New(st Store, cfg Config) (*Server, error) {
 		cfg:       cfg,
 		crl:       cfg.CRLPEM,
 		issuer:    issuer,
+		uploads:   newUploadManager(cfg.UploadDir),
 		rlLogin:   mk(rl.LoginPerIP),
 		rlReserve: mk(rl.ReservePerAccount),
 		rlSubmit:  mk(rl.SubmitPerAccount),
@@ -222,6 +247,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/devices/{device_id}/csr", s.user(s.hSubmitCSR))
 	mux.HandleFunc("GET /api/v1/devices/{device_id}/certificate", s.user(s.hDeviceCertificate))
 	mux.HandleFunc("POST /api/v1/devices/{device_id}/report-lost", s.user(s.hReportLost))
+
+	mux.HandleFunc("POST /api/v1/uploads", s.user(s.hUploadCreate))
+	mux.HandleFunc("PATCH /api/v1/uploads/{id}", s.user(s.hUploadChunk))
+	mux.HandleFunc("GET /api/v1/uploads/{id}", s.user(s.hUploadStatus))
 
 	mux.HandleFunc("POST /api/v1/signatures/reserve", s.user(s.limit(s.rlReserve, byAccount, s.hReserve)))
 	mux.HandleFunc("POST /api/v1/signatures/{public_id}/stamp", s.user(s.limit(s.rlSubmit, byAccount, s.hStamp)))

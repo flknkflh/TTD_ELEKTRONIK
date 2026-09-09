@@ -61,7 +61,11 @@ type env struct {
 	badmin string // alias of su — satisfies every admin route, approves pending users
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
+
+// newEnvWith is newEnv with a hook to tweak the api.Config before New (large-
+// file tier caps, upload dir, ...).
+func newEnvWith(t *testing.T, tweak func(*api.Config)) *env {
 	t.Helper()
 	root, err := labpki.NewRootCA("Test Root", 10*365*24*time.Hour)
 	if err != nil {
@@ -71,7 +75,7 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := api.New(backendStore(t), api.Config{
+	cfg := api.Config{
 		RootCAPEM:          labpki.CertPEM(root.Cert),
 		CAChainPEM:         labpki.ChainPEM(inter.Cert, root.Cert),
 		JWTSecret:          []byte("test-secret-0123456789"),
@@ -79,7 +83,12 @@ func newEnv(t *testing.T) *env {
 		RateLimits:         &api.RateLimits{}, // off; TestRateLimit sets its own
 		SuperAdminUsername: "_su@test",
 		SuperAdminPassword: "password123",
-	})
+		UploadDir:          t.TempDir(),
+	}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+	srv, err := api.New(backendStore(t), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

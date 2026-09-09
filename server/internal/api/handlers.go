@@ -1,10 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"crypto/mldsa"
+	"crypto/sha512"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -389,49 +394,121 @@ func (s *Server) hSubmitDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	body, err := readBody(r, s.cfg.MaxUploadBytes)
+
+	// The signed PDF arrives either as the raw body or, for a large document
+	// pushed in chunks, as a completed resumable upload named by ?upload_id=.
+	rc, size, sess, err := s.signedInput(r, c.Sub)
 	if err != nil {
+		if errors.Is(err, errNoUpload) {
+			writeErr(w, http.StatusNotFound, "sesi unggah tidak ditemukan")
+			return
+		}
+		if errors.Is(err, errTooLarge) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "PDF exceeds the upload limit")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "read")
 		return
 	}
-	if err := withinLimit(body, s.cfg.MaxUploadBytes); err != nil {
-		writeErr(w, http.StatusRequestEntityTooLarge, "PDF exceeds the upload limit")
-		return
-	}
-	info, reason := s.strictVerify(res, body)
-	if reason != "" {
-		s.audit("signature.submit", c, res.DeviceID, "reject", reason)
-		writeErr(w, http.StatusUnprocessableEntity, reason)
-		return
-	}
+	defer rc.Close()
 
 	key := fmt.Sprintf("documents/%d/%02d/%s/signed.pdf", time.Now().Year(), int(time.Now().Month()), res.PublicID)
-	_ = s.st.PutObject(key, body)
-	sig, err := s.st.CreateSignature(store.Signature{
-		PublicID: res.PublicID, AccountID: res.AccountID, DeviceID: res.DeviceID,
-		OriginalSHA512: res.OriginalSHA512, SignedSHA512: hashutil.CalculateSHA512(body),
-		StorageObjectKey: key, SignedSize: len(body),
-		ServerReceivedAt: time.Now().UTC(), VerificationStatus: "accepted",
-		Algorithm: "ML-DSA-65", PDFProfile: "PAdES_B",
-		CertSerial: info.CertSerial, CertFingerprint: info.CertFingerprint,
-		CertificateID: info.CertificateID, ClientClaimedSigningTime: info.ClaimedTime,
-	})
+
+	var sig store.Signature
+	if size <= s.cfg.MaxVerifyBytes {
+		// verified tier: buffer, strict re-verify, store.
+		body, rerr := io.ReadAll(rc)
+		if rerr != nil {
+			writeErr(w, http.StatusBadRequest, "read")
+			return
+		}
+		info, reason := s.strictVerify(res, body)
+		if reason != "" {
+			s.audit("signature.submit", c, res.DeviceID, "reject", reason)
+			writeErr(w, http.StatusUnprocessableEntity, reason)
+			return
+		}
+		if perr := s.st.PutObject(key, body); perr != nil {
+			writeErr(w, http.StatusInternalServerError, "store")
+			return
+		}
+		sig, err = s.st.CreateSignature(store.Signature{
+			PublicID: res.PublicID, AccountID: res.AccountID, DeviceID: res.DeviceID,
+			OriginalSHA512: res.OriginalSHA512, SignedSHA512: hashutil.CalculateSHA512(body),
+			StorageObjectKey: key, SignedSize: len(body),
+			ServerReceivedAt: time.Now().UTC(), VerificationStatus: store.VerificationAccepted,
+			Algorithm: "ML-DSA-65", PDFProfile: "PAdES_B",
+			CertSerial: info.CertSerial, CertFingerprint: info.CertFingerprint,
+			CertificateID: info.CertificateID, ClientClaimedSigningTime: info.ClaimedTime,
+		})
+	} else {
+		// store-only tier: too large to verify in memory. Stream to storage
+		// while hashing; the record keeps the SHA-512 but no certificate
+		// linkage, and the public page marks it "tidak diverifikasi server".
+		h := sha512.New()
+		if perr := s.st.PutObjectFrom(key, io.TeeReader(rc, h), size); perr != nil {
+			writeErr(w, http.StatusInternalServerError, "store")
+			return
+		}
+		sig, err = s.st.CreateSignature(store.Signature{
+			PublicID: res.PublicID, AccountID: res.AccountID, DeviceID: res.DeviceID,
+			OriginalSHA512: res.OriginalSHA512, SignedSHA512: hex.EncodeToString(h.Sum(nil)),
+			StorageObjectKey: key, SignedSize: int(size),
+			ServerReceivedAt: time.Now().UTC(), VerificationStatus: store.VerificationStoredOnly,
+			Algorithm: "ML-DSA-65", PDFProfile: "PAdES_B",
+		})
+	}
 	if err != nil {
 		writeErr(w, http.StatusConflict, "submission already recorded")
 		return
 	}
+
 	_ = s.st.SetReservationStatus(res.PublicID, store.ReservationAccepted)
-	s.audit("signature.submit", c, res.DeviceID, "accept", res.PublicID)
+	s.audit("signature.submit", c, res.DeviceID, "accept", res.PublicID+" "+sig.VerificationStatus)
+	if sess != nil {
+		s.uploads.discard(sess)
+	}
 	writeJSON(w, http.StatusOK, submissionResult(sig))
 }
 
+// signedInput returns a reader + byte count for the submitted PDF, from either
+// the raw request body or a completed resumable upload (?upload_id=). When it
+// is an upload the returned *uploadSession must be discarded by the caller
+// after a successful submit; rc is always the caller's to Close.
+func (s *Server) signedInput(r *http.Request, account string) (io.ReadCloser, int64, *uploadSession, error) {
+	if id := r.URL.Query().Get("upload_id"); id != "" {
+		sess := s.uploads.get(id, account)
+		if sess == nil {
+			return nil, 0, nil, errNoUpload
+		}
+		f, err := os.Open(sess.path)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		return f, sess.size, sess, nil
+	}
+	body, err := readBody(r, s.cfg.MaxUploadBytes)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	if err := withinLimit(body, s.cfg.MaxUploadBytes); err != nil {
+		return nil, 0, nil, errTooLarge
+	}
+	return io.NopCloser(bytes.NewReader(body)), int64(len(body)), nil, nil
+}
+
 func submissionResult(sig store.Signature) map[string]any {
+	status := "accepted"
+	if sig.VerificationStatus == store.VerificationStoredOnly {
+		status = "stored_unverified"
+	}
 	return map[string]any{
-		"public_id":          sig.PublicID,
-		"status":             "accepted",
-		"signed_pdf_sha512":  sig.SignedSHA512,
-		"certificate_serial": sig.CertSerial,
-		"server_received_at": fmtTime(sig.ServerReceivedAt),
+		"public_id":           sig.PublicID,
+		"status":              status,
+		"verification_status": sig.VerificationStatus,
+		"signed_pdf_sha512":   sig.SignedSHA512,
+		"certificate_serial":  sig.CertSerial,
+		"server_received_at":  fmtTime(sig.ServerReceivedAt),
 	}
 }
 
@@ -519,7 +596,14 @@ func (s *Server) hPublicRecord(w http.ResponseWriter, r *http.Request) {
 // readable with a clear "revoked" marker (§25.6).
 func (s *Server) publicRecord(sig store.Signature, a store.Account, d store.Device) map[string]any {
 	certStatus := "active"
-	if c, err := s.st.CertificateBySerial(sig.CertSerial); err == nil && c.Status == store.CertRevoked {
+	note := "QR memastikan kecocokan dengan catatan server; integritas seluruh dokumen diverifikasi dari file PDF asli."
+	c, cerr := s.st.CertificateBySerial(sig.CertSerial)
+	if sig.VerificationStatus == store.VerificationStoredOnly {
+		certStatus = "not_server_verified"
+		note = "Berkas ini terlalu besar untuk diverifikasi otomatis di server. " +
+			"Server hanya mencatat SHA-512-nya dan menyimpan salinannya. " +
+			"Verifikasi tanda tangan secara manual dengan mengunggah PDF di halaman verifikasi."
+	} else if cerr == nil && c.Status == store.CertRevoked {
 		certStatus = "revoked"
 	} else if d.Status == store.DeviceLost {
 		certStatus = "device_reported_lost"
@@ -533,10 +617,11 @@ func (s *Server) publicRecord(sig store.Signature, a store.Account, d store.Devi
 		"certificate_serial":          sig.CertSerial,
 		"certificate_fingerprint":     sig.CertFingerprint,
 		"certificate_status":          certStatus,
+		"verification_status":         sig.VerificationStatus,
 		"signed_pdf_sha512":           sig.SignedSHA512,
 		"client_claimed_signing_time": sig.ClientClaimedSigningTime,
 		"server_received_at":          fmtTime(sig.ServerReceivedAt),
-		"note":                        "QR memastikan kecocokan dengan catatan server; integritas seluruh dokumen diverifikasi dari file PDF asli.",
+		"note":                        note,
 	}
 }
 

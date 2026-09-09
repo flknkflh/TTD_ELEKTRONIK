@@ -45,6 +45,10 @@ const (
 
 	ReservationReserved = "reserved"
 	ReservationAccepted = "accepted"
+
+	// Signature.VerificationStatus values.
+	VerificationAccepted   = "accepted"          // strict re-verify passed on submit
+	VerificationStoredOnly = "stored_unverified" // too large to verify server-side; hash recorded, file stored
 )
 
 type Account struct {

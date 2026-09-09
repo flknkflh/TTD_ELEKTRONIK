@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -57,13 +59,37 @@ func (s *Server) hStamp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := readBody(r, s.cfg.MaxUploadBytes)
+	rc, size, sess, err := s.signedInput(r, c.Sub)
 	if err != nil {
+		if errors.Is(err, errNoUpload) {
+			writeErr(w, http.StatusNotFound, "sesi unggah tidak ditemukan")
+			return
+		}
+		if errors.Is(err, errTooLarge) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "PDF exceeds the upload limit")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "read")
 		return
 	}
-	if err := withinLimit(body, s.cfg.MaxUploadBytes); err != nil {
-		writeErr(w, http.StatusRequestEntityTooLarge, "PDF exceeds the upload limit")
+	// The server draws the QR with pdfcpu, which parses the whole PDF in
+	// memory — refuse the ones too big for that (docs/large-files.md). The
+	// client should submit such a document without a server stamp.
+	if size > s.cfg.MaxStampBytes {
+		_ = rc.Close()
+		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf(
+			"berkas %d MB terlalu besar untuk stempel QR di server (maks %d MB). "+
+				"Tandatangani tanpa stempel server untuk berkas sebesar ini.",
+			size>>20, s.cfg.MaxStampBytes>>20))
+		return
+	}
+	body, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if sess != nil {
+		s.uploads.discard(sess)
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "read")
 		return
 	}
 	if !bytes.HasPrefix(body, []byte("%PDF-")) {

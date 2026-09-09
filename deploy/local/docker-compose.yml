@@ -41,8 +41,18 @@ services:
       # prints it to the log once. The lab uses a fixed one so seed.sh can log in.
       PQC_SUPERADMIN_USERNAME: "${PQC_SUPERADMIN_USERNAME:-superadmin}"
       PQC_SUPERADMIN_PASSWORD: "${PQC_SUPERADMIN_PASSWORD:-superadmin12345}"
+      # Large documents (docs/large-files.md). Signed PDFs go to a disk volume
+      # instead of Postgres bytea. Tiers by size: <=STAMP -> server QR stamp;
+      # <=VERIFY -> strict re-verify on submit; larger -> store-only (hash
+      # recorded, not verified). Resumable chunk uploads land in UPLOAD_DIR.
+      PQC_OBJECT_DIR: /objects
+      PQC_UPLOAD_DIR: /objects/_incoming
+      PQC_MAX_UPLOAD_MB: "${PQC_MAX_UPLOAD_MB:-1024}"
+      PQC_MAX_STAMP_MB: "${PQC_MAX_STAMP_MB:-150}"
+      PQC_MAX_VERIFY_MB: "${PQC_MAX_VERIFY_MB:-350}"
     volumes:
       - cadata:/ca
+      - objdata:/objects
     ports:
       - "8099:8099"   # full API (register / login / sign / admin)
       - "8098:8098"   # verification-only site — no login, verify + QR pages only
@@ -54,3 +64,4 @@ services:
 volumes:
   pgdata:
   cadata:
+  objdata:   # signed PDFs + resumable-upload scratch (docs/large-files.md)
