@@ -247,7 +247,7 @@
 
     <div class="card" id="paneLogin">
       <label>Alamat server</label>
-      <input type="text" id="srv" placeholder="http://136.244.116.132:8099" />
+      <input type="text" id="srv" placeholder="http://136.244.116.132" />
       <label>Email</label>
       <input type="text" id="lemail" autocomplete="username" placeholder="nama@instansi.go.id" />
       <label>Kata sandi</label>
@@ -258,7 +258,7 @@
 
     <div class="card" id="paneReg" hidden>
       <label>Alamat server</label>
-      <input type="text" id="rsrv" placeholder="http://136.244.116.132:8099" />
+      <input type="text" id="rsrv" placeholder="http://136.244.116.132" />
       <label>Nama lengkap</label>
       <input type="text" id="rname" placeholder="Nama sesuai identitas" />
       <label>Instansi</label>
@@ -275,7 +275,7 @@
     <div class="card" id="paneVerify" hidden>
       <p class="hint" style="margin-top:0">Verifikasi terbuka untuk umum — tidak perlu akun.</p>
       <label>Alamat server</label>
-      <input type="text" id="vsrv" placeholder="http://136.244.116.132:8099" />
+      <input type="text" id="vsrv" placeholder="http://136.244.116.132" />
       <div class="filepick" id="vpPick" style="margin-top:14px">
         <span>📄</span><span id="vpName">Pilih berkas PDF…</span>
       </div>
@@ -372,7 +372,7 @@
 
   let currentScreen = "scAuth";
   const state = {
-    get srv() { return localStorage.getItem("pqc_srv") || "http://136.244.116.132:8099"; },
+    get srv() { return localStorage.getItem("pqc_srv") || "http://136.244.116.132"; },
     set srv(v) { try { localStorage.setItem("pqc_srv", v); } catch (_) {} },
     get email() { return localStorage.getItem("pqc_email") || ""; },
     set email(v) { try { localStorage.setItem("pqc_email", v); } catch (_) {} },
