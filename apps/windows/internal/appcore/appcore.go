@@ -94,8 +94,8 @@ type RegisterResult struct {
 }
 
 // Register creates a pending account. An admin approves it before Login works.
-func (a *App) Register(fullName, org, email, password string) (RegisterResult, error) {
-	r, err := a.api.Register(fullName, org, email, password)
+func (a *App) Register(fullName, org, email, password, position, nip, issuedPlace string) (RegisterResult, error) {
+	r, err := a.api.Register(fullName, org, email, password, position, nip, issuedPlace)
 	return RegisterResult(r), err
 }
 
@@ -295,11 +295,24 @@ func (a *App) PdfBytesB64(path string) (string, error) {
 	return base64.StdEncoding.EncodeToString(b), nil
 }
 
-// SignPDF reserves an id, has the server stamp a QR at the requested spot,
+// SignPDF reserves an id, has the server stamp one caption+QR per placement,
 // signs locally, verifies the result against the bundled Root CA, writes it,
-// and submits it (§15). It never uploads the original unstamped PDF for
-// storage — only to the stamp endpoint, which returns it for signing.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string, place QRPlacement) (SignResult, error) {
+// and submits it (§15). placementsJSON is a JSON array of QRPlacement; an
+// empty string or "[]" falls back to a single default placement.
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON string) (SignResult, error) {
+	var places []QRPlacement
+	if s := strings.TrimSpace(placementsJSON); s != "" && s != "[]" {
+		if err := json.Unmarshal([]byte(s), &places); err != nil {
+			return SignResult{}, fmt.Errorf("placement tidak valid: %w", err)
+		}
+	}
+	if len(places) == 0 {
+		places = []QRPlacement{{X: 0.62, Y: 0.80, W: 0.30}}
+	}
+	return a.signPDF(inPath, outPath, reason, signerName, pin, places)
+}
+
+func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []QRPlacement) (SignResult, error) {
 	pdf, err := os.ReadFile(inPath)
 	if err != nil {
 		return SignResult{}, err
@@ -331,12 +344,14 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string, place QRP
 		return SignResult{}, fmt.Errorf("reserve: %w", err)
 	}
 
-	// The QR stamp is drawn server-side BEFORE signing so it is inside the
-	// signed byte range (Rencana RB-2c). A PDF the server cannot process
+	// The QR stamps are drawn server-side BEFORE signing so they are inside
+	// the signed byte range (Rencana RB-2c). A PDF the server cannot process
 	// fails here with a clear message.
-	toSign, err := a.api.Stamp(res.PublicID, pdf, apiclient.StampPlacement{
-		Page: place.Page, X: place.X, Y: place.Y, W: place.W,
-	}, reason)
+	sp := make([]apiclient.StampPlacement, len(places))
+	for i, p := range places {
+		sp[i] = apiclient.StampPlacement{Page: p.Page, X: p.X, Y: p.Y, W: p.W}
+	}
+	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason)
 	if err != nil {
 		return SignResult{}, fmt.Errorf("penempelan QR: %w", err)
 	}

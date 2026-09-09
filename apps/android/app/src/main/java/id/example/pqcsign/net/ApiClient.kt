@@ -75,10 +75,14 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
 
     /** Self-registers an account (Rencana RB-1). It is created pending; an
      *  admin approves it before login works. */
-    fun register(fullName: String, org: String, email: String, password: String): RegisterResult {
+    fun register(
+        fullName: String, org: String, email: String, password: String,
+        position: String = "", nip: String = "", issuedPlace: String = "",
+    ): RegisterResult {
         val o = obj(req("POST", "/api/v1/auth/register", json(JSONObject().apply {
             put("email", email); put("password", password)
             put("full_name", fullName); put("organization", org); put("display_name", fullName)
+            put("position", position); put("nip", nip); put("issued_place", issuedPlace)
         })))
         return RegisterResult(o.optString("account_id"), o.optString("status"), o.optString("message"))
     }
@@ -136,15 +140,25 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
      *  w = width; all fractions in 0..1). */
     data class StampPlacement(val page: Int, val x: Double, val y: Double, val w: Double)
 
-    /** Uploads the original PDF and returns it with one "TTD Elektronik" QR
-     *  stamp drawn at the requested spot (Rencana RB-2c), ready to sign
-     *  on-device. The page count is unchanged. */
-    fun stamp(publicId: String, pdf: ByteArray, place: StampPlacement, reason: String): ByteArray {
-        val enc = { d: Double -> java.net.URLEncoder.encode(String.format(java.util.Locale.US, "%.4f", d), "UTF-8") }
-        val sb = StringBuilder("?x=${enc(place.x)}&y=${enc(place.y)}&w=${enc(place.w)}")
-        if (place.page > 0) sb.append("&page=${place.page}")
-        if (reason.isNotEmpty()) sb.append("&reason=" + java.net.URLEncoder.encode(reason, "UTF-8"))
-        return req("POST", "/api/v1/signatures/$publicId/stamp$sb", pdf.toRequestBody(PDF))
+    /** Uploads the original PDF and returns it with one caption+QR stamp per
+     *  placement (Rencana RB-2c), ready to sign on-device. Page count
+     *  unchanged. Placements go as a JSON `stamps` param; a single placement
+     *  also sends page/x/y/w for older servers. */
+    fun stamp(publicId: String, pdf: ByteArray, places: List<StampPlacement>, reason: String): ByteArray {
+        val q = StringBuilder("?")
+        if (reason.isNotEmpty()) q.append("reason=").append(java.net.URLEncoder.encode(reason, "UTF-8")).append('&')
+        val arr = org.json.JSONArray()
+        for (p in places) arr.put(JSONObject().apply {
+            put("page", p.page); put("x", p.x); put("y", p.y); put("w", p.w)
+        })
+        q.append("stamps=").append(java.net.URLEncoder.encode(arr.toString(), "UTF-8"))
+        if (places.size == 1) {
+            val p = places[0]
+            val f = { d: Double -> String.format(java.util.Locale.US, "%.4f", d) }
+            q.append("&x=").append(f(p.x)).append("&y=").append(f(p.y)).append("&w=").append(f(p.w))
+            if (p.page > 0) q.append("&page=").append(p.page)
+        }
+        return req("POST", "/api/v1/signatures/$publicId/stamp$q", pdf.toRequestBody(PDF))
     }
 
     /** Returns the server's JSON result (status "accepted" on success). */

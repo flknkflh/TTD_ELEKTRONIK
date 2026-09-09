@@ -41,8 +41,11 @@ class AppCore(private val context: Context, val state: AppState) {
 
     // ---- 1b. Self-registration (Rencana RB-1) ----
 
-    fun register(fullName: String, org: String, email: String, password: String): ApiClient.RegisterResult =
-        api.register(fullName, org, email, password)
+    fun register(
+        fullName: String, org: String, email: String, password: String,
+        position: String = "", nip: String = "", issuedPlace: String = "",
+    ): ApiClient.RegisterResult =
+        api.register(fullName, org, email, password, position, nip, issuedPlace)
 
     // ---- 2. Device enrolment ----
 
@@ -149,7 +152,7 @@ class AppCore(private val context: Context, val state: AppState) {
      * cryptographically. The signed bytes are returned for the caller to write
      * via SAF.
      */
-    fun signPdf(inUri: Uri, reason: String, signerName: String, place: ApiClient.StampPlacement): SignResult {
+    fun signPdf(inUri: Uri, reason: String, signerName: String, places: List<ApiClient.StampPlacement>): SignResult {
         val pdf = context.contentResolver.openInputStream(inUri)!!.use { it.readBytes() }
         require(!looksSigned(pdf)) {
             "Dokumen ini sudah memiliki tanda tangan digital — satu dokumen hanya boleh ditandatangani sekali; pilih PDF yang belum ditandatangani."
@@ -163,10 +166,12 @@ class AppCore(private val context: Context, val state: AppState) {
         val origSha = sha512Hex(pdf)
         val res = api.reserve(deviceId, origSha, fileName(inUri))
 
-        // The QR stamp is drawn server-side BEFORE signing so it is inside the
-        // signed byte range (Rencana RB-2c). A PDF the server cannot process
-        // fails here with a clear message.
-        val toSign = api.stamp(res.publicId, pdf, place, reason)
+        // The QR stamps are drawn server-side BEFORE signing so they are
+        // inside the signed byte range (Rencana RB-2c). A PDF the server
+        // cannot process fails here with a clear message.
+        val toSign = api.stamp(res.publicId, pdf, places.ifEmpty {
+            listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
+        }, reason)
 
         var keyPem = vault.load()
         val signed: ByteArray

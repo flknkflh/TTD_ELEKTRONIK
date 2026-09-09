@@ -220,6 +220,9 @@
   .qr-box .hdl { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px;
     background: var(--accent); border: 2px solid #fff; border-radius: 50%; cursor: nwse-resize; }
   .qr-help { color: var(--fg-faint); font-size: 12px; text-align: center; margin: 8px 0 0; }
+  .qr-box .lbl { font-size: 10px; line-height: 1.2; }
+  .qr-marker { position: absolute; border: 2px dashed var(--accent); border-radius: 4px;
+    background: rgba(79,70,229,.06); pointer-events: none; }
 </style>
 </head>
 <body>
@@ -261,10 +264,16 @@
     <div class="card" id="paneReg" hidden>
       <label>Alamat server</label>
       <input type="text" id="rsrv" placeholder="http://136.244.116.132:8099" />
-      <label>Nama lengkap</label>
-      <input type="text" id="rname" placeholder="Nama sesuai identitas" />
-      <label>Instansi</label>
-      <input type="text" id="rorg" placeholder="Nama instansi / organisasi" />
+      <label>Nama lengkap <span style="color:var(--fg-faint)">(dengan gelar)</span></label>
+      <input type="text" id="rname" placeholder="mis. Gita Aurora, S.Ap., M.P.A." />
+      <label>Jabatan</label>
+      <input type="text" id="rpos" placeholder="mis. Plt. Asisten Deputi …" />
+      <label>NIP</label>
+      <input type="text" id="rnip" placeholder="18 digit" />
+      <label>Instansi / unit</label>
+      <input type="text" id="rorg" placeholder="Nama instansi / unit kerja" />
+      <label>Dikeluarkan di (kota)</label>
+      <input type="text" id="rplace" placeholder="mis. Jakarta" />
       <label>Email</label>
       <input type="text" id="remail" />
       <label>Kata sandi <span style="color:var(--fg-faint)">(min. 8 karakter)</span></label>
@@ -333,11 +342,13 @@
       <div class="qr-scroll">
         <div class="qr-stage" id="qrStage">
           <canvas id="qrCanvas"></canvas>
-          <div class="qr-box" id="qrBox"><span class="lbl">QR</span><span class="hdl" id="qrHandle"></span></div>
+          <div class="qr-box" id="qrBox"><span class="lbl">TTD Elektronik</span><span class="hdl" id="qrHandle"></span></div>
         </div>
       </div>
       <p class="qr-help" id="qrHelp">Memuat pratinjau…</p>
-      <div style="display:flex; gap:10px; margin-top:18px">
+      <p class="qr-help">Titik QR: <b id="stampCount">1</b>
+        <button class="btn secondary" id="btnAddStamp" type="button" style="padding:5px 12px; margin-left:8px">+ Tambah titik QR</button></p>
+      <div style="display:flex; gap:10px; margin-top:14px">
         <button class="btn" id="btnSign"><span class="spin"></span><span class="txt">Tandatangani &amp; simpan</span></button>
         <button class="btn secondary" id="placeBack">← Ganti berkas</button>
       </div>
@@ -370,7 +381,7 @@
   const api = () => window.go && window.go.main && window.go.main.App;
   const pdfjs = window.pdfjsLib;
   if (pdfjs) pdfjs.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
-  const STAMP_ASPECT = 1.0; // square QR — must match the server
+  const STAMP_ASPECT = 0.42; // caption+QR block, height/width — must match the server
 
   const APP_VERSION = "v0.3.0";
   const DEFAULT_SRV = "http://136.244.116.132:8099";
@@ -459,7 +470,8 @@
     if (!email || $("rpw").value.length < 8) { $("regMsg").textContent = "Isi email dan kata sandi minimal 8 karakter."; return; }
     try {
       await call("Connect", $("rsrv").value.trim(), true);
-      const r = await call("Register", $("rname").value.trim(), $("rorg").value.trim(), email, $("rpw").value);
+      const r = await call("Register", $("rname").value.trim(), $("rorg").value.trim(), email, $("rpw").value,
+        $("rpos").value.trim(), $("rnip").value.trim(), $("rplace").value.trim());
       state.srv = $("rsrv").value.trim(); state.email = email;
       $("srv").value = state.srv; $("lemail").value = email;
       tab(true);
@@ -577,6 +589,7 @@
     $("qrPageTotal").textContent = pdfPages;
     $("qrPrev").disabled = pdfPage <= 1; $("qrNext").disabled = pdfPage >= pdfPages;
     placeDefaultBox(vp.width, vp.height);
+    if (typeof refreshStampUI === "function") refreshStampUI();
   }
 
   function placeDefaultBox(sw, sh) {
@@ -653,9 +666,33 @@
     } catch (e) { $("signMsg").textContent = friendly(e); }
   });
 
+  let savedStamps = [];
+  function refreshStampUI() {
+    $("stampCount").textContent = savedStamps.length + 1;
+    document.querySelectorAll(".qr-marker").forEach((m) => m.remove());
+    const st = $("qrStage"); const sw = st.clientWidth, sh = st.clientHeight;
+    savedStamps.filter((s) => s.page === pdfPage).forEach((s) => {
+      const m = document.createElement("div");
+      m.className = "qr-marker";
+      m.style.left = (s.x * sw) + "px"; m.style.top = (s.y * sh) + "px";
+      m.style.width = (s.w * sw) + "px"; m.style.height = (s.w * sw * STAMP_ASPECT) + "px";
+      st.appendChild(m);
+    });
+  }
+  $("btnAddStamp").addEventListener("click", () => {
+    savedStamps.push(qrPlacement());
+    // nudge the box so the next one isn't stacked exactly on top
+    const box = $("qrBox"), st = $("qrStage");
+    box.style.left = Math.max(0, Math.min(box.offsetLeft - 28, st.clientWidth - box.offsetWidth)) + "px";
+    box.style.top = Math.max(0, Math.min(box.offsetTop - 28, st.clientHeight - box.offsetHeight)) + "px";
+    refreshStampUI();
+    toast("Titik QR ditambahkan.", "ok");
+  });
+
   $("btnPlace").addEventListener("click", async () => {
     $("signMsg").textContent = "";
     $("qrBox").dataset.init = ""; pdfDoc = null;
+    savedStamps = []; refreshStampUI();
     document.body.classList.add("placing");
     screen("scPlace");
     $("signResult").hidden = true;
@@ -687,8 +724,8 @@
   $("btnSign").addEventListener("click", () => withBtn($("btnSign"), async () => {
     $("placeMsg").textContent = ""; $("signResult").hidden = true;
     try {
-      const q = qrPlacement();
-      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", q.page, q.x, q.y, q.w);
+      const placements = savedStamps.concat([qrPlacement()]);
+      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", JSON.stringify(placements));
       $("signResult").innerHTML =
         '<div class="verdict ok"><span class="mark">✓</span> Dokumen ditandatangani</div>' +
         '<dl class="kv">' +

@@ -68,8 +68,8 @@ func (a *App) Connect(serverURL string, insecureTLS bool) error {
 	return a.core.SetServerURL(serverURL, insecureTLS)
 }
 
-func (a *App) Register(fullName, org, email, password string) (registerView, error) {
-	r, err := a.core.Register(fullName, org, email, password)
+func (a *App) Register(fullName, org, email, password, position, nip, issuedPlace string) (registerView, error) {
+	r, err := a.core.Register(fullName, org, email, password, position, nip, issuedPlace)
 	return registerView{AccountID: r.AccountID, Status: r.Status, Message: r.Message}, err
 }
 
@@ -105,12 +105,11 @@ func toCertView(cs appcore.CertStatus) certView {
 	return v
 }
 
-// SignPDF takes the QR placement as four primitives (page + top-left x,y +
-// width, page-relative fractions) so nothing but scalars crosses the bridge.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string, page int, qx, qy, qw float64) (signView, error) {
-	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, appcore.QRPlacement{
-		Page: page, X: qx, Y: qy, W: qw,
-	})
+// SignPDF takes the QR placements as a JSON array string
+// ([{page,x,y,w},...], page-relative top-left fractions) so only a string
+// crosses the bridge.
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON string) (signView, error) {
+	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON)
 	return signView{
 		OutputPath: r.OutputPath, PublicID: r.PublicID, VerificationURL: r.VerificationURL,
 		OriginalSHA512: r.OriginalSHA512, SignedSHA512: r.SignedSHA512, ServerStatus: r.ServerStatus,

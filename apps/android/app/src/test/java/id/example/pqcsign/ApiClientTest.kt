@@ -85,17 +85,20 @@ class ApiClientTest {
         assertEquals("application/pdf", rec.getHeader("Content-Type"))
     }
 
-    @Test fun register_sends_full_name_and_organization() {
+    @Test fun register_sends_signer_profile_fields() {
         json(201, """{"account_id":"acct_9","status":"pending","message":"menunggu persetujuan admin"}""")
-        val r = api.register("Budi Santoso", "Dinas Kominfo", "budi@x", "budi12345")
+        val r = api.register("Budi Santoso", "Dinas Kominfo", "budi@x", "budi12345", "Kepala Seksi", "199001", "Jakarta")
         assertEquals("acct_9", r.accountId)
         assertEquals("pending", r.status)
         val body = server.takeRequest().body.readUtf8()
         assertTrue(body.contains("\"full_name\":\"Budi Santoso\""))
         assertTrue(body.contains("\"organization\":\"Dinas Kominfo\""))
+        assertTrue(body.contains("\"position\":\"Kepala Seksi\""))
+        assertTrue(body.contains("\"nip\":\"199001\""))
+        assertTrue(body.contains("\"issued_place\":\"Jakarta\""))
     }
 
-    @Test fun stamp_posts_pdf_with_placement_and_returns_stamped_bytes() {
+    @Test fun stamp_posts_pdf_with_placements_and_returns_stamped_bytes() {
         api.setToken("t")
         server.enqueue(
             MockResponse().setResponseCode(200)
@@ -103,14 +106,17 @@ class ApiClientTest {
         )
         val out = api.stamp(
             "sig_1", "%PDF-1.7 orig".toByteArray(),
-            ApiClient.StampPlacement(page = 2, x = 0.6, y = 0.8, w = 0.25), "Persetujuan",
+            listOf(
+                ApiClient.StampPlacement(page = 2, x = 0.6, y = 0.8, w = 0.25),
+                ApiClient.StampPlacement(page = 1, x = 0.1, y = 0.1, w = 0.2),
+            ),
+            "Persetujuan",
         )
         assertEquals("%PDF-1.7 stamped", String(out))
         val rec = server.takeRequest()
         assertEquals("POST", rec.method)
         assertTrue(rec.path!!.startsWith("/api/v1/signatures/sig_1/stamp?"))
-        assertTrue(rec.path!!.contains("x=0.6000"))
-        assertTrue(rec.path!!.contains("page=2"))
+        assertTrue(rec.path!!.contains("stamps="))
         assertTrue(rec.path!!.contains("reason=Persetujuan"))
         assertEquals("application/pdf", rec.getHeader("Content-Type"))
     }

@@ -101,12 +101,14 @@ type RegisterResult struct {
 }
 
 // Register self-registers an account (Rencana RB-1). The account is created
-// pending; an admin approves it before the user can log in.
-func (c *Client) Register(fullName, org, email, password string) (RegisterResult, error) {
+// pending; an admin approves it before the user can log in. position, nip and
+// issuedPlace fill the electronic-signature caption drawn on stamps.
+func (c *Client) Register(fullName, org, email, password, position, nip, issuedPlace string) (RegisterResult, error) {
 	var out RegisterResult
 	err := c.postJSON("/api/v1/auth/register", map[string]string{
 		"email": email, "password": password,
 		"full_name": fullName, "organization": org, "display_name": fullName,
+		"position": position, "nip": nip, "issued_place": issuedPlace,
 	}, &out)
 	return out, err
 }
@@ -247,28 +249,36 @@ func (c *Client) Reserve(deviceID, originalSHA512, fileName string) (Reservation
 	return out, err
 }
 
-// StampPlacement is where the signer dropped the QR box in the app: page
-// number (1-based) and a page-relative rectangle with the origin at the
-// top-left. X,Y is the box's top-left corner; W is its width. All fractions
-// in [0,1].
+// StampPlacement is one QR box the signer dropped: page number (1-based) and
+// a page-relative rectangle with the origin at the top-left. X,Y is the box's
+// top-left corner; W is its width. All fractions in [0,1].
 type StampPlacement struct {
-	Page    int
-	X, Y, W float64
+	Page int     `json:"page"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	W    float64 `json:"w"`
 }
 
-// Stamp uploads the original PDF and returns it with one "TTD Elektronik" QR
-// stamp drawn at the requested spot (Rencana RB-2c), ready to sign on-device.
-// The page count is unchanged.
-func (c *Client) Stamp(publicID string, pdf []byte, p StampPlacement, reason string) ([]byte, error) {
+// Stamp uploads the original PDF and returns it with one caption+QR stamp per
+// placement (Rencana RB-2c), ready to sign on-device. The page count is
+// unchanged. Placements go through as a JSON `stamps` query param; the server
+// still accepts a single placement via page/x/y/w for older clients.
+func (c *Client) Stamp(publicID string, pdf []byte, placements []StampPlacement, reason string) ([]byte, error) {
 	q := url.Values{}
-	if p.Page > 0 {
-		q.Set("page", strconv.Itoa(p.Page))
-	}
-	q.Set("x", strconv.FormatFloat(p.X, 'f', 4, 64))
-	q.Set("y", strconv.FormatFloat(p.Y, 'f', 4, 64))
-	q.Set("w", strconv.FormatFloat(p.W, 'f', 4, 64))
 	if reason != "" {
 		q.Set("reason", reason)
+	}
+	if js, err := json.Marshal(placements); err == nil {
+		q.Set("stamps", string(js))
+	}
+	if len(placements) == 1 { // keep the single-placement params for compatibility
+		p := placements[0]
+		if p.Page > 0 {
+			q.Set("page", strconv.Itoa(p.Page))
+		}
+		q.Set("x", strconv.FormatFloat(p.X, 'f', 4, 64))
+		q.Set("y", strconv.FormatFloat(p.Y, 'f', 4, 64))
+		q.Set("w", strconv.FormatFloat(p.W, 'f', 4, 64))
 	}
 	path := "/api/v1/signatures/" + publicID + "/stamp?" + q.Encode()
 	raw, _, err := c.do(http.MethodPost, path, bytes.NewReader(pdf), "application/pdf")

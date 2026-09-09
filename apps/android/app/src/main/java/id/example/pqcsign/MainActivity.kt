@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
     private var lastSigned: ByteArray? = null
 
     // QR placement (Rencana RB-2c) — must match the server's stampAspect.
-    private val STAMP_ASPECT = 1.0f
+    private val STAMP_ASPECT = 0.42f
     private var pendingSignUri: Uri? = null
     private var signPageIndex = 0
     private var signPageCount = 1
@@ -79,6 +79,8 @@ class MainActivity : AppCompatActivity() {
     private var pageTotalLabel: TextView? = null
     private var pageNavPrev: View? = null
     private var pageNavNext: View? = null
+    private val savedStamps = mutableListOf<ApiClient.StampPlacement>()
+    private var stampCountLabel: TextView? = null
 
     // result sinks for the current screen
     private var signResult: LinearLayout? = null
@@ -203,8 +205,11 @@ class MainActivity : AppCompatActivity() {
         addView(heading("Daftar akun"))
         addView(card {
             val srv = field(this, "Alamat server", core.state.serverUrl)
-            val name = field(this, "Nama lengkap")
-            val org = field(this, "Instansi")
+            val name = field(this, "Nama lengkap (dengan gelar)")
+            val position = field(this, "Jabatan")
+            val nip = field(this, "NIP")
+            val org = field(this, "Instansi / unit")
+            val place = field(this, "Dikeluarkan di (kota)")
             val email = field(this, "Email")
             val pw = field(this, "Kata sandi (min. 8 karakter)", password = true)
             addView(primary("Daftar") {
@@ -213,6 +218,7 @@ class MainActivity : AppCompatActivity() {
                     val r = core.register(
                         name.text.toString().trim(), org.text.toString().trim(),
                         email.text.toString().trim(), pw.text.toString(),
+                        position.text.toString().trim(), nip.text.toString().trim(), place.text.toString().trim(),
                     )
                     runOnUiThread { snack(r.message.ifEmpty { "Akun dibuat (${r.status})" }) }
                 }
@@ -342,6 +348,7 @@ class MainActivity : AppCompatActivity() {
         pendingSignUri = uri
         signPageIndex = 0
         boxXFrac = 0.60; boxYFrac = 0.78; boxWFrac = 0.26
+        savedStamps.clear()
         signResult?.removeAllViews()
         placementBuilt = false
         placementHost?.removeAllViews()
@@ -458,6 +465,22 @@ class MainActivity : AppCompatActivity() {
 
         wireBoxDrag(box, handle)
         wireHandleDrag(box, handle)
+
+        host.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+            stampCountLabel = TextView(ctx).apply { text = "Titik QR: 1"; setPadding(0, 0, dp(12), 0) }
+            addView(stampCountLabel)
+            addView(text("＋ Tambah titik QR") {
+                savedStamps.add(ApiClient.StampPlacement(signPageIndex + 1, boxXFrac, boxYFrac, boxWFrac))
+                stampCountLabel?.text = "Titik QR: ${savedStamps.size + 1}"
+                boxXFrac = (boxXFrac - 0.04).coerceIn(0.0, 0.9)
+                boxYFrac = (boxYFrac - 0.04).coerceIn(0.0, 0.9)
+                applyBoxFromFracs()
+                snack("Titik QR ditambahkan.")
+            })
+        })
 
         host.addView(primary("Tanda tangani di sini") {
             pendingSignUri?.let { confirmThenSign(it) }
@@ -577,9 +600,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun doSign(uri: Uri) {
         val sink = signResult ?: return
-        val place = ApiClient.StampPlacement(signPageIndex + 1, boxXFrac, boxYFrac, boxWFrac)
+        val places = savedStamps.toMutableList().apply {
+            add(ApiClient.StampPlacement(signPageIndex + 1, boxXFrac, boxYFrac, boxWFrac))
+        }
         task {
-            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", place)
+            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", places)
             lastSigned = r.signedPdf
             runOnUiThread {
                 sink.removeAllViews()
