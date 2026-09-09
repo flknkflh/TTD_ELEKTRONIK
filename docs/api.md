@@ -8,7 +8,7 @@ limiting).
 Implemented (`server/internal/api`, tested in `api_test.go`):
 
 ```
-✔ POST /api/v1/auth/register          (lab; real deploys seed admins out of band)
+✔ POST /api/v1/auth/register          (pending end user only; role in body ignored)
 ✔ POST /api/v1/auth/login             ({email,password,code?}; code required once MFA is confirmed)
 ✔ POST /api/v1/auth/mfa/setup         (returns TOTP secret + otpauth:// URL)
 ✔ POST /api/v1/auth/mfa/verify        ({code} -> confirms the secret)
@@ -33,9 +33,11 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ POST /api/v1/admin/certificates/{id}/revoke
 ✔ POST /api/v1/admin/crl/import
 ✔ GET  /api/v1/admin/audit-events
-✔ GET  /api/v1/admin/capabilities                   ({lab_issuer:bool})
+✔ GET  /api/v1/admin/capabilities                   ({lab_issuer:bool, role})
+✔ GET  /api/v1/admin/admins                          (super admin only: admin roster)
+✔ POST /api/v1/admin/admins                          (super admin only: {username,password} -> active admin)
 ✔ GET  /api/v1/admin/accounts                       (RB-1)
-✔ POST /api/v1/admin/accounts/{id}/approve|disable|enable
+✔ POST /api/v1/admin/accounts/{id}/approve|disable|enable   (disable/enable of an admin: super admin only)
 ✔ PATCH  /api/v1/admin/accounts/{id}                ({full_name,organization})
 ✔ DELETE /api/v1/admin/accounts/{id}                (cascade revoke + CRL; tombstone if it has history)
 ✔ GET  /admin                                       (static operator console)
@@ -49,9 +51,17 @@ Slice 2 remainder: `auth/refresh`, `auth/logout`.
 `{display_name,position,nip}` (empty string when absent; `position`/`nip` are
 the signer's fixed identity drawn in the e-signature caption on stamps — the
 per-signature "Dikeluarkan di <kota>" is passed to `/stamp` instead, not here)
-and creates a **pending** account; login is refused (`403
-{account_status:"pending"}`) until
-an admin `POST /admin/accounts/{id}/approve`. Once approved, the first
+and always creates a **pending end user** (`role:"user"`). Any `role` in the
+body is ignored — admins can no longer self-register. Login is refused (`403
+{account_status:"pending"}`) until an admin `POST /admin/accounts/{id}/approve`.
+
+**Account management.** One **super admin** is bootstrapped on first boot from
+`PQC_SUPERADMIN_USERNAME` (default `superadmin`) + `PQC_SUPERADMIN_PASSWORD`
+(empty → a random password is generated and logged once). Only the super admin
+can `POST /api/v1/admin/admins {username,password}` to create an **active**
+admin, and only the super admin can `disable`/`enable` an admin account. The
+super admin itself cannot be disabled or deleted. A super-admin session
+satisfies every `admin/*` route. Once approved, the first
 `POST /devices/{id}/csr` from that account is **auto-issued** by the server's
 online CA (`Config.LabIssuer`) — the response carries `status:"issued"` and
 `certificate_serial`, no separate admin step. Disabling or deleting an account
@@ -115,11 +125,13 @@ the signing API when only verification should be reachable.
 
 ## Admin
 ```
-GET    /api/v1/admin/capabilities
+GET    /api/v1/admin/capabilities                ({lab_issuer, role})
+GET    /api/v1/admin/admins                       (super admin only)
+POST   /api/v1/admin/admins                       (super admin only: {username,password} -> active admin)
 GET    /api/v1/admin/accounts
 POST   /api/v1/admin/accounts/{id}/approve
-POST   /api/v1/admin/accounts/{id}/disable       (cascade: revoke all certs + republish CRL)
-POST   /api/v1/admin/accounts/{id}/enable
+POST   /api/v1/admin/accounts/{id}/disable       (cascade: revoke all certs + republish CRL; admin target -> super admin only)
+POST   /api/v1/admin/accounts/{id}/enable        (admin target -> super admin only)
 PATCH  /api/v1/admin/accounts/{id}               ({full_name, organization})
 DELETE /api/v1/admin/accounts/{id}               (cascade; kept as a disabled tombstone if it has signatures)
 GET    /api/v1/admin/enrollments

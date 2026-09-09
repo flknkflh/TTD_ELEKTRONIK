@@ -193,11 +193,11 @@
       Masuk
     </button>
     <div class="btn-row">
-      <button class="btn btn-ghost" id="btnRegister">Daftar admin baru</button>
       <button class="btn" id="btnLogout">Keluar</button>
     </div>
     <p class="muted" id="loginHint" style="margin-top:14px">
-      Belum punya akun? Jalankan <code>bash deploy/local/seed.sh</code> di PC, atau klik “Daftar admin baru”.
+      Akun admin dibuat oleh <b>super admin</b> (menu “Admin” setelah masuk sebagai super admin).
+      Kredensial super admin pertama dicetak di log server saat pertama kali dijalankan.
     </p>
   </section>
 </div>
@@ -252,6 +252,10 @@
       <button class="nav-item" data-view="verify">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>
         Verifikasi Tanda Tangan
+      </button>
+      <button class="nav-item hidden" id="navAdmins" data-view="admins">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V5l-8-3Z"/><circle cx="12" cy="10" r="2.4"/><path d="M8.5 16a3.5 3.5 0 0 1 7 0"/></svg>
+        Admin
       </button>
       <div class="sep"></div>
       <div class="foot">PQC PDF Sign · v1.0.0<br>Post-Quantum Cryptography</div>
@@ -436,6 +440,29 @@
           </div>
         </div>
       </section>
+
+      <!-- ============ ADMIN (super admin only) ============ -->
+      <section class="view" id="view-admins">
+        <div class="glass card spotlight">
+          <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V5l-8-3Z"/></svg>Daftar Admin</h2>
+          <p class="csub">Hanya super admin. Admin baru langsung aktif dan bisa masuk. Super admin tidak bisa dinonaktifkan dari sini.</p>
+          <div class="row">
+            <input type="text" id="naUser" placeholder="username" style="flex:1">
+            <input type="password" id="naPass" placeholder="password (min. 8)" style="flex:1">
+            <button class="btn btn-primary" id="btnAddAdmin">Daftarkan admin</button>
+          </div>
+        </div>
+        <div class="glass card spotlight" style="margin-top:16px">
+          <div class="row" style="justify-content:space-between">
+            <h2 style="margin:0">Admin terdaftar</h2>
+            <button class="btn btn-sm" id="btnAdminsRefresh">Muat ulang</button>
+          </div>
+          <div class="tbl-wrap">
+            <table><thead><tr><th>Username</th><th>Peran</th><th>Status</th><th></th></tr></thead>
+            <tbody id="adminRows"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 </div>
@@ -524,31 +551,6 @@ async function doLogin() {
   }
 }
 
-async function doRegister() {
-  const email = $("email").value.trim();
-  const password = $("password").value;
-  if (!email || password.length < 8) { toast("Isi email + password minimal 8 karakter", "err"); return; }
-  try {
-    const reg = await api("POST", "/api/v1/auth/register", { email, password, display_name: email, role: "admin" });
-    store.email = email;
-    // Only the very first admin is active straight away; after that the
-    // server queues the request and an existing admin must approve it.
-    if (reg.status === "pending") {
-      $("loginHint").innerHTML =
-        "Pendaftaran <b>" + esc(email) + "</b> terkirim dan <b>menunggu persetujuan</b> admin yang sudah aktif. " +
-        "Minta admin membuka menu <b>Persetujuan</b> di konsol, lalu coba masuk lagi.";
-      toast("Pendaftaran terkirim — menunggu persetujuan admin.", "ok");
-      return;
-    }
-    const r = await api("POST", "/api/v1/auth/login", { email, password });
-    store.token = r.access_token;
-    toast("Akun admin pertama dibuat & masuk.", "ok");
-    await afterLogin();
-  } catch (e) {
-    toast("Gagal daftar: " + e.message, "err");
-  }
-}
-
 function doLogout() {
   store.token = "";
   $("whoami").textContent = "belum masuk";
@@ -569,9 +571,44 @@ async function afterLogin() {
   $("appShell").classList.remove("hidden");
   showView("dashboard");
   try { caps = await api("GET", "/api/v1/admin/capabilities"); } catch (_) { caps = { lab_issuer: false }; }
+  if (caps.role === "superadmin") {
+    $("navAdmins").classList.remove("hidden");
+    refreshAdmins().catch(() => {});
+  } else {
+    $("navAdmins").classList.add("hidden");
+  }
   await refreshAccounts();
   await refresh();
   startAuto();
+}
+
+// ---- admin roster (super admin only) -------------------------------
+async function refreshAdmins() {
+  let list = [];
+  try { list = (await api("GET", "/api/v1/admin/admins")).admins || []; }
+  catch (e) { if (e.status === 403) return; throw e; }
+  const rows = list.map((a) => {
+    const id = a.account_id;
+    let act = '<span class="muted">—</span>';
+    if (a.role === "superadmin") act = '<span class="pill approved">super admin</span>';
+    else if (a.status === "active") act = `<button class="btn btn-sm btn-danger" data-act="acc-disable" data-id="${esc(id)}">Nonaktifkan</button>`;
+    else act = `<button class="btn btn-sm btn-ghost" data-act="acc-enable" data-id="${esc(id)}">Aktifkan</button>`;
+    return `<tr><td class="mono">${esc(a.username)}</td><td>${esc(a.role)}</td>` +
+           `<td><span class="pill ${a.status === "active" ? "approved" : "pending"}">${esc(a.status)}</span></td><td>${act}</td></tr>`;
+  }).join("");
+  $("adminRows").innerHTML = rows || '<tr><td colspan="4" class="muted">belum ada admin</td></tr>';
+}
+
+async function addAdmin() {
+  const username = $("naUser").value.trim();
+  const password = $("naPass").value;
+  if (!username || password.length < 8) { toast("Isi username + password minimal 8 karakter", "err"); return; }
+  try {
+    await api("POST", "/api/v1/admin/admins", { username, password });
+    $("naUser").value = ""; $("naPass").value = "";
+    toast("Admin dibuat — sudah bisa masuk", "ok");
+    refreshAdmins();
+  } catch (e) { toast("Gagal: " + e.message, "err"); }
 }
 
 // ---- dashboard ---------------------------------------------------
@@ -807,11 +844,11 @@ document.addEventListener("click", async (ev) => {
       toast("Pendaftaran ditolak", "ok"); refreshAccounts();
     } else if (act === "acc-enable") {
       await api("POST", `/api/v1/admin/accounts/${id}/enable`, {});
-      toast("Akun diaktifkan kembali (sertifikat lama tetap dicabut)", "ok"); refreshAccounts();
+      toast("Akun diaktifkan kembali (sertifikat lama tetap dicabut)", "ok"); refreshAccounts(); refreshAdmins().catch(() => {});
     } else if (act === "acc-disable") {
-      if (!confirm("Nonaktifkan akun ini? Semua sertifikatnya dicabut dan tanda tangannya jadi tidak sah.")) { btn.disabled = false; return; }
+      if (!confirm("Nonaktifkan akun ini? Sertifikat pengguna dicabut; untuk admin hanya mencabut akses konsol.")) { btn.disabled = false; return; }
       const r = await api("POST", `/api/v1/admin/accounts/${id}/disable`, {});
-      toast(`Dinonaktifkan · ${r.certificates_revoked} sertifikat dicabut`, "ok"); refreshAll();
+      toast(`Dinonaktifkan · ${r.certificates_revoked} sertifikat dicabut`, "ok"); refreshAll(); refreshAdmins().catch(() => {});
     } else if (act === "acc-delete") {
       if (!confirm("HAPUS akun ini? Sertifikat dicabut. Bila ada riwayat tanda tangan, akun disimpan sebagai tombstone nonaktif.")) { btn.disabled = false; return; }
       const r = await api("DELETE", `/api/v1/admin/accounts/${id}`);
@@ -881,8 +918,9 @@ $("btnVpOpen").onclick = () => {
 
 // ---- wiring ----------------------------------------------------
 $("btnLogin").onclick = doLogin;
-$("btnRegister").onclick = doRegister;
 $("btnLogout").onclick = doLogout;
+$("btnAddAdmin").onclick = addAdmin;
+$("btnAdminsRefresh").onclick = () => refreshAdmins().catch(() => {});
 $("btnLogout2").onclick = doLogout;
 $("btnRefresh").onclick = refresh;
 $("btnAccRefresh").onclick = refreshAccounts;

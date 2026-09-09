@@ -57,7 +57,8 @@ type env struct {
 	t      *testing.T
 	h      http.Handler
 	inter  *labpki.CA
-	badmin string // cached bootstrap-admin token, used to approve pending users
+	su     string // bootstrap super-admin token
+	badmin string // alias of su — satisfies every admin route, approves pending users
 }
 
 func newEnv(t *testing.T) *env {
@@ -71,37 +72,43 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	srv, err := api.New(backendStore(t), api.Config{
-		RootCAPEM:     labpki.CertPEM(root.Cert),
-		CAChainPEM:    labpki.ChainPEM(inter.Cert, root.Cert),
-		JWTSecret:     []byte("test-secret-0123456789"),
-		PublicBaseURL: "https://verify.test",
-		RateLimits:    &api.RateLimits{}, // off; TestRateLimit sets its own
+		RootCAPEM:          labpki.CertPEM(root.Cert),
+		CAChainPEM:         labpki.ChainPEM(inter.Cert, root.Cert),
+		JWTSecret:          []byte("test-secret-0123456789"),
+		PublicBaseURL:      "https://verify.test",
+		RateLimits:         &api.RateLimits{}, // off; TestRateLimit sets its own
+		SuperAdminUsername: "_su@test",
+		SuperAdminPassword: "password123",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	e := &env{t: t, h: srv.Routes(), inter: inter}
-	// Create the bootstrap admin first thing: it is the only account that may
-	// activate itself. Everything registered afterwards — users *and* further
-	// admins — queues for approval, so this token is what approves them.
-	e.badmin = e.register("_bootstrap_admin@test", store.RoleAdmin)
+	// The super admin is bootstrapped by api.New. It creates every admin and
+	// approves every pending user in these tests.
+	e.su = e.login("_su@test")
+	e.badmin = e.su
 	return e
 }
 
-// register creates an account and logs in, approving it with the bootstrap
-// admin when the server puts it in the pending queue.
+// register creates an account and logs in. Admin roles go through the
+// super-admin create-admin route; users self-register and are approved by the
+// super admin.
 func (e *env) register(email, role string) string {
 	e.t.Helper()
+	if role == store.RoleAdmin || role == store.RoleSuperAdmin {
+		mustCode(e.t, e.do("POST", "/api/v1/admin/admins", e.su, map[string]string{
+			"username": email, "password": "password123",
+		}), http.StatusCreated)
+		return e.login(email)
+	}
 	w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
-		"email": email, "password": "password123", "display_name": email, "role": role,
+		"email": email, "password": "password123", "display_name": email,
 	})
 	mustCode(e.t, w, http.StatusCreated)
 	if b := jbody(e.t, w); b["status"] == store.AccountPending {
-		if e.badmin == "" {
-			e.t.Fatalf("register(%s): pending before a bootstrap admin exists", email)
-		}
 		id := b["account_id"].(string)
-		mustCode(e.t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", e.badmin, nil), http.StatusOK)
+		mustCode(e.t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", e.su, nil), http.StatusOK)
 	}
 	return e.login(email)
 }
@@ -149,7 +156,8 @@ func (e *env) account(email, role string) string {
 	return e.register(email, role)
 }
 
-// adminTok returns the bootstrap admin created by newEnv.
+// adminTok returns the bootstrap super-admin token created by newEnv (it
+// satisfies every admin route).
 func (e *env) adminTok() string { return e.badmin }
 
 func (e *env) login(email string) string {

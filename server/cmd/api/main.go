@@ -44,6 +44,8 @@ func main() {
 	}
 
 	cfg := api.Config{JWTSecret: secret, PublicBaseURL: *baseURL, AccessTTL: 15 * time.Minute}
+	cfg.SuperAdminUsername = envOr("PQC_SUPERADMIN_USERNAME", "superadmin")
+	cfg.SuperAdminPassword = os.Getenv("PQC_SUPERADMIN_PASSWORD") // "" -> generated + logged once
 	if boolEnv("PQC_RATE_LIMIT_DISABLED") {
 		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
 	}

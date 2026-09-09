@@ -8,10 +8,13 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -31,6 +34,13 @@ type Config struct {
 	MaxUploadBytes int64  // 0 -> 25 MiB (§24)
 	AccessTTL      time.Duration
 	Issuer         string // TOTP issuer label; "" -> "PQC PDF Sign"
+
+	// SuperAdminUsername, when non-empty, bootstraps a single super-admin
+	// account on startup if none exists (first generate). SuperAdminPassword
+	// is used verbatim when set; otherwise a random one is generated and
+	// logged once. Leaving Username empty (tests) skips the bootstrap.
+	SuperAdminUsername string
+	SuperAdminPassword string
 
 	// RateLimits are per-minute caps. nil applies sane defaults; pass
 	// &RateLimits{} to disable every bucket (tests do this).
@@ -141,7 +151,7 @@ func New(st Store, cfg Config) (*Server, error) {
 		}
 		return newLimiterSet(perMin)
 	}
-	return &Server{
+	s := &Server{
 		st:        st,
 		signer:    auth.NewSigner(cfg.JWTSecret, cfg.AccessTTL),
 		cfg:       cfg,
@@ -151,7 +161,54 @@ func New(st Store, cfg Config) (*Server, error) {
 		rlReserve: mk(rl.ReservePerAccount),
 		rlSubmit:  mk(rl.SubmitPerAccount),
 		rlVerify:  mk(rl.VerifyPerIP),
-	}, nil
+	}
+	s.ensureSuperAdmin()
+	return s, nil
+}
+
+// ensureSuperAdmin bootstraps the single super-admin the first time the server
+// runs against an empty database (Rencana: account management). It is a no-op
+// once a superadmin row exists, and when cfg.SuperAdminUsername is empty.
+func (s *Server) ensureSuperAdmin() {
+	u := strings.TrimSpace(s.cfg.SuperAdminUsername)
+	if u == "" {
+		return
+	}
+	for _, a := range s.st.ListAccounts() {
+		if a.Role == store.RoleSuperAdmin {
+			return // already bootstrapped
+		}
+	}
+	pw, generated := s.cfg.SuperAdminPassword, false
+	if len(pw) < 8 {
+		pw, generated = randToken(15), true
+	}
+	hash, err := auth.HashPassword(pw)
+	if err != nil {
+		log.Printf("api: super-admin bootstrap failed (hash): %v", err)
+		return
+	}
+	if _, err := s.st.CreateAccount(store.Account{
+		Email: u, DisplayName: u, Role: store.RoleSuperAdmin, Status: store.AccountActive,
+		PasswordHash: hash,
+	}); err != nil {
+		log.Printf("api: super-admin bootstrap failed: %v", err)
+		return
+	}
+	if generated {
+		log.Printf("api: SUPER ADMIN created — username %q  password %q  (shown once — change it after first login)", u, pw)
+	} else {
+		log.Printf("api: SUPER ADMIN created — username %q (password from PQC_SUPERADMIN_PASSWORD)", u)
+	}
+}
+
+// randToken returns an unpadded base64url string with n bytes of entropy.
+func randToken(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "changeme-" + time.Now().Format("20060102150405")
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // Routes returns the http.Handler for the whole API.
@@ -184,6 +241,9 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/admin/capabilities", s.admin(s.hCapabilities))
 
+	mux.HandleFunc("GET /api/v1/admin/admins", s.superadmin(s.hListAdmins))
+	mux.HandleFunc("POST /api/v1/admin/admins", s.superadmin(s.hCreateAdmin))
+
 	mux.HandleFunc("GET /api/v1/admin/accounts", s.admin(s.hListAccounts))
 	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/approve", s.admin(s.hApproveAccount))
 	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/disable", s.admin(s.hDisableAccount))
@@ -212,9 +272,13 @@ func (s *Server) Routes() http.Handler {
 	return mux
 }
 
-// hCapabilities lets the /admin console feature-detect optional endpoints.
+// hCapabilities lets the /admin console feature-detect optional endpoints and
+// learn the caller's role (so the super-admin section only shows for one).
 func (s *Server) hCapabilities(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"lab_issuer": s.cfg.LabIssuer != nil})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"lab_issuer": s.cfg.LabIssuer != nil,
+		"role":       claims(r).Role,
+	})
 }
 
 // ---- helpers ----
@@ -225,6 +289,9 @@ const claimsKey ctxKey = 0
 
 func (s *Server) user(h http.HandlerFunc) http.HandlerFunc  { return s.authed(store.RoleUser, h) }
 func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc { return s.authed(store.RoleAdmin, h) }
+func (s *Server) superadmin(h http.HandlerFunc) http.HandlerFunc {
+	return s.authed(store.RoleSuperAdmin, h)
+}
 
 func (s *Server) authed(minRole string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -238,9 +305,18 @@ func (s *Server) authed(minRole string, h http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
-		if minRole == store.RoleAdmin && c.Role != store.RoleAdmin {
-			writeErr(w, http.StatusForbidden, "admin only")
-			return
+		switch minRole {
+		case store.RoleAdmin:
+			// a super admin has every admin capability
+			if c.Role != store.RoleAdmin && c.Role != store.RoleSuperAdmin {
+				writeErr(w, http.StatusForbidden, "admin only")
+				return
+			}
+		case store.RoleSuperAdmin:
+			if c.Role != store.RoleSuperAdmin {
+				writeErr(w, http.StatusForbidden, "super admin only")
+				return
+			}
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), claimsKey, c)))
 	}

@@ -28,7 +28,6 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		Organization string `json:"organization"`
 		Position     string `json:"position"`
 		NIP          string `json:"nip"`
-		Role         string `json:"role"`
 	}
 	if err := decode(r, &in); err != nil || in.Email == "" || len(in.Password) < 8 {
 		writeErr(w, http.StatusBadRequest, "email and an 8+ char password are required")
@@ -39,20 +38,9 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "hash")
 		return
 	}
-	// A self-registered account starts pending and cannot log in until an
-	// admin approves it (Rencana RB-1). That now covers admin sign-ups too:
-	// only the very first admin bootstraps itself, every later admin request
-	// has to be approved by an admin who is already active — otherwise anyone
-	// could mint themselves an operator account.
-	role, status := store.RoleUser, store.AccountPending
-	if in.Role == store.RoleAdmin {
-		role = store.RoleAdmin
-		if s.hasActiveAdmin() {
-			status = store.AccountPending
-		} else {
-			status = store.AccountActive
-		}
-	}
+	// Self-registration only ever creates a pending end user. Admin accounts
+	// are created by the super admin (POST /api/v1/admin/admins) — nobody can
+	// mint themselves an operator account.
 	displayName := in.DisplayName
 	if displayName == "" {
 		displayName = in.FullName
@@ -60,19 +48,16 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 	a, err := s.st.CreateAccount(store.Account{
 		Email: in.Email, DisplayName: displayName, FullName: in.FullName, Organization: in.Organization,
 		Position: in.Position, NIP: in.NIP,
-		PasswordHash: hash, Role: role, Status: status,
+		PasswordHash: hash, Role: store.RoleUser, Status: store.AccountPending,
 	})
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	s.st.Append(store.AuditEvent{Type: "account.register", AccountID: a.ID, Result: "ok", Detail: status})
-	msg := "akun dibuat"
-	if status == store.AccountPending {
-		msg = "akun dibuat, menunggu persetujuan admin"
-	}
+	s.st.Append(store.AuditEvent{Type: "account.register", AccountID: a.ID, Result: "ok", Detail: a.Status})
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"account_id": a.ID, "role": a.Role, "status": a.Status, "message": msg,
+		"account_id": a.ID, "role": a.Role, "status": a.Status,
+		"message": "akun dibuat, menunggu persetujuan admin",
 	})
 }
 

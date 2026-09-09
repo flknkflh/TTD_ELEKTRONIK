@@ -36,6 +36,11 @@ services:
       PQC_DATABASE_URL: "postgres://pqc:${PQC_DB_PASSWORD:-pqc}@postgres:5432/pqc?sslmode=disable"
       PQC_JWT_SECRET: "${PQC_JWT_SECRET:-local-prototype-secret-change-me-0123456789}"
       PQC_PUBLIC_BASE_URL: "${PQC_PUBLIC_BASE_URL:-http://136.244.116.132:8099}"
+      # First boot bootstraps ONE super admin (creates/disables admins). Leave
+      # the password empty in real deploys — the server generates one and
+      # prints it to the log once. The lab uses a fixed one so seed.sh can log in.
+      PQC_SUPERADMIN_USERNAME: "${PQC_SUPERADMIN_USERNAME:-superadmin}"
+      PQC_SUPERADMIN_PASSWORD: "${PQC_SUPERADMIN_PASSWORD:-superadmin12345}"
     volumes:
       - cadata:/ca
     ports:

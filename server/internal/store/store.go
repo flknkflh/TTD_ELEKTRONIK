@@ -12,10 +12,13 @@ import (
 // ErrNotFound is returned by every lookup that finds nothing.
 var ErrNotFound = errors.New("store: not found")
 
-// Role values.
+// Role values. RoleSuperAdmin is bootstrapped once (first generate) and is the
+// only role that can create/disable RoleAdmin accounts; it otherwise has every
+// admin capability. Self-registration only ever yields RoleUser.
 const (
-	RoleUser  = "user"
-	RoleAdmin = "admin"
+	RoleUser       = "user"
+	RoleAdmin      = "admin"
+	RoleSuperAdmin = "superadmin"
 )
 
 // Account status values (Rencana RB-1). A self-registered account starts

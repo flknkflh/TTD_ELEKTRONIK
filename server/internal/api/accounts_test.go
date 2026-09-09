@@ -49,53 +49,71 @@ func TestAccountApprovalGate(t *testing.T) {
 	mustCode(t, e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "pegawai@test", "password": "password123"}), http.StatusOK)
 }
 
-// Only the first admin bootstraps itself; later admin sign-ups sit in the
-// approval queue until an already-active admin lets them in.
-func TestAdminSignupNeedsApproval(t *testing.T) {
-	e := newEnv(t) // newEnv already created the one bootstrap admin
-	admin := e.adminTok()
+// Admins can no longer self-register: only the bootstrapped super admin
+// creates them, and only the super admin can disable/enable an admin.
+func TestAdminManagedBySuperAdmin(t *testing.T) {
+	e := newEnv(t) // api.New bootstrapped the super admin; e.su is its token
+	admin := e.account("admin@test", store.RoleAdmin)
 
-	reg := func(email string) map[string]any {
-		w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
-			"email": email, "password": "password123", "role": store.RoleAdmin,
-		})
-		mustCode(t, w, http.StatusCreated)
-		return jbody(t, w)
-	}
 	login := func(email string) int {
 		return e.do("POST", "/api/v1/auth/login", "", map[string]string{
 			"email": email, "password": "password123"}).Code
 	}
 
-	// a second admin request is queued, not granted
-	b := reg("admin2@test")
-	if b["role"] != store.RoleAdmin || b["status"] != store.AccountPending {
-		t.Fatalf("second admin = %v/%v, want admin/pending", b["role"], b["status"])
-	}
-	if code := login("admin2@test"); code != http.StatusForbidden {
-		t.Fatalf("pending admin login = %d, want 403", code)
-	}
-
-	// the active admin approves -> it can log in and use admin routes
-	id := b["account_id"].(string)
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", admin, nil), http.StatusOK)
-	if code := login("admin2@test"); code != http.StatusOK {
-		t.Fatalf("approved admin login = %d, want 200", code)
-	}
-	tok2 := e.login("admin2@test")
-	mustCode(t, e.do("GET", "/api/v1/admin/accounts", tok2, nil), http.StatusOK)
-
-	// a pending admin may be rejected outright...
-	b3 := reg("admin3@test")
-	id3 := b3["account_id"].(string)
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id3+"/disable", admin, nil), http.StatusOK)
-	if code := login("admin3@test"); code != http.StatusForbidden {
-		t.Fatalf("rejected admin login = %d, want 403", code)
+	// role in the register body is ignored — you get a pending end user
+	w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
+		"email": "wannabe@test", "password": "password123", "role": store.RoleAdmin,
+	})
+	mustCode(t, w, http.StatusCreated)
+	if b := jbody(t, w); b["role"] != store.RoleUser || b["status"] != store.AccountPending {
+		t.Fatalf("register role/status = %v/%v, want user/pending", b["role"], b["status"])
 	}
 
-	// ...but an approved admin is protected, so the console can't be locked out
-	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id+"/disable", admin, nil), http.StatusForbidden)
-	mustCode(t, e.do("DELETE", "/api/v1/admin/accounts/"+id, admin, nil), http.StatusForbidden)
+	// a plain admin cannot create admins
+	mustCode(t, e.do("POST", "/api/v1/admin/admins", admin, map[string]string{
+		"username": "x@test", "password": "password123"}), http.StatusForbidden)
+
+	// the super admin creates one -> active immediately, can use admin routes
+	w = e.do("POST", "/api/v1/admin/admins", e.su, map[string]string{
+		"username": "admin2@test", "password": "password123"})
+	mustCode(t, w, http.StatusCreated)
+	nb := jbody(t, w)
+	if nb["role"] != store.RoleAdmin || nb["status"] != store.AccountActive {
+		t.Fatalf("new admin = %v/%v, want admin/active", nb["role"], nb["status"])
+	}
+	id2 := nb["account_id"].(string)
+	if login("admin2@test") != http.StatusOK {
+		t.Fatal("new admin cannot log in")
+	}
+	mustCode(t, e.do("GET", "/api/v1/admin/accounts", e.login("admin2@test"), nil), http.StatusOK)
+
+	// a plain admin cannot disable another active admin; the super admin can
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id2+"/disable", admin, nil), http.StatusForbidden)
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id2+"/disable", e.su, nil), http.StatusOK)
+	if login("admin2@test") != http.StatusForbidden {
+		t.Fatal("disabled admin still logs in")
+	}
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id2+"/enable", e.su, nil), http.StatusOK)
+	if login("admin2@test") != http.StatusOK {
+		t.Fatal("re-enabled admin cannot log in")
+	}
+
+	// the super admin roster lists both, and the super admin itself is locked
+	admins := jbody(t, e.do("GET", "/api/v1/admin/admins", e.su, nil))["admins"].([]any)
+	if len(admins) < 3 { // _su@test + admin@test + admin2@test
+		t.Fatalf("admin roster too short: %v", admins)
+	}
+	var suID string
+	for _, a := range jbody(t, e.do("GET", "/api/v1/admin/accounts", e.su, nil))["accounts"].([]any) {
+		if m := a.(map[string]any); m["role"] == store.RoleSuperAdmin {
+			suID = m["account_id"].(string)
+		}
+	}
+	if suID == "" {
+		t.Fatal("super admin not in account list")
+	}
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+suID+"/disable", e.su, nil), http.StatusForbidden)
+	mustCode(t, e.do("DELETE", "/api/v1/admin/accounts/"+suID, e.su, nil), http.StatusForbidden)
 }
 
 func TestAccountDisableCascadesRevocation(t *testing.T) {
