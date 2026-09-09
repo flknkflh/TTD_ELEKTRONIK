@@ -94,8 +94,8 @@ type RegisterResult struct {
 }
 
 // Register creates a pending account. An admin approves it before Login works.
-func (a *App) Register(fullName, org, email, password, position, nip, issuedPlace string) (RegisterResult, error) {
-	r, err := a.api.Register(fullName, org, email, password, position, nip, issuedPlace)
+func (a *App) Register(fullName, org, email, password, position, nip string) (RegisterResult, error) {
+	r, err := a.api.Register(fullName, org, email, password, position, nip)
 	return RegisterResult(r), err
 }
 
@@ -299,7 +299,7 @@ func (a *App) PdfBytesB64(path string) (string, error) {
 // signs locally, verifies the result against the bundled Root CA, writes it,
 // and submits it (§15). placementsJSON is a JSON array of QRPlacement; an
 // empty string or "[]" falls back to a single default placement.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON string) (SignResult, error) {
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace string) (SignResult, error) {
 	var places []QRPlacement
 	if s := strings.TrimSpace(placementsJSON); s != "" && s != "[]" {
 		if err := json.Unmarshal([]byte(s), &places); err != nil {
@@ -309,10 +309,10 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON s
 	if len(places) == 0 {
 		places = []QRPlacement{{X: 0.62, Y: 0.80, W: 0.30}}
 	}
-	return a.signPDF(inPath, outPath, reason, signerName, pin, places)
+	return a.signPDF(inPath, outPath, reason, signerName, pin, places, issuedPlace)
 }
 
-func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []QRPlacement) (SignResult, error) {
+func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []QRPlacement, issuedPlace string) (SignResult, error) {
 	pdf, err := os.ReadFile(inPath)
 	if err != nil {
 		return SignResult{}, err
@@ -351,7 +351,7 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 	for i, p := range places {
 		sp[i] = apiclient.StampPlacement{Page: p.Page, X: p.X, Y: p.Y, W: p.W}
 	}
-	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason)
+	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason, issuedPlace)
 	if err != nil {
 		return SignResult{}, fmt.Errorf("penempelan QR: %w", err)
 	}

@@ -43,9 +43,9 @@ class AppCore(private val context: Context, val state: AppState) {
 
     fun register(
         fullName: String, org: String, email: String, password: String,
-        position: String = "", nip: String = "", issuedPlace: String = "",
+        position: String = "", nip: String = "",
     ): ApiClient.RegisterResult =
-        api.register(fullName, org, email, password, position, nip, issuedPlace)
+        api.register(fullName, org, email, password, position, nip)
 
     // ---- 2. Device enrolment ----
 
@@ -152,7 +152,7 @@ class AppCore(private val context: Context, val state: AppState) {
      * cryptographically. The signed bytes are returned for the caller to write
      * via SAF.
      */
-    fun signPdf(inUri: Uri, reason: String, signerName: String, places: List<ApiClient.StampPlacement>): SignResult {
+    fun signPdf(inUri: Uri, reason: String, signerName: String, places: List<ApiClient.StampPlacement>, issuedPlace: String = ""): SignResult {
         val pdf = context.contentResolver.openInputStream(inUri)!!.use { it.readBytes() }
         require(!looksSigned(pdf)) {
             "Dokumen ini sudah memiliki tanda tangan digital — satu dokumen hanya boleh ditandatangani sekali; pilih PDF yang belum ditandatangani."
@@ -171,7 +171,7 @@ class AppCore(private val context: Context, val state: AppState) {
         // cannot process fails here with a clear message.
         val toSign = api.stamp(res.publicId, pdf, places.ifEmpty {
             listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
-        }, reason)
+        }, reason, issuedPlace)
 
         var keyPem = vault.load()
         val signed: ByteArray

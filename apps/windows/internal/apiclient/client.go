@@ -101,14 +101,14 @@ type RegisterResult struct {
 }
 
 // Register self-registers an account (Rencana RB-1). The account is created
-// pending; an admin approves it before the user can log in. position, nip and
-// issuedPlace fill the electronic-signature caption drawn on stamps.
-func (c *Client) Register(fullName, org, email, password, position, nip, issuedPlace string) (RegisterResult, error) {
+// pending; an admin approves it before the user can log in. position and nip
+// fill the electronic-signature caption drawn on stamps.
+func (c *Client) Register(fullName, org, email, password, position, nip string) (RegisterResult, error) {
 	var out RegisterResult
 	err := c.postJSON("/api/v1/auth/register", map[string]string{
 		"email": email, "password": password,
 		"full_name": fullName, "organization": org, "display_name": fullName,
-		"position": position, "nip": nip, "issued_place": issuedPlace,
+		"position": position, "nip": nip,
 	}, &out)
 	return out, err
 }
@@ -263,10 +263,13 @@ type StampPlacement struct {
 // placement (Rencana RB-2c), ready to sign on-device. The page count is
 // unchanged. Placements go through as a JSON `stamps` query param; the server
 // still accepts a single placement via page/x/y/w for older clients.
-func (c *Client) Stamp(publicID string, pdf []byte, placements []StampPlacement, reason string) ([]byte, error) {
+func (c *Client) Stamp(publicID string, pdf []byte, placements []StampPlacement, reason, issuedPlace string) ([]byte, error) {
 	q := url.Values{}
 	if reason != "" {
 		q.Set("reason", reason)
+	}
+	if issuedPlace != "" {
+		q.Set("issued_place", issuedPlace)
 	}
 	if js, err := json.Marshal(placements); err == nil {
 		q.Set("stamps", string(js))
