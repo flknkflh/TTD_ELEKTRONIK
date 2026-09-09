@@ -48,7 +48,7 @@ import kotlin.concurrent.thread
  * Verifikasi (public, no account). Post-login: Beranda / Tanda Tangan /
  * Verifikasi / Akun. All crypto stays in AppCore / the AAR.
  */
-private const val APP_VERSION = "v0.3.0"
+private const val APP_VERSION = "v0.4.0"
 
 class MainActivity : AppCompatActivity() {
 
