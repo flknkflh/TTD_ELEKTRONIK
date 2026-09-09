@@ -715,7 +715,7 @@ class MainActivity : AppCompatActivity() {
             return verdictCard(
                 true, "Tanda tangan SAH", rows,
                 if (storedOnly)
-                    "Berkas terlalu besar untuk diverifikasi otomatis di server — server hanya mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung di aplikasi ini."
+                    "Berkas terlalu besar untuk diverifikasi otomatis oleh server saat diserahkan — server hanya menyimpan salinan & mencatat SHA-512-nya. Pemeriksaan kriptografis di atas dijalankan ulang sekarang atas berkas ini."
                 else
                     "Waktu di atas dari jam perangkat penandatangan, bukan stempel waktu tepercaya.",
             )

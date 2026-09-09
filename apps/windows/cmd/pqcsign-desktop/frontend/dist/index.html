@@ -769,7 +769,7 @@
     const rec = top.record || {};
     const storedOnly = rec.verification_status === "stored_unverified" || rec.certificate_status === "not_server_verified";
     const storedBanner = storedOnly
-      ? '<div class="hint" style="margin-top:8px">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis di server — server hanya mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung di aplikasi ini.</div>'
+      ? '<div class="hint" style="margin-top:8px">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis oleh server saat diserahkan — server hanya menyimpan salinan &amp; mencatat SHA-512-nya. Pemeriksaan kriptografis di atas dijalankan ulang sekarang atas berkas ini.</div>'
       : "";
     if (o.valid && sigs.length) {
       const s = sigs[0];

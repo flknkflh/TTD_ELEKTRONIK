@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"testing"
@@ -93,7 +94,28 @@ func TestStoreOnlyLargeSubmit(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
 		t.Fatalf("stored doc content-type = %q", ct)
 	}
+
+	// the human /v/{id} landing page calls it out (web, apk and exe all key off
+	// certificate_status / verification_status)
+	w = e.do("GET", "/v/"+pid, "", nil)
+	mustCode(t, w, http.StatusOK)
+	if body := w.Body.String(); !contains(body, "TIDAK DIVERIFIKASI SERVER") {
+		t.Fatalf("/v landing page missing the store-only badge")
+	}
+
+	// POST /api/v1/verify still runs the crypto on the uploaded bytes and its
+	// record carries verification_status so every client can show the marker
+	vb := jbody(t, e.verifyMultipart(signed))
+	if vb["registered"] != true {
+		t.Fatalf("verify: not registered: %s", mustJSONString(vb))
+	}
+	vr, _ := vb["record"].(map[string]any)
+	if vr == nil || vr["verification_status"] != store.VerificationStoredOnly {
+		t.Fatalf("verify record missing verification_status: %s", mustJSONString(vb))
+	}
 }
+
+func mustJSONString(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 // A PDF larger than MaxStampBytes is refused by /stamp (pdfcpu can't stream).
 func TestStampTooLargeRejected(t *testing.T) {

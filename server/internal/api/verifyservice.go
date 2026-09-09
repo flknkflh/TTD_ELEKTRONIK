@@ -108,10 +108,18 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
       .catch(function(e){ out.innerHTML = '<p class="bad">Gagal menghubungi server verifikasi di '+esc(window.SRV)+'. Periksa alamat server di atas.</p>'; });
   }
 
+  function humanCert(s){
+    return ({revoked:'DICABUT', device_reported_lost:'perangkat dilaporkan hilang',
+             not_server_verified:'tidak diverifikasi otomatis oleh server', active:'aktif'})[s] || s; }
+
   function render(top){
     var o = top.verification || top;
     var sigs = o.signatures || [];
     var rec = top.record || {};
+    var storedOnly = rec.verification_status === 'stored_unverified' || rec.certificate_status === 'not_server_verified';
+    var storedNote = storedOnly
+      ? '<p class="muted">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis oleh server saat diunggah — server hanya menyimpan salinan &amp; mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung sekarang dari berkas yang Anda unggah.</p>'
+      : '';
     if (o.valid && sigs.length){
       var s = sigs[0];
       var subj = s.subject || '';
@@ -142,12 +150,12 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
           row('No. sertifikat', s.certificate_serial) +
           row('Sidik jari sertifikat', rec.certificate_fingerprint) +
           row('Perangkat', rec.device_label) +
-          row('Status sertifikat', rec.certificate_status) +
+          row('Status sertifikat', rec.certificate_status ? humanCert(rec.certificate_status) : '') +
           row('Rantai tepercaya', s.trusted_chain ? 'ya' : 'TIDAK') +
           row('Sertifikat dicabut', s.revoked ? 'YA' : 'tidak') +
-          row('Terdaftar di server', top.registered === true ? 'ya' : 'tidak') +
+          row('Terdaftar di server', top.registered === true ? (storedOnly ? 'ya (disimpan, tidak diverifikasi otomatis)' : 'ya') : 'tidak') +
           row('ID verifikasi', pid) +
-        '</table>' + docv +
+        '</table>' + docv + storedNote +
         '<p class="muted">Waktu di atas berasal dari jam perangkat penandatangan, bukan stempel waktu tepercaya.</p>';
     } else {
       var errs = o.errors || (sigs[0] && sigs[0].errors) || [];
