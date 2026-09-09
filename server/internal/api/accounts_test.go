@@ -49,6 +49,55 @@ func TestAccountApprovalGate(t *testing.T) {
 	mustCode(t, e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "pegawai@test", "password": "password123"}), http.StatusOK)
 }
 
+// Only the first admin bootstraps itself; later admin sign-ups sit in the
+// approval queue until an already-active admin lets them in.
+func TestAdminSignupNeedsApproval(t *testing.T) {
+	e := newEnv(t) // newEnv already created the one bootstrap admin
+	admin := e.adminTok()
+
+	reg := func(email string) map[string]any {
+		w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
+			"email": email, "password": "password123", "role": store.RoleAdmin,
+		})
+		mustCode(t, w, http.StatusCreated)
+		return jbody(t, w)
+	}
+	login := func(email string) int {
+		return e.do("POST", "/api/v1/auth/login", "", map[string]string{
+			"email": email, "password": "password123"}).Code
+	}
+
+	// a second admin request is queued, not granted
+	b := reg("admin2@test")
+	if b["role"] != store.RoleAdmin || b["status"] != store.AccountPending {
+		t.Fatalf("second admin = %v/%v, want admin/pending", b["role"], b["status"])
+	}
+	if code := login("admin2@test"); code != http.StatusForbidden {
+		t.Fatalf("pending admin login = %d, want 403", code)
+	}
+
+	// the active admin approves -> it can log in and use admin routes
+	id := b["account_id"].(string)
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", admin, nil), http.StatusOK)
+	if code := login("admin2@test"); code != http.StatusOK {
+		t.Fatalf("approved admin login = %d, want 200", code)
+	}
+	tok2 := e.login("admin2@test")
+	mustCode(t, e.do("GET", "/api/v1/admin/accounts", tok2, nil), http.StatusOK)
+
+	// a pending admin may be rejected outright...
+	b3 := reg("admin3@test")
+	id3 := b3["account_id"].(string)
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id3+"/disable", admin, nil), http.StatusOK)
+	if code := login("admin3@test"); code != http.StatusForbidden {
+		t.Fatalf("rejected admin login = %d, want 403", code)
+	}
+
+	// ...but an approved admin is protected, so the console can't be locked out
+	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+id+"/disable", admin, nil), http.StatusForbidden)
+	mustCode(t, e.do("DELETE", "/api/v1/admin/accounts/"+id, admin, nil), http.StatusForbidden)
+}
+
 func TestAccountDisableCascadesRevocation(t *testing.T) {
 	e := newEnv(t)
 	user := e.account("user@test", store.RoleUser)

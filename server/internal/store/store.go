@@ -48,8 +48,10 @@ type Account struct {
 	ID           string
 	Email        string
 	DisplayName  string
-	FullName     string // legal name, printed on the certificate + QR page
+	FullName     string // legal name (with academic titles), printed on the certificate + QR page
 	Organization string // instansi, printed on the certificate + QR page
+	Position     string // jabatan, printed in the e-signature caption on stamps
+	NIP          string // employee number, printed in the caption ("NIP. ...")
 	PasswordHash string
 	Role         string
 	Status       string // AccountPending | AccountActive | AccountDisabled

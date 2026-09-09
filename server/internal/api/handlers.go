@@ -26,6 +26,8 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		DisplayName  string `json:"display_name"`
 		FullName     string `json:"full_name"`
 		Organization string `json:"organization"`
+		Position     string `json:"position"`
+		NIP          string `json:"nip"`
 		Role         string `json:"role"`
 	}
 	if err := decode(r, &in); err != nil || in.Email == "" || len(in.Password) < 8 {
@@ -37,12 +39,19 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "hash")
 		return
 	}
-	// A self-registered user starts pending and cannot log in until an admin
-	// approves (Rencana RB-1). Admin accounts are a lab convenience and are
-	// active immediately; real deployments seed them out of band.
+	// A self-registered account starts pending and cannot log in until an
+	// admin approves it (Rencana RB-1). That now covers admin sign-ups too:
+	// only the very first admin bootstraps itself, every later admin request
+	// has to be approved by an admin who is already active — otherwise anyone
+	// could mint themselves an operator account.
 	role, status := store.RoleUser, store.AccountPending
 	if in.Role == store.RoleAdmin {
-		role, status = store.RoleAdmin, store.AccountActive
+		role = store.RoleAdmin
+		if s.hasActiveAdmin() {
+			status = store.AccountPending
+		} else {
+			status = store.AccountActive
+		}
 	}
 	displayName := in.DisplayName
 	if displayName == "" {
@@ -50,6 +59,7 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := s.st.CreateAccount(store.Account{
 		Email: in.Email, DisplayName: displayName, FullName: in.FullName, Organization: in.Organization,
+		Position: in.Position, NIP: in.NIP,
 		PasswordHash: hash, Role: role, Status: status,
 	})
 	if err != nil {
@@ -532,6 +542,8 @@ func (s *Server) publicRecord(sig store.Signature, a store.Account, d store.Devi
 	return map[string]any{
 		"public_id":                   sig.PublicID,
 		"signer_name":                 a.DisplayName,
+		"position":                    a.Position,
+		"nip":                         a.NIP,
 		"device_label":                d.Label,
 		"certificate_serial":          sig.CertSerial,
 		"certificate_fingerprint":     sig.CertFingerprint,

@@ -1,9 +1,19 @@
 # Change spec: multi-QR stamps, mandatory e-sign caption, signer profile fields
 
-Status: **client (desktop + Android) done in this repo. Server side TODO.**
+Status: **client (desktop + Android) done in this repo. Server side done.**
 Deploy order: **server first**, then the new apps. The contract below is
 backward-compatible on the server so old apps keep working against the new
 server during the transition.
+
+> **Amendment (server impl):** "Dikeluarkan di <kota>" is **per signature**,
+> not a fixed account field. It is passed to `POST .../stamp` as the
+> `issued_place` query param (next to `reason`), not sent at registration.
+> Registration keeps only `position` + `nip` (the signer's fixed identity).
+> The server still accepts and ignores a stale `issued_place` in the register
+> body, so the current clients do not break; a follow-up client change moves
+> the "Kota" field from the register pane to the sign/placement step and sends
+> it as `?issued_place=`. Sections 2a / 2c / 3 below are updated to match;
+> 2b now also lists `issued_place`.
 
 ---
 
@@ -11,7 +21,7 @@ server during the transition.
 
 | Area | Client (apps — already done) | Server (this doc's TODO) |
 |---|---|---|
-| Registration form | +Jabatan, +NIP, +Kota ("Dikeluarkan di") inputs; sent in the register call | `hRegister` accepts + stores the 3 new fields; `Account` model + DB migration |
+| Registration form | +Jabatan, +NIP inputs; sent in the register call (a stale +Kota input is still there client-side, ignored by the server — see Amendment) | `hRegister` accepts + stores `position` + `nip`; `Account` model + DB migration |
 | Login | unchanged (email + password) | unchanged |
 | Placement UI | place 1..N QR spots ("Tambah titik QR"), send a list | `/stamp` accepts a `stamps` JSON array (falls back to single `page/x/y/w`) |
 | Stamp graphic | — (drawn on the server) | each stamp = **caption block + QR** (was bare QR); caption text from the verified account; **date = server time** |
@@ -22,7 +32,7 @@ server during the transition.
 
 ## 2. API contract
 
-### 2a. `POST /api/v1/auth/register`  (JSON body — add 3 optional fields)
+### 2a. `POST /api/v1/auth/register`  (JSON body — add 2 optional fields)
 
 ```jsonc
 {
@@ -31,17 +41,21 @@ server during the transition.
   "organization": "Deputi Bidang ...",          // unit / instansi (existing)
   "display_name": "Gita Aurora",                // existing
   "position": "Plt. Asisten Deputi Perumusan dan Koordinasi Kebijakan Penerapan Akuntabilitas Aparatur dan Pengawasan",
-  "nip": "198704012011012005",
-  "issued_place": "Jakarta"                      // for "Dikeluarkan di ___"
+  "nip": "198704012011012005"
+  // NOTE: "issued_place" is accepted for compatibility but ignored — it is a
+  // per-signature value now, see 2b.
 }
 ```
-All 3 new fields optional (empty string when absent). No response shape change.
+Both new fields optional (empty string when absent). No response shape change.
 
 ### 2b. `POST /api/v1/signatures/{public_id}/stamp`
 
 Body: the raw PDF (unchanged). Query params:
 
 - `reason` — unchanged.
+- **`issued_place`** — NEW, optional. The city for the caption's
+  "Dikeluarkan di <kota>" line, for *this* signature. Absent ⇒ the line is
+  omitted. Not stored on the account.
 - **`stamps`** — NEW. URL-encoded JSON array; each entry is one QR box:
   ```json
   [{"page":1,"x":0.62,"y":0.80,"w":0.30},
@@ -62,14 +76,16 @@ placed ⇒ 422 with the existing Indonesian message.
 A bordered white box, **landscape** (`stampAspect` = height/width ≈ **0.42** —
 must match the clients' default box shape and `STAMP_ASPECT` constants).
 
-Contents (all text from the **verified account record**, never the client):
+Contents (`<full_name>` / `<position>` / `<nip>` from the **verified account
+record**, never the client; `<issued_place>` from the `/stamp` request;
+`<server date>` from server time):
 
 ```
 Ditandatangani secara elektronik oleh:            ┌─────────┐
 <full_name>                    (bold)              │   QR    │
 <position>                     (wrapped to width)  │         │
 NIP. <nip>                                         └─────────┘
-Dikeluarkan di <issued_place>
+Dikeluarkan di <issued_place>   (from ?issued_place=)
 Pada tanggal <server date>
 ```
 
@@ -89,28 +105,28 @@ Pada tanggal <server date>
 
 ## 3. Server TODO (files)
 
-1. **`server/internal/store/store.go`** — `Account` gains `Position`, `NIP`,
-   `IssuedPlace string`.
+1. **`server/internal/store/store.go`** — `Account` gains `Position`, `NIP`
+   `string` (no `IssuedPlace` — that is per-signature, see Amendment).
 2. **`server/internal/store/migrations/0005_signer_fields.{up,down}.sql`** —
    `ALTER TABLE accounts ADD COLUMN position TEXT NOT NULL DEFAULT ''`, same
-   for `nip`, `issued_place`. Down: drop them.
-3. **`server/internal/store/postgres.go`** — add the 3 cols to `acctCols`,
-   the INSERT, and every `rowToAccount`/scan. **`memory.go`** — copy the
-   fields in `CreateAccount` / updates.
-4. **`server/internal/api/handlers.go`** — `hRegister` reads `position`,
-   `nip`, `issued_place` from the body into the new `Account` fields.
+   for `nip`. Down: drop them.
+3. **`server/internal/store/postgres.go`** — add the 2 cols to `acctCols`,
+   the INSERT, and every `rowToAccount`/scan. **`memory.go`** — `CreateAccount`
+   already copies the whole struct, nothing to do.
+4. **`server/internal/api/handlers.go`** — `hRegister` reads `position` and
+   `nip` from the body into the new `Account` fields (a stale `issued_place`
+   in the body is ignored).
 5. **`server/internal/api/stamp.go`** — parse `stamps` query param (JSON
-   array) → `[]stampPlacement`; keep the single-param fallback. Loop
-   `stampQR` over the list (or make `stampQR` take `[]stampPlacement` and
-   emit N images in one `pdfcpu.Create` call — cleaner, one JSON doc with N
-   image entries). Fetch the signer `Account` (already have `acc` was
-   removed — re-fetch `s.st.Account(c.Sub)`), pass its
-   `FullName/Position/NIP/IssuedPlace/Organization` + `time.Now()` into the
-   composer.
+   array) → `[]stampPlacement`; keep the single-param fallback. Make `stampQR`
+   take `[]stampPlacement` and emit N images in one `pdfcpu.Create` call (one
+   JSON doc, images grouped by page). Fetch the signer `Account`
+   (`s.st.Account(c.Sub)`) for `FullName/Position/NIP`; read `issued_place`
+   from the query; pass those + `idDate(jakartaNow())` into the composer.
 6. **`server/internal/api/stamppng.go`** — replace `buildStampPNG(qrContent,
    widthPx)` with `buildStampPNG(qrContent string, cap captionData, widthPx int)`
    that renders the caption block + QR per §2c. `captionData{FullName,
-   Position, NIP, IssuedPlace, DateText}`. Bump `stampAspect` to `0.42`.
+   Position, NIP, IssuedPlace, DateText}` (`IssuedPlace` filled from the
+   request, not the account). Bump `stampAspect` to `0.42`.
 7. **`server/internal/api/verifpage_test.go` / `qrtarget_internal_test.go`**
    — update `TestStampThenSubmit` etc. for the `stamps` param + the new
    aspect; add a multi-stamp test (2 entries ⇒ 2 images embedded, page count
@@ -121,10 +137,11 @@ Pada tanggal <server date>
    `position`, `nip`.
 10. **`deploy/local/Dockerfile`** — `apk add --no-cache tzdata` on the
     runtime stage.
-11. **`deploy/local/seed.sh`** — add `position`, `nip`, `issued_place` to
-    the admin + user register payloads, e.g.
-    `"position":"Administrator Sistem","nip":"000000000000000000","issued_place":"Jakarta"`
-    for admin and the pusat-example values for the user.
+11. **`deploy/local/seed.sh`** — add `position`, `nip` to the admin + user
+    register payloads, e.g.
+    `"position":"Administrator Sistem","nip":"000000000000000000"` for admin
+    and the pusat-example values for the user (no `issued_place` — per
+    signature now).
 12. **`docs/api.md`** — document the register fields + `stamps` param.
 13. Run `gofmt`, `go test ./...` in `server/`, `bash tools/acceptance.sh`
     (all must stay green), then rebuild the container:
@@ -138,10 +155,10 @@ Pada tanggal <server date>
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   "http://localhost:8099/api/v1/signatures/PID/stamp?x=0.6&y=0.8&w=0.3" ...   # 401 without auth is fine; use a real token in an e2e
 
-# multi:
+# multi (+ per-signature place):
 S='[{"page":1,"x":0.55,"y":0.6,"w":0.3},{"page":1,"x":0.1,"y":0.1,"w":0.2}]'
 curl ... --data-binary @doc.pdf \
-  "http://localhost:8099/api/v1/signatures/PID/stamp?reason=Persetujuan&stamps=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$S")"
+  "http://localhost:8099/api/v1/signatures/PID/stamp?reason=Persetujuan&issued_place=Jakarta&stamps=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$S")"
 ```
 Then `tools/acceptance.sh` should still be 7/7.
 
@@ -169,3 +186,20 @@ Then `tools/acceptance.sh` should still be 7/7.
 If the server is still on the old contract, the new apps' multi-stamp call
 fails (old server ignores `stamps`, draws nothing or errors). Update the
 server first.
+
+### 4a. Client follow-up (not yet done) — per-signature "Dikeluarkan di"
+
+Per the Amendment, the "Kota / Dikeluarkan di" input must move from the
+**register** pane to the **sign / placement** step, and be sent to `/stamp`
+as `?issued_place=<kota>` next to `reason`. Until that lands:
+
+- the clients still collect "Kota" at registration; the server ignores it, so
+  nothing breaks, but the value has no effect;
+- the "Dikeluarkan di" caption line is blank unless the caller adds
+  `?issued_place=` by hand.
+
+Touch points: desktop `frontend/dist/index.html` (move the field, pass it
+through `SignPDF`), `apps/windows/internal/apiclient/client.go` `Stamp(...)`
+(add an `issuedPlace` arg → `q.Set("issued_place", ...)`), the appcore/app
+wrappers, and Android `net/ApiClient.kt` `stamp(...)` + `AppCore.signPdf(...)`
++ `MainActivity.kt`.

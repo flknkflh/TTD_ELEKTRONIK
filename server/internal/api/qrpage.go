@@ -28,7 +28,7 @@ func serverBar(defaultBase string) string {
   <label for="srv">Alamat server verifikasi</label>
   <div class="srvrow">
     <input id="srv" type="text" spellcheck="false" placeholder="http://192.168.x.x:8098" />
-    <button id="srvApply" type="button">Terapkan</button>
+    <button id="srvApply" type="button" class="btn btn-primary">Terapkan</button>
   </div>
   <p class="srvhint" id="srvHint"></p>
 </div>
@@ -79,7 +79,7 @@ func (s *Server) hScanResolver(w http.ResponseWriter, r *http.Request) {
 	body := serverBar(reqBase(r)) + `
 <p class="muted">ID verifikasi: <code>` + html.EscapeString(pid) + `</code></p>
 <p class="muted">Pastikan alamat server di atas benar, lalu buka hasil verifikasinya.</p>
-<p><button class="btn" id="go" type="button">Lihat hasil verifikasi →</button></p>
+<p><button class="btn btn-primary" id="go" type="button">Lihat hasil verifikasi →</button></p>
 <script>
 document.getElementById("go").addEventListener("click", function(){
   location.href = window.SRV + "/v/" + ` + jsString(pid) + `;
@@ -132,6 +132,8 @@ func (s *Server) hVerifyPage(w http.ResponseWriter, r *http.Request) {
 		rows += "<tr><th>" + html.EscapeString(k) + "</th><td>" + html.EscapeString(v) + "</td></tr>"
 	}
 	add("Penanda tangan", str(rec["signer_name"]))
+	add("Jabatan", str(rec["position"]))
+	add("NIP", str(rec["nip"]))
 	add("Perangkat", str(rec["device_label"]))
 	add("No. sertifikat", str(rec["certificate_serial"]))
 	add("Sidik jari sertifikat", str(rec["certificate_fingerprint"]))
@@ -205,67 +207,99 @@ func verifyPageShell(title, inner string) string {
 	return `<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>` + html.EscapeString(title) + ` — PQC PDF Sign</title>
+` + lgHead + `
 <style>
-  :root { color-scheme: light dark; }
-  body { margin:0; font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-         background:#f4f5f7; color:#16181d; }
-  @media (prefers-color-scheme:dark){ body{ background:#14161a; color:#e6e8ec; } }
-  .wrap { max-width:1040px; margin:0 auto; padding:30px 22px 60px; }
-  h1 { font-size:22px; margin:0 0 4px; letter-spacing:-.01em; }
-  .sub { opacity:.6; font-size:13px; margin:0 0 22px; }
-  .card { background:#fff; border:1px solid #e2e4e8; border-radius:16px; padding:26px 28px;
-          box-shadow:0 1px 2px rgba(20,22,25,.04), 0 10px 30px rgba(20,22,25,.05); }
-  @media (prefers-color-scheme:dark){ .card{ background:#1c1f25; border-color:#2c2f36;
-          box-shadow:0 1px 2px rgba(0,0,0,.3), 0 14px 36px rgba(0,0,0,.35); } }
-  @media (max-width:560px){ .wrap{ padding:20px 14px 44px; } .card{ padding:18px; } }
-  .srvbar { margin:0 0 16px; padding:12px; border:1px solid #e2e4e8; border-radius:10px; background:#fafbfc; }
-  @media (prefers-color-scheme:dark){ .srvbar{ background:#181b20; border-color:#2c2f36; } }
-  .srvbar.warn { border-color:#f59e0b; background:#fffbeb; }
-  @media (prefers-color-scheme:dark){ .srvbar.warn{ background:#2a2210; } }
-  .srvbar label { display:block; font-size:12px; opacity:.7; margin-bottom:6px; }
-  .srvrow { display:flex; gap:8px; }
-  .srvrow input { flex:1; min-width:0; padding:8px 10px; border:1px solid #cfd3da; border-radius:8px;
-                  font:inherit; background:#fff; color:inherit; }
-  @media (prefers-color-scheme:dark){ .srvrow input{ background:#0f1114; border-color:#3a3e46; } }
-  .srvrow button { padding:8px 14px; border:0; border-radius:8px; background:#4f46e5; color:#fff;
-                   font:inherit; font-weight:600; cursor:pointer; }
-  .srvhint { margin:8px 0 0; font-size:12px; color:#92400e; }
-  @media (prefers-color-scheme:dark){ .srvhint{ color:#fbbf24; } }
-  .idbox { margin:14px 0 0; padding:14px; border:1px solid #e2e4e8; border-radius:10px; background:#fafbfc; }
-  @media (prefers-color-scheme:dark){ .idbox{ background:#181b20; border-color:#2c2f36; } }
-  .idbox label { display:block; font-size:12px; opacity:.7; margin-bottom:6px; }
-  .status { text-align:center; margin-bottom:16px; }
-  .status p { margin:10px 0 0; font-size:14px; }
-  .badge { display:inline-block; padding:6px 16px; border-radius:999px; font-weight:700;
-           letter-spacing:.05em; font-size:14px; }
-  .badge.ok  { background:#dcfce7; color:#166534; }
-  .badge.bad { background:#fee2e2; color:#991b1b; }
-  .badge.warn{ background:#fef3c7; color:#92400e; }
-  table { width:100%; border-collapse:collapse; font-size:13.5px; margin:6px 0 14px; }
-  th,td { text-align:left; padding:10px 8px; border-bottom:1px solid #e8eaee; vertical-align:top; }
-  @media (prefers-color-scheme:dark){ th,td{ border-color:#2a2d33; } }
-  th { opacity:.55; font-weight:600; white-space:nowrap; width:230px; }
-  td { word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; }
-  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .muted { opacity:.6; font-size:12.5px; }
-  .bad { color:#991b1b; font-weight:600; }
-  h2 { font-size:16px; margin:24px 0 6px; }
-  .doc { margin:18px -28px 4px; padding:18px 28px 0; border-top:1px solid #e8eaee; }
-  @media (prefers-color-scheme:dark){ .doc{ border-color:#2a2d33; } }
-  @media (max-width:560px){ .doc{ margin-left:-18px; margin-right:-18px; padding-left:18px; padding-right:18px; } }
-  .doc iframe { width:100%; height:min(86vh, 1200px); min-height:560px;
-                border:1px solid #d7dade; border-radius:10px; background:#fff; margin-top:10px; }
-  @media (prefers-color-scheme:dark){ .doc iframe{ border-color:#2c2f36; } }
+  .v-wrap { max-width:1080px; margin:0 auto; padding:0 20px 90px; position:relative; z-index:1; }
+  .v-nav { display:flex; align-items:center; gap:14px; padding:20px 0 8px; }
+  .v-nav .spacer { flex:1; }
+  .v-nav .navlink { position:relative; color:var(--text-secondary); text-decoration:none; font-weight:600;
+                    font-size:13px; padding:7px 12px; border-radius:8px;
+                    transition:color .25s var(--ease-glass), background .25s, transform .45s var(--ease-spring); }
+  .v-nav .navlink:hover { color:var(--text-primary); background:var(--glass-bg-soft); transform:translateY(-2px); }
+  /* underline wipes in from the centre */
+  .v-nav .navlink::after { content:""; position:absolute; left:50%; right:50%; bottom:2px; height:2px;
+                    border-radius:2px; background:var(--grad-primary);
+                    transition:left .35s var(--ease-spring), right .35s var(--ease-spring); }
+  .v-nav .navlink:hover::after { left:12px; right:12px; }
+  .brand .mark { transition:transform .6s var(--ease-spring), filter .4s; }
+  .brand:hover .mark { transform:scale(1.08) rotate(-3deg); filter:drop-shadow(0 10px 28px var(--glow-cyan)); }
+  .v-feat .f { transition:transform .45s var(--ease-spring); }
+  .v-feat .f:hover { transform:translateY(-4px); }
+  .v-feat .f svg { transition:transform .5s var(--ease-spring); }
+  .v-feat .f:hover svg { transform:scale(1.2) rotate(-8deg); }
+  #drop .dz-ic { transition:transform .55s var(--ease-spring); }
+  #drop:hover .dz-ic { transform:translateY(-6px) scale(1.12); }
+  @media (max-width:640px){ .v-nav .navlink{ display:none; } }
+  .v-hero { text-align:center; padding:22px 0 26px; }
+  .v-hero h1 { font-size:clamp(26px,4.4vw,42px); line-height:1.14; margin:0 0 12px; letter-spacing:-.02em; }
+  .v-hero .sub { color:var(--text-secondary); font-weight:600; letter-spacing:.03em; font-size:13px; margin:0; }
+  .v-card { padding:30px 34px; }
+  @media (max-width:620px){ .v-card{ padding:20px; } }
+
+  .srvbar, .idbox { margin:0 0 18px; padding:16px 18px; border-radius:var(--radius-md);
+    background:var(--glass-bg-soft); border:1px solid var(--glass-border);
+    -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); }
+  .srvbar.warn { border-color:var(--warning); background:var(--warning-soft); }
+  .srvbar label, .idbox label { margin-top:0; }
+  .srvrow { display:flex; gap:10px; }
+  .srvrow input { flex:1; min-width:0; }
+  .srvhint { margin:8px 0 0; font-size:12px; color:var(--warning); }
+
+  .status { text-align:center; margin:4px 0 18px; }
+  .status p { margin:12px 0 0; font-size:14px; color:var(--text-secondary); }
+
+  #drop { display:block; border:1.6px dashed var(--border-active); border-radius:var(--radius-md);
+    padding:34px 18px; text-align:center; cursor:pointer; font-size:14px; color:var(--text-secondary);
+    background:var(--glass-bg-soft); transition:border-color .25s var(--ease-glass), background .25s, transform .25s, box-shadow .25s; }
+  #drop:hover { border-color:var(--cyan-400); background:var(--glass-bg); transform:translateY(-2px); }
+  #drop.drag { border-color:var(--cyan-400); background:var(--glass-bg-strong); box-shadow:0 0 34px var(--glow-cyan); }
+  #drop .dz-ic { display:block; width:40px; height:40px; margin:0 auto 10px; color:var(--blue-500); }
+
+  h2 { font-size:16px; margin:22px 0 6px; }
+  .v-card table { margin:8px 0 14px; }
+  .v-card th { text-transform:none; letter-spacing:0; font-size:12px; color:var(--text-muted);
+               font-weight:600; white-space:nowrap; width:228px; }
+  .v-card td { word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; }
+
+  .doc { margin:20px 0 4px; padding:20px 0 0; border-top:1px solid var(--glass-border); }
+  .doc iframe { width:100%; height:min(84vh,1100px); min-height:520px; border:1px solid var(--glass-border);
+    border-radius:var(--radius-md); background:#fff; margin-top:12px; }
   .docbtns { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
-  .btn { display:inline-flex; align-items:center; gap:7px; padding:11px 20px; border-radius:9px; border:0;
-         background:#4f46e5; color:#fff; text-decoration:none; font-weight:600; font-size:13.5px; cursor:pointer; }
-  .btn:hover { background:#4338ca; }
-  .btn.alt { background:#0e7490; }
-  .btn.alt:hover { background:#0c6579; }
-  #drop { transition:border-color .15s; }
-  #drop:hover { border-color:#4f46e5; }
-</style></head><body><div class="wrap">
-<h1>Verifikasi Tanda Tangan Digital</h1>
-<p class="sub">PQC PDF Sign · ML-DSA-65 (FIPS 204)</p>
-<div class="card">` + inner + `</div></div></body></html>`
+  .btn.alt { background:linear-gradient(135deg,var(--cyan-500),var(--blue-600)); color:#fff; border-color:transparent; }
+
+  .v-feat { display:flex; flex-wrap:wrap; gap:16px; margin-top:24px; padding-top:20px; border-top:1px solid var(--glass-border); }
+  .v-feat .f { flex:1 1 170px; display:flex; gap:11px; align-items:flex-start; }
+  .v-feat .f svg { width:22px; height:22px; color:var(--blue-500); flex:0 0 22px; margin-top:1px; }
+  .v-feat .f b { display:block; font-size:13px; }
+  .v-feat .f span { font-size:11.5px; color:var(--text-muted); }
+
+  .v-foot { text-align:center; color:var(--text-muted); font-size:12px; padding:34px 0 0; }
+  .v-hero { position:relative; }
+  .v-qr { position:absolute; right:-1vw; top:-6px; width:min(12vw,120px); opacity:.72;
+          filter:drop-shadow(0 14px 40px var(--glow-cyan)); pointer-events:none; }
+  @media (max-width:1000px){ .v-qr{ display:none; } }
+</style></head><body>
+` + lgBackground + `
+<div class="v-wrap">
+  <nav class="v-nav anim-fade-down">
+    <a class="brand" href="/">` + lgMark + `</a>
+    <span class="spacer"></span>
+    <a class="navlink" href="/">Beranda</a>
+    <a class="navlink" href="/">Verifikasi</a>
+    <a class="navlink" href="/api/v1/public/ca/chain.pem">Sertifikat CA</a>
+    ` + lgThemeToggle + `
+  </nav>
+  <header class="v-hero">
+    <img class="v-qr float lt" src="/assets/img/qr-light.png" alt="" aria-hidden="true">
+    <img class="v-qr float dk" src="/assets/img/qr-dark.png" alt="" aria-hidden="true">
+    <h1 class="anim-fade-up">Verifikasi <span class="grad-text">Tanda Tangan Digital</span></h1>
+    <p class="sub anim-fade-up stg-1">PQC PDF Sign · ML-DSA-65 (FIPS 204)</p>
+  </header>
+  <div class="glass glow-border spotlight v-card anim-fade-up stg-2">
+` + inner + `
+  </div>
+  <p class="v-foot">PQC PDF Sign · Keamanan Post-Quantum untuk Dokumen Tepercaya</p>
+</div>
+` + lgScripts + `
+</body></html>`
 }

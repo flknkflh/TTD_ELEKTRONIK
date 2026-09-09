@@ -109,7 +109,7 @@ func norm(err error) error {
 
 // --- accounts ---
 
-const acctCols = `id,email,display_name,full_name,organization,password_hash,role,status,created_at`
+const acctCols = `id,email,display_name,full_name,organization,position,nip,password_hash,role,status,created_at`
 
 func (p *Postgres) CreateAccount(a Account) (Account, error) {
 	if a.ID == "" {
@@ -123,9 +123,10 @@ func (p *Postgres) CreateAccount(a Account) (Account, error) {
 	}
 	a.CreatedAt = time.Now().UTC()
 	_, err := p.db.Exec(
-		`INSERT INTO accounts(id,email,display_name,full_name,organization,password_hash,role,status,created_at)
-		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		a.ID, a.Email, a.DisplayName, a.FullName, a.Organization, a.PasswordHash, a.Role, a.Status, a.CreatedAt)
+		`INSERT INTO accounts(id,email,display_name,full_name,organization,position,nip,password_hash,role,status,created_at)
+		 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		a.ID, a.Email, a.DisplayName, a.FullName, a.Organization, a.Position, a.NIP,
+		a.PasswordHash, a.Role, a.Status, a.CreatedAt)
 	if err != nil {
 		return Account{}, fmt.Errorf("store: email already registered")
 	}
@@ -135,6 +136,7 @@ func (p *Postgres) CreateAccount(a Account) (Account, error) {
 func scanAccountRow(s interface{ Scan(...any) error }) (Account, error) {
 	var a Account
 	err := s.Scan(&a.ID, &a.Email, &a.DisplayName, &a.FullName, &a.Organization,
+		&a.Position, &a.NIP,
 		&a.PasswordHash, &a.Role, &a.Status, &a.CreatedAt)
 	return a, norm(err)
 }

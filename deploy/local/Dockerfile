@@ -14,7 +14,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     cd /src/tools/ca-admin && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ca-admin .
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates curl
+# tzdata: the stamp caption prints the server date in Asia/Jakarta.
+RUN apk add --no-cache ca-certificates curl tzdata
 COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/ca-admin /usr/local/bin/ca-admin
 COPY deploy/local/entrypoint.sh /entrypoint.sh

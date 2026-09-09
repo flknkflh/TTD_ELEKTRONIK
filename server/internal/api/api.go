@@ -206,6 +206,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /admin", s.hAdminUI)
 	mux.HandleFunc("GET /admin/", s.hAdminUI)
 
+	// Shared Liquid Glass stylesheet + runtime (also mounted on VerifyRoutes).
+	s.mountUIKit(mux)
+
 	return mux
 }
 

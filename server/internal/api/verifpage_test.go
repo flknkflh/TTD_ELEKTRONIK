@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	pdfcpu "github.com/pdfcpu/pdfcpu/pkg/api"
 
 	"example.internal/pqc-pdf-sign/core/labpki"
+	"example.internal/pqc-pdf-sign/core/signing"
 	"example.internal/pqc-pdf-sign/core/testpdf"
 	"example.internal/pqc-pdf-sign/server/internal/api"
 	"example.internal/pqc-pdf-sign/server/internal/store"
@@ -53,8 +55,12 @@ func TestVerifyOnlyService(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Verifikasi Dokumen") || !strings.Contains(w.Body.String(), "/api/v1/verify") {
 		t.Fatalf("home page: %d %s", w.Code, w.Body.String()[:min(200, w.Body.Len())])
 	}
-	if b := w.Body.String(); !strings.Contains(b, "masukkan ID verifikasi") || !strings.Contains(b, "Alamat server verifikasi") {
-		t.Fatalf("home page should carry the ID box + server-address bar")
+	// upload is the only entry point on the home page; the ID box was removed.
+	if b := w.Body.String(); !strings.Contains(b, "Unggah berkas PDF") || !strings.Contains(b, "Alamat server verifikasi") {
+		t.Fatalf("home page should carry the upload dropzone + server-address bar")
+	}
+	if strings.Contains(w.Body.String(), "masukkan ID verifikasi") {
+		t.Fatalf("home page should no longer offer the manual ID box")
 	}
 
 	// verify route exists (garbage -> 400, not 404)
@@ -131,6 +137,64 @@ func TestStampThenSubmit(t *testing.T) {
 	}
 
 	w = e.verifyMultipart(signed)
+	mustCode(t, w, http.StatusOK)
+	vb := jbody(t, w)
+	if vb["registered"] != true || vb["verification"].(map[string]any)["valid"] != true {
+		t.Fatalf("public verify failed: %s", w.Body.String())
+	}
+}
+
+// §2b: the ?stamps= JSON array places N caption+QR stamps in one call. The
+// page count is unchanged, both images are embedded, and the result still
+// strict-verifies and registers.
+func TestStampMultiPlacement(t *testing.T) {
+	e := newEnv(t)
+	user := e.account("user@test", store.RoleUser)
+	admin := e.account("admin@test", store.RoleAdmin)
+	d := e.enrolledDevice(user, admin, "Laptop")
+	pid := e.reserve(user, d.id)
+
+	before, _ := pdfcpu.PageCount(bytes.NewReader(testpdf.Sample()), nil)
+
+	const stamps = `[{"page":1,"x":0.55,"y":0.60,"w":0.30},{"page":1,"x":0.08,"y":0.10,"w":0.22}]`
+
+	// one stamp for comparison, then two — the two-stamp PDF must be larger
+	// (both images landed) and keep the same page count.
+	one := e.do("POST", "/api/v1/signatures/"+pid+"/stamp?stamps="+
+		url.QueryEscape(`[{"page":1,"x":0.55,"y":0.60,"w":0.30}]`), user, testpdf.Sample())
+	mustCode(t, one, http.StatusOK)
+
+	w := e.do("POST", "/api/v1/signatures/"+pid+"/stamp?reason=Persetujuan&issued_place=Bandung&stamps="+
+		url.QueryEscape(stamps), user, testpdf.Sample())
+	mustCode(t, w, http.StatusOK)
+	if w.Header().Get("X-QR-Stamp") != "applied" {
+		t.Fatalf("missing X-QR-Stamp header")
+	}
+	stamped := w.Body.Bytes()
+	if len(stamped) <= one.Body.Len() {
+		t.Fatalf("two-stamp PDF (%d B) not larger than one-stamp (%d B)", len(stamped), one.Body.Len())
+	}
+	after, err := pdfcpu.PageCount(bytes.NewReader(stamped), nil)
+	if err != nil {
+		t.Fatalf("page count: %v", err)
+	}
+	if after != before {
+		t.Fatalf("pages: before=%d after=%d, want unchanged", before, after)
+	}
+
+	// the multi-stamped bytes sign on-device, submit, and pass the public verifier
+	res, err := signing.SignPDF(stamped, d.keyPEM, d.chainPEM, signing.Options{
+		SignerName: "Tester", PublicID: pid,
+	})
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	w = e.do("PUT", "/api/v1/signatures/"+pid+"/document", user, res.SignedPDF)
+	mustCode(t, w, http.StatusOK)
+	if jbody(t, w)["status"] != "accepted" {
+		t.Fatalf("submit not accepted: %s", w.Body.String())
+	}
+	w = e.verifyMultipart(res.SignedPDF)
 	mustCode(t, w, http.StatusOK)
 	vb := jbody(t, w)
 	if vb["registered"] != true || vb["verification"].(map[string]any)["valid"] != true {

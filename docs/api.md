@@ -45,8 +45,12 @@ Slice 2 remainder: `auth/refresh`, `auth/logout`.
 
 ## RB business flow (from RB-1..RB-6)
 
-`register` takes `{email,password,full_name,organization}` and creates a
-**pending** account; login is refused (`403 {account_status:"pending"}`) until
+`register` takes `{email,password,full_name,organization}` plus the optional
+`{display_name,position,nip}` (empty string when absent; `position`/`nip` are
+the signer's fixed identity drawn in the e-signature caption on stamps — the
+per-signature "Dikeluarkan di <kota>" is passed to `/stamp` instead, not here)
+and creates a **pending** account; login is refused (`403
+{account_status:"pending"}`) until
 an admin `POST /admin/accounts/{id}/approve`. Once approved, the first
 `POST /devices/{id}/csr` from that account is **auto-issued** by the server's
 online CA (`Config.LabIssuer`) — the response carries `status:"issued"` and
@@ -84,7 +88,7 @@ POST /api/v1/devices/{device_id}/report-lost
 ## Signatures
 ```
 POST /api/v1/signatures/reserve
-POST /api/v1/signatures/{public_id}/stamp        (body: application/pdf; ?page=&x=&y=&w=&reason=; x,y = top-left of the QR box as page fractions, w = width fraction. Returns the PDF with one QR stamp drawn at that spot, page count unchanged. 422 if the PDF cannot be processed.)
+POST /api/v1/signatures/{public_id}/stamp        (body: application/pdf; ?reason=&issued_place=&stamps=<url-encoded JSON array>. Each array entry {"page":1,"x":0.62,"y":0.80,"w":0.30}: page 1-based (0/absent = last page), x,y = top-left of the QR box as page fractions, w = width fraction. The server draws one caption+QR stamp per entry: name/jabatan/NIP come from the verified account (never the client); "Dikeluarkan di <kota>" is the ?issued_place= value for this signature (omitted if absent); the date is server time in Asia/Jakarta. Returns the PDF, page count unchanged. If ?stamps= is absent it falls back to a single stamp from ?page=&x=&y=&w=. 422 if the PDF cannot be processed or an entry cannot be placed.)
 PUT  /api/v1/signatures/{public_id}/document
 GET  /api/v1/signatures/{public_id}
 GET  /api/v1/signatures/{public_id}/download
@@ -139,5 +143,5 @@ There must be no `POST /api/v1/sign` and no `POST /api/v1/users/{id}/sign`
 
 `POST /api/v1/verify` and the local verifiers all return the JSON produced by
 `core/verification` (`verification.Result`) — see §11.3 / §16.2. The server
-adds `registered`, `signer_name`, `device_label`, `certificate_status`,
-`server_received_at`.
+adds `registered`, `signer_name`, `position`, `nip`, `device_label`,
+`certificate_status`, `server_received_at`.

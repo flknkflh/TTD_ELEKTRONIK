@@ -80,7 +80,30 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{t: t, h: srv.Routes(), inter: inter}
+	e := &env{t: t, h: srv.Routes(), inter: inter}
+	// Create the bootstrap admin first thing: it is the only account that may
+	// activate itself. Everything registered afterwards — users *and* further
+	// admins — queues for approval, so this token is what approves them.
+	e.badmin = e.register("_bootstrap_admin@test", store.RoleAdmin)
+	return e
+}
+
+// register creates an account and logs in, approving it with the bootstrap
+// admin when the server puts it in the pending queue.
+func (e *env) register(email, role string) string {
+	e.t.Helper()
+	w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
+		"email": email, "password": "password123", "display_name": email, "role": role,
+	})
+	mustCode(e.t, w, http.StatusCreated)
+	if b := jbody(e.t, w); b["status"] == store.AccountPending {
+		if e.badmin == "" {
+			e.t.Fatalf("register(%s): pending before a bootstrap admin exists", email)
+		}
+		id := b["account_id"].(string)
+		mustCode(e.t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", e.badmin, nil), http.StatusOK)
+	}
+	return e.login(email)
 }
 
 func (e *env) do(method, path, token string, body any) *httptest.ResponseRecorder {
@@ -119,30 +142,15 @@ func mustCode(t *testing.T, w *httptest.ResponseRecorder, want int) {
 	}
 }
 
-// account registers, gets a pending user approved by a bootstrap admin, and
-// returns an access token (exercises the RB-1 approval gate).
+// account registers an account and returns its access token, going through
+// the RB-1 approval gate exactly like the console does.
 func (e *env) account(email, role string) string {
 	e.t.Helper()
-	w := e.do("POST", "/api/v1/auth/register", "", map[string]string{
-		"email": email, "password": "password123", "display_name": email, "role": role,
-	})
-	mustCode(e.t, w, http.StatusCreated)
-
-	if role == store.RoleUser {
-		id := jbody(e.t, w)["account_id"].(string)
-		mustCode(e.t, e.do("POST", "/api/v1/admin/accounts/"+id+"/approve", e.adminTok(), nil), http.StatusOK)
-	}
-	return e.login(email)
+	return e.register(email, role)
 }
 
-// adminTok lazily creates one admin used to approve pending user registrations.
-func (e *env) adminTok() string {
-	e.t.Helper()
-	if e.badmin == "" {
-		e.badmin = e.account("_bootstrap_admin@test", store.RoleAdmin)
-	}
-	return e.badmin
-}
+// adminTok returns the bootstrap admin created by newEnv.
+func (e *env) adminTok() string { return e.badmin }
 
 func (e *env) login(email string) string {
 	e.t.Helper()

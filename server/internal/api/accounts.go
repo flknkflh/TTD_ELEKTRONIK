@@ -33,6 +33,18 @@ func (s *Server) accountView(a store.Account) map[string]any {
 	}
 }
 
+// hasActiveAdmin reports whether an approved admin already exists. The first
+// admin to register when there is none bootstraps itself; after that, admin
+// sign-ups queue for approval like any other account.
+func (s *Server) hasActiveAdmin() bool {
+	for _, a := range s.st.ListAccounts() {
+		if a.Role == store.RoleAdmin && a.Status == store.AccountActive {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) hListAccounts(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for _, a := range s.st.ListAccounts() {
@@ -135,8 +147,11 @@ func (s *Server) hDisableAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "account not found")
 		return
 	}
-	if a.Role == store.RoleAdmin {
-		writeErr(w, http.StatusForbidden, "tidak bisa menonaktifkan akun admin dari sini")
+	// An approved admin is protected so the console can never be locked out.
+	// A *pending* admin request is fair game — rejecting it is the whole point
+	// of the approval queue.
+	if a.Role == store.RoleAdmin && a.Status != store.AccountPending {
+		writeErr(w, http.StatusForbidden, "tidak bisa menonaktifkan akun admin yang sudah aktif")
 		return
 	}
 	_ = s.st.SetAccountStatus(id, store.AccountDisabled)
@@ -154,8 +169,8 @@ func (s *Server) hDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "account not found")
 		return
 	}
-	if a.Role == store.RoleAdmin {
-		writeErr(w, http.StatusForbidden, "tidak bisa menghapus akun admin dari sini")
+	if a.Role == store.RoleAdmin && a.Status != store.AccountPending {
+		writeErr(w, http.StatusForbidden, "tidak bisa menghapus akun admin yang sudah aktif")
 		return
 	}
 	_ = s.st.SetAccountStatus(id, store.AccountDisabled)

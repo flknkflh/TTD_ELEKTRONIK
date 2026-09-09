@@ -35,6 +35,7 @@ module:
 |---|---|---|---|
 | server | `github.com/jackc/pgx/v5` | MIT | PostgreSQL driver |
 | server | `github.com/minio/minio-go/v7` | Apache-2.0 | S3/MinIO object storage client |
+| server | `golang.org/x/image` | BSD-3-Clause | opentype text rendering for the e-signature stamp caption |
 | server | `golang.org/x/crypto` | BSD-3-Clause | Argon2id password hashing |
 | server | `golang.org/x/time` | BSD-3-Clause | rate limiter |
 | apps/windows | `github.com/wailsapp/wails/v2` | MIT | desktop GUI shell |

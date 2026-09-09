@@ -20,6 +20,8 @@ func (s *Server) VerifyRoutes() http.Handler {
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
 
+	s.mountUIKit(mux)
+
 	// The verify page may be opened at one address (localhost) while pointed
 	// at the server on another (the LAN IP typed into the "Alamat server"
 	// box). This service is public and read-only, so allow any origin.
@@ -53,22 +55,23 @@ const verifyHomeBody = `
 <p class="muted" style="margin-top:0">Unggah berkas PDF bertanda tangan untuk memeriksa keaslian &amp;
 keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — tidak disimpan.</p>
 
-<label id="drop" for="file" style="display:block;border:1.5px dashed #9aa0aa;border-radius:12px;
-  padding:26px 16px;text-align:center;cursor:pointer;font-size:14px">
+<h2>Unggah berkas PDF</h2>
+<label id="drop" for="file">
   <input id="file" type="file" accept="application/pdf" style="display:none">
-  <span id="dz">Pilih atau jatuhkan berkas PDF di sini</span>
+  <svg class="dz-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0 4 4m-4-4-4 4"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>
+  <span id="dz">Seret &amp; lepas berkas PDF di sini</span>
+  <span class="muted" style="display:block;margin-top:8px">atau</span>
+  <span class="btn btn-primary" style="margin-top:10px" data-no-ripple>Pilih Berkas PDF</span>
+  <span class="muted" style="display:block;margin-top:10px">Hanya berkas PDF · ukuran maksimal 50 MB</span>
 </label>
 
-<div class="idbox">
-  <label for="vid">Atau masukkan ID verifikasi</label>
-  <div class="srvrow">
-    <input id="vid" type="text" spellcheck="false" placeholder="sig_xxxxxxxxxxxxxxxxxxxxxxxx" />
-    <button id="vidGo" type="button">Buka</button>
-  </div>
-  <p class="muted" style="margin:6px 0 0">Dari HP, pindai QR di dokumen dengan aplikasi kamera bawaan — jika berisi tautan langsung terbuka, jika berisi teks salin ID-nya lalu tempel di sini. Pastikan "Alamat server" di atas benar.</p>
-</div>
-
 <div id="out" style="margin-top:16px"></div>
+
+<div class="v-feat">
+  <div class="f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg><div><b>Aman &amp; Privat</b><span>Berkas tidak disimpan di server</span></div></div>
+  <div class="f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><div><b>Standar Post-Quantum</b><span>ML-DSA-65 (FIPS 204)</span></div></div>
+  <div class="f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg><div><b>Mudah Digunakan</b><span>Tanpa akun, langsung verifikasi</span></div></div>
+</div>
 
 <script>
 (function(){
@@ -77,26 +80,11 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
       dz   = document.getElementById('dz'),
       out  = document.getElementById('out');
 
-  var vid = document.getElementById('vid'), vidGo = document.getElementById('vidGo');
-  function idFrom(text){
-    text = String(text || '').trim();
-    if (/^https?:\/\//i.test(text)) return { url: text };
-    return { id: text.replace(/^.*\/(s|v)\//, '').replace(/[^A-Za-z0-9_-]/g, '') };
-  }
-  function openId(){
-    var r = idFrom(vid.value);
-    if (r.url) { location.href = r.url; return; }
-    if (!r.id) { vid.focus(); return; }
-    location.href = window.SRV + '/v/' + encodeURIComponent(r.id);
-  }
-  vidGo.addEventListener('click', openId);
-  vid.addEventListener('keydown', function(e){ if (e.key === 'Enter') openId(); });
-
   ['dragenter','dragover'].forEach(function(ev){
-    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.borderColor = '#2563eb'; });
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('drag'); });
   });
   ['dragleave','drop'].forEach(function(ev){
-    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.borderColor = '#9aa0aa'; });
+    drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('drag'); });
   });
   drop.addEventListener('drop', function(e){
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) run(e.dataTransfer.files[0]);
