@@ -68,8 +68,8 @@ func (a *App) Connect(serverURL string, insecureTLS bool) error {
 	return a.core.SetServerURL(serverURL, insecureTLS)
 }
 
-func (a *App) Register(fullName, org, email, password, position, nip, issuedPlace string) (registerView, error) {
-	r, err := a.core.Register(fullName, org, email, password, position, nip, issuedPlace)
+func (a *App) Register(fullName, org, email, password, position, nip string) (registerView, error) {
+	r, err := a.core.Register(fullName, org, email, password, position, nip)
 	return registerView{AccountID: r.AccountID, Status: r.Status, Message: r.Message}, err
 }
 
@@ -108,8 +108,8 @@ func toCertView(cs appcore.CertStatus) certView {
 // SignPDF takes the QR placements as a JSON array string
 // ([{page,x,y,w},...], page-relative top-left fractions) so only a string
 // crosses the bridge.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON string) (signView, error) {
-	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON)
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace string) (signView, error) {
+	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace)
 	return signView{
 		OutputPath: r.OutputPath, PublicID: r.PublicID, VerificationURL: r.VerificationURL,
 		OriginalSHA512: r.OriginalSHA512, SignedSHA512: r.SignedSHA512, ServerStatus: r.ServerStatus,

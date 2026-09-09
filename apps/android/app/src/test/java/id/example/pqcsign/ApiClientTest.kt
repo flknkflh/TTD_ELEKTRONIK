@@ -87,7 +87,7 @@ class ApiClientTest {
 
     @Test fun register_sends_signer_profile_fields() {
         json(201, """{"account_id":"acct_9","status":"pending","message":"menunggu persetujuan admin"}""")
-        val r = api.register("Budi Santoso", "Dinas Kominfo", "budi@x", "budi12345", "Kepala Seksi", "199001", "Jakarta")
+        val r = api.register("Budi Santoso", "Dinas Kominfo", "budi@x", "budi12345", "Kepala Seksi", "199001")
         assertEquals("acct_9", r.accountId)
         assertEquals("pending", r.status)
         val body = server.takeRequest().body.readUtf8()
@@ -95,7 +95,6 @@ class ApiClientTest {
         assertTrue(body.contains("\"organization\":\"Dinas Kominfo\""))
         assertTrue(body.contains("\"position\":\"Kepala Seksi\""))
         assertTrue(body.contains("\"nip\":\"199001\""))
-        assertTrue(body.contains("\"issued_place\":\"Jakarta\""))
     }
 
     @Test fun stamp_posts_pdf_with_placements_and_returns_stamped_bytes() {
@@ -110,7 +109,7 @@ class ApiClientTest {
                 ApiClient.StampPlacement(page = 2, x = 0.6, y = 0.8, w = 0.25),
                 ApiClient.StampPlacement(page = 1, x = 0.1, y = 0.1, w = 0.2),
             ),
-            "Persetujuan",
+            "Persetujuan", "Jakarta",
         )
         assertEquals("%PDF-1.7 stamped", String(out))
         val rec = server.takeRequest()
@@ -118,6 +117,7 @@ class ApiClientTest {
         assertTrue(rec.path!!.startsWith("/api/v1/signatures/sig_1/stamp?"))
         assertTrue(rec.path!!.contains("stamps="))
         assertTrue(rec.path!!.contains("reason=Persetujuan"))
+        assertTrue(rec.path!!.contains("issued_place=Jakarta"))
         assertEquals("application/pdf", rec.getHeader("Content-Type"))
     }
 
