@@ -95,17 +95,23 @@ class ApiClientTest {
         assertTrue(body.contains("\"organization\":\"Dinas Kominfo\""))
     }
 
-    @Test fun coverPage_posts_pdf_and_returns_augmented_bytes() {
+    @Test fun stamp_posts_pdf_with_placement_and_returns_stamped_bytes() {
         api.setToken("t")
         server.enqueue(
             MockResponse().setResponseCode(200)
-                .setHeader("Content-Type", "application/pdf").setBody("%PDF-1.7 augmented"),
+                .setHeader("Content-Type", "application/pdf").setBody("%PDF-1.7 stamped"),
         )
-        val out = api.coverPage("sig_1", "%PDF-1.7 orig".toByteArray(), "Persetujuan")
-        assertEquals("%PDF-1.7 augmented", String(out))
+        val out = api.stamp(
+            "sig_1", "%PDF-1.7 orig".toByteArray(),
+            ApiClient.StampPlacement(page = 2, x = 0.6, y = 0.8, w = 0.25), "Persetujuan",
+        )
+        assertEquals("%PDF-1.7 stamped", String(out))
         val rec = server.takeRequest()
         assertEquals("POST", rec.method)
-        assertTrue(rec.path!!.startsWith("/api/v1/signatures/sig_1/cover-page?reason=Persetujuan"))
+        assertTrue(rec.path!!.startsWith("/api/v1/signatures/sig_1/stamp?"))
+        assertTrue(rec.path!!.contains("x=0.6000"))
+        assertTrue(rec.path!!.contains("page=2"))
+        assertTrue(rec.path!!.contains("reason=Persetujuan"))
         assertEquals("application/pdf", rec.getHeader("Content-Type"))
     }
 

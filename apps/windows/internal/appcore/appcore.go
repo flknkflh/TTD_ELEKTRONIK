@@ -5,6 +5,7 @@
 package appcore
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -274,10 +275,31 @@ type SignResult struct {
 	ServerStatus    string `json:"server_status"`
 }
 
-// SignPDF reserves an id, signs locally, verifies the result against the
-// bundled Root CA, writes it, and submits it (§15). It never uploads the
-// original PDF.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string) (SignResult, error) {
+// QRPlacement is where the user dropped the QR box in the preview: a
+// 1-based page and a page-relative rectangle with the origin at the top-left
+// (X,Y = top-left corner, W = width; all fractions in [0,1]).
+type QRPlacement struct {
+	Page int     `json:"page"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+	W    float64 `json:"w"`
+}
+
+// PdfBytesB64 returns the raw PDF at path as base64 — the frontend feeds it
+// to its PDF preview so the user can position the QR box.
+func (a *App) PdfBytesB64(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+// SignPDF reserves an id, has the server stamp a QR at the requested spot,
+// signs locally, verifies the result against the bundled Root CA, writes it,
+// and submits it (§15). It never uploads the original unstamped PDF for
+// storage — only to the stamp endpoint, which returns it for signing.
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string, place QRPlacement) (SignResult, error) {
 	pdf, err := os.ReadFile(inPath)
 	if err != nil {
 		return SignResult{}, err
@@ -309,12 +331,14 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string) (SignResu
 		return SignResult{}, fmt.Errorf("reserve: %w", err)
 	}
 
-	// The verification page is composed server-side and appended BEFORE
-	// signing so it is inside the signed byte range (Rencana RB-2b). A PDF
-	// the server cannot process fails here with a clear message.
-	toSign, err := a.api.CoverPage(res.PublicID, pdf, reason)
+	// The QR stamp is drawn server-side BEFORE signing so it is inside the
+	// signed byte range (Rencana RB-2c). A PDF the server cannot process
+	// fails here with a clear message.
+	toSign, err := a.api.Stamp(res.PublicID, pdf, apiclient.StampPlacement{
+		Page: place.Page, X: place.X, Y: place.Y, W: place.W,
+	}, reason)
 	if err != nil {
-		return SignResult{}, fmt.Errorf("halaman verifikasi: %w", err)
+		return SignResult{}, fmt.Errorf("penempelan QR: %w", err)
 	}
 
 	keyPEM, err := a.store.LoadKey(keystore.Options{PIN: pin})

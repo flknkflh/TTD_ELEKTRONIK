@@ -207,15 +207,15 @@ func signWith(t *testing.T, d device, publicID string) []byte {
 	return res.SignedPDF
 }
 
-// coverAndSign runs the RB-2b flow: upload the original to the server's
-// cover-page endpoint, then sign what comes back on the "device".
-func (e *env) coverAndSign(userTok string, d device, publicID string) []byte {
+// stampAndSign runs the RB-2c flow: upload the original to the server's stamp
+// endpoint (with a placement), then sign what comes back on the "device".
+func (e *env) stampAndSign(userTok string, d device, publicID string) []byte {
 	e.t.Helper()
-	w := e.do("POST", "/api/v1/signatures/"+publicID+"/cover-page?reason=Persetujuan", userTok, testpdf.Sample())
+	w := e.do("POST", "/api/v1/signatures/"+publicID+"/stamp?x=0.6&y=0.78&w=0.28", userTok, testpdf.Sample())
 	mustCode(e.t, w, http.StatusOK)
-	augmented := w.Body.Bytes()
+	stamped := w.Body.Bytes()
 
-	res, err := signing.SignPDF(augmented, d.keyPEM, d.chainPEM, signing.Options{
+	res, err := signing.SignPDF(stamped, d.keyPEM, d.chainPEM, signing.Options{
 		SignerName: "Tester", PublicID: publicID,
 	})
 	if err != nil {

@@ -85,7 +85,7 @@ echo "$CSRRESP" | grep -Eq '"status": ?"issued"' || { echo "CSR SUBMIT DID NOT A
 curl -fsS "$BASE/api/v1/devices/$DEV/certificate" -H "Authorization: Bearer $USER" > "$WORK/dev.crt.pem"
 cat "$WORK/dev.crt.pem" "$WORK/ca/public/ca-chain.pem" > "$WORK/dev.fullchain.pem"
 
-say "reserve -> server cover-page -> sign locally (RB-2b)"
+say "reserve -> server stamp -> sign locally (RB-2c)"
 PDF="$ROOT/core/testpdf/sample.pdf"
 SHA=$(sha512sum "$PDF" | cut -d' ' -f1)
 RES=$(curl -fsS -X POST "$BASE/api/v1/signatures/reserve" -H "Authorization: Bearer $USER" \
@@ -93,9 +93,9 @@ RES=$(curl -fsS -X POST "$BASE/api/v1/signatures/reserve" -H "Authorization: Bea
 PID=$(echo "$RES" | jval public_id)
 VURL=$(echo "$RES" | jval verification_url)
 echo "reserved public_id=$PID"
-curl -fsS -X POST "$BASE/api/v1/signatures/$PID/cover-page?reason=End-to-end%20run" -H "Authorization: Bearer $USER" \
+curl -fsS -X POST "$BASE/api/v1/signatures/$PID/stamp?reason=End-to-end%20run&x=0.6&y=0.78&w=0.28" -H "Authorization: Bearer $USER" \
   -H "Content-Type: application/pdf" --data-binary @"$PDF" > "$WORK/withcover.pdf"
-head -c 5 "$WORK/withcover.pdf" | grep -q "%PDF-" || { echo "COVER-PAGE DID NOT RETURN A PDF"; cat "$WORK/withcover.pdf"; exit 1; }
+head -c 5 "$WORK/withcover.pdf" | grep -q "%PDF-" || { echo "STAMP DID NOT RETURN A PDF"; cat "$WORK/withcover.pdf"; exit 1; }
 "$CLI" sign --in "$WORK/withcover.pdf" --key "$WORK/dev.key.pem" --chain "$WORK/dev.fullchain.pem" \
   --out "$WORK/signed.pdf" --signer "E2E User" --reason "End-to-end run" \
   --public-id "$PID" --verify-url "$VURL" | grep -E "sha512|serial"

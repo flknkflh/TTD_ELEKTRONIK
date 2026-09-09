@@ -57,13 +57,15 @@ bash tools/dev-admin.sh http://127.0.0.1:8099
 # -> user@local  / user12345   (the app; already approved)
 ```
 
-RB flow: in the app, `Masuk` with `user@local` / `user12345` (leave the TOTP
-field blank). The app then **silently** generates the key, submits the CSR, and
-the server **auto-issues** the certificate — no manual enrolment screen, no
-admin click. Then `Tanda Tangani Dokumen` → pick a PDF → the signed result
-carries a verification page with a QR. The `/admin` console's **Akun pengguna**
-tab is where an admin approves new self-registrations and disables/deletes
-accounts.
+RB flow: in the app, `Masuk` with `user@local` / `user12345`. The app then
+**silently** generates the key, submits the CSR, and the server **auto-issues**
+the certificate — no manual enrolment screen, no admin click. Then `Tanda
+Tangani Dokumen` → pick a PDF → **drag the QR box onto the signature column and
+size it** → `Tanda tangani di sini`. The server draws one "TTD Elektronik" QR
+stamp at that spot before signing (page count unchanged); scanning it opens the
+verification page, which also shows the authoritative signed PDF. The `/admin`
+console's **Akun pengguna** tab is where an admin approves new
+self-registrations and disables/deletes accounts.
 
 ## 3. Test on a phone
 

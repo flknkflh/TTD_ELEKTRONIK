@@ -131,11 +131,20 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
         return Reservation(o.optString("public_id"), o.optString("verification_url"), o.optString("expires_at"))
     }
 
-    /** Uploads the original PDF and returns it with the server-composed
-     *  verification page appended (Rencana RB-2b), ready to sign on-device. */
-    fun coverPage(publicId: String, pdf: ByteArray, reason: String): ByteArray {
-        val q = if (reason.isNotEmpty()) "?reason=" + java.net.URLEncoder.encode(reason, "UTF-8") else ""
-        return req("POST", "/api/v1/signatures/$publicId/cover-page$q", pdf.toRequestBody(PDF))
+    /** Where the signer dropped the QR box: page (1-based) + a page-relative
+     *  rectangle with the origin at the top-left (x,y = top-left corner,
+     *  w = width; all fractions in 0..1). */
+    data class StampPlacement(val page: Int, val x: Double, val y: Double, val w: Double)
+
+    /** Uploads the original PDF and returns it with one "TTD Elektronik" QR
+     *  stamp drawn at the requested spot (Rencana RB-2c), ready to sign
+     *  on-device. The page count is unchanged. */
+    fun stamp(publicId: String, pdf: ByteArray, place: StampPlacement, reason: String): ByteArray {
+        val enc = { d: Double -> java.net.URLEncoder.encode(String.format(java.util.Locale.US, "%.4f", d), "UTF-8") }
+        val sb = StringBuilder("?x=${enc(place.x)}&y=${enc(place.y)}&w=${enc(place.w)}")
+        if (place.page > 0) sb.append("&page=${place.page}")
+        if (reason.isNotEmpty()) sb.append("&reason=" + java.net.URLEncoder.encode(reason, "UTF-8"))
+        return req("POST", "/api/v1/signatures/$publicId/stamp$sb", pdf.toRequestBody(PDF))
     }
 
     /** Returns the server's JSON result (status "accepted" on success). */
@@ -153,6 +162,11 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
             .build()
         return obj(req("POST", "/api/v1/verify", body))
     }
+
+    /** The display-safe server record for one signature ID (what a scanned QR
+     *  resolves to). No account needed. Throws ApiException(404) if unknown. */
+    fun publicRecord(publicId: String): JSONObject =
+        obj(req("GET", "/api/v1/public/signatures/" + java.net.URLEncoder.encode(publicId, "UTF-8"), null))
 }
 
 private fun trustEverything(b: OkHttpClient.Builder) {

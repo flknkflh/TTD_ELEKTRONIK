@@ -1,5 +1,7 @@
 package id.example.pqcsign
 
+import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -7,11 +9,16 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import id.example.pqcsign.net.ApiClient
+import kotlin.math.roundToInt
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ContextThemeWrapper
@@ -29,6 +36,8 @@ import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import id.example.pqcsign.app.AppCore
 import id.example.pqcsign.app.AppState
 import kotlin.concurrent.thread
@@ -51,15 +60,37 @@ class MainActivity : AppCompatActivity() {
     private var signReason = "Persetujuan"
     private var lastSigned: ByteArray? = null
 
+    // QR placement (Rencana RB-2c) — must match the server's stampAspect.
+    private val STAMP_ASPECT = 1.0f
+    private var pendingSignUri: Uri? = null
+    private var signPageIndex = 0
+    private var signPageCount = 1
+    private var boxXFrac = 0.60
+    private var boxYFrac = 0.78
+    private var boxWFrac = 0.26
+    private var placementHost: LinearLayout? = null
+    private var pageView: ImageView? = null
+    private var qrBoxView: View? = null
+    private var qrHandleView: View? = null
+    private var placementBuilt = false
+    private var pageNumberInput: android.widget.EditText? = null
+    private var pageTotalLabel: TextView? = null
+    private var pageNavPrev: View? = null
+    private var pageNavNext: View? = null
+
     // result sinks for the current screen
     private var signResult: LinearLayout? = null
     private var verifyResult: LinearLayout? = null
 
     private val pickToSign = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) confirmThenSign(uri)
+        if (uri != null) startPlacement(uri)
     }
     private val pickToVerify = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runVerify(uri)
+    }
+    private var qrServer = ""
+    private val scanQr = registerForActivityResult(ScanContract()) { r ->
+        r.contents?.let { onQrScanned(it) }
     }
     private val saveSigned = registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val bytes = lastSigned
@@ -196,9 +227,20 @@ class MainActivity : AppCompatActivity() {
                 pendingVerifyServer = srv.text.toString().trim()
                 pickToVerify.launch(arrayOf("application/pdf"))
             })
+            addView(tonal("Pindai QR") {
+                qrServer = srv.text.toString().trim()
+                scanQr.launch(scanOpts())
+            })
         })
         verifyResult = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
         addView(verifyResult)
+    }
+
+    private fun scanOpts() = ScanOptions().apply {
+        setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+        setPrompt("Arahkan kamera ke QR pada dokumen")
+        setBeepEnabled(false)
+        setOrientationLocked(false)
     }
 
     private fun screenHome(): View = page {
@@ -229,15 +271,17 @@ class MainActivity : AppCompatActivity() {
         addView(heading("Tanda tangani dokumen"))
         addView(card {
             val reason = field(this, "Alasan penandatanganan", "Persetujuan")
-            addView(primary("Pilih PDF & tanda tangani") {
+            addView(primary("Pilih PDF") {
                 signReason = reason.text.toString().trim().ifEmpty { "Persetujuan" }
                 pickToSign.launch(arrayOf("application/pdf"))
             })
             addView(tonal("Simpan PDF hasil") {
                 if (lastSigned == null) snack("Belum ada hasil") else saveSigned.launch("dokumen-bertandatangan.pdf")
             })
-            addView(hint("Halaman verifikasi ber-QR ditambahkan otomatis di akhir dokumen."))
+            addView(hint("QR “TTD Elektronik” ditempel di titik yang Anda pilih pada dokumen."))
         })
+        placementHost = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
+        addView(placementHost)
         signResult = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
         addView(signResult)
     }
@@ -249,6 +293,11 @@ class MainActivity : AppCompatActivity() {
                 pendingVerifyServer = null // logged-in -> local offline verify
                 pickToVerify.launch(arrayOf("application/pdf"))
             })
+            addView(tonal("Pindai QR") {
+                qrServer = core.state.serverUrl
+                scanQr.launch(scanOpts())
+            })
+            addView(hint("Pindai QR memakai alamat server tempat Anda masuk."))
         })
         verifyResult = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
         addView(verifyResult)
@@ -285,6 +334,219 @@ class MainActivity : AppCompatActivity() {
 
     private var pendingVerifyServer: String? = null
 
+    /** After the user picks a PDF: show the page with a draggable QR box. */
+    private fun startPlacement(uri: Uri) {
+        pendingSignUri = uri
+        signPageIndex = 0
+        boxXFrac = 0.60; boxYFrac = 0.78; boxWFrac = 0.26
+        signResult?.removeAllViews()
+        placementBuilt = false
+        placementHost?.removeAllViews()
+        loadPage()
+    }
+
+    private fun changePage(delta: Int) {
+        val n = (signPageIndex + delta).coerceIn(0, signPageCount - 1)
+        if (n == signPageIndex) return
+        signPageIndex = n
+        loadPage()
+    }
+
+    /** Jump to the page typed in the number box (1-based). */
+    private fun gotoTypedPage() {
+        val et = pageNumberInput ?: return
+        val n = et.text?.toString()?.trim()?.toIntOrNull()
+        val idx = ((n ?: (signPageIndex + 1)) - 1).coerceIn(0, signPageCount - 1)
+        (getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+            ?.hideSoftInputFromWindow(et.windowToken, 0)
+        et.clearFocus()
+        if (idx == signPageIndex) { et.setText((signPageIndex + 1).toString()); return }
+        signPageIndex = idx
+        loadPage()
+    }
+
+    /** Renders the current page off the UI thread, then only swaps the
+     *  bitmap into the existing views — the view tree and touch listeners are
+     *  built once, so page turns and dragging stay smooth. */
+    private fun loadPage() {
+        val host = placementHost ?: return
+        val uri = pendingSignUri ?: return
+        task {
+            val pi = core.renderPdfPage(uri, signPageIndex, 1080)
+            signPageIndex = pi.pageIndex
+            signPageCount = pi.pageCount
+            runOnUiThread {
+                if (!placementBuilt) buildPlacementScaffold(host)
+                pageView?.setImageBitmap(pi.bitmap)
+                if (pageNumberInput?.isFocused != true) pageNumberInput?.setText((signPageIndex + 1).toString())
+                pageTotalLabel?.text = "/ $signPageCount"
+                pageNavPrev?.apply { isEnabled = signPageIndex > 0; alpha = if (isEnabled) 1f else 0.4f }
+                pageNavNext?.apply { isEnabled = signPageIndex < signPageCount - 1; alpha = if (isEnabled) 1f else 0.4f }
+                pageView?.post { applyBoxFromFracs() }
+            }
+        }
+    }
+
+    private fun buildPlacementScaffold(host: LinearLayout) {
+        host.removeAllViews()
+        val ctx = themed()
+
+        fun navBtn(glyph: String, onTap: () -> Unit) = MaterialButton(ctx).apply {
+            text = glyph
+            textSize = 18f
+            insetTop = 0; insetBottom = 0
+            setBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondaryContainer, Color.LTGRAY))
+            setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSecondaryContainer, Color.BLACK))
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(48))
+            setOnClickListener { onTap() }
+        }
+        host.addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(4))
+            addView(TextView(ctx).apply {
+                text = "Halaman"; setPadding(0, 0, dp(10), 0)
+            })
+            pageNavPrev = navBtn("◀") { changePage(-1) }.also { addView(it) }
+            pageNumberInput = android.widget.EditText(ctx).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText("1")
+                gravity = Gravity.CENTER
+                setPadding(dp(6), dp(8), dp(6), dp(8))
+                layoutParams = LinearLayout.LayoutParams(dp(60), WRAP_CONTENT).apply {
+                    marginStart = dp(8); marginEnd = dp(6)
+                }
+                setOnEditorActionListener { _, _, _ -> gotoTypedPage(); true }
+            }
+            addView(pageNumberInput)
+            pageTotalLabel = TextView(ctx).apply { text = "/ 1"; setPadding(0, 0, dp(8), 0) }
+            addView(pageTotalLabel)
+            pageNavNext = navBtn("▶") { changePage(1) }.also { addView(it) }
+        })
+        host.addView(hint("Seret kotak QR ke kolom tanda tangan. Tarik titik di sudut untuk mengubah ukuran. Ganti halaman dengan ◀ ▶ atau ketik nomor lalu Enter."))
+
+        val frame = FrameLayout(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(6) }
+        }
+        val iv = ImageView(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        val box = View(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(dp(10), dp(10))
+            background = GradientDrawable().apply {
+                setColor(0x224F46E5.toInt())
+                setStroke(dp(2), 0xFF4F46E5.toInt())
+                cornerRadius = dp(3).toFloat()
+            }
+        }
+        val handle = View(ctx).apply {
+            layoutParams = FrameLayout.LayoutParams(dp(28), dp(28))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFF4F46E5.toInt())
+                setStroke(dp(2), Color.WHITE)
+            }
+        }
+        frame.addView(iv); frame.addView(box); frame.addView(handle)
+        host.addView(frame)
+        pageView = iv; qrBoxView = box; qrHandleView = handle
+
+        wireBoxDrag(box, handle)
+        wireHandleDrag(box, handle)
+
+        host.addView(primary("Tanda tangani di sini") {
+            pendingSignUri?.let { confirmThenSign(it) }
+        })
+        placementBuilt = true
+    }
+
+    private fun applyBoxFromFracs() {
+        val iv = pageView ?: return
+        val box = qrBoxView ?: return
+        val handle = qrHandleView ?: return
+        val dispW = iv.width.toFloat()
+        val dispH = iv.height.toFloat()
+        if (dispW <= 0f || dispH <= 0f) return
+        var w = (boxWFrac * dispW).toFloat().coerceIn(0.10f * dispW, dispW)
+        var h = w * STAMP_ASPECT
+        if (h > dispH) { h = dispH; w = h / STAMP_ASPECT }
+        val lp = box.layoutParams as FrameLayout.LayoutParams
+        lp.width = w.roundToInt(); lp.height = h.roundToInt()
+        box.layoutParams = lp
+        val x = (boxXFrac * dispW).toFloat().coerceIn(0f, dispW - w)
+        val y = (boxYFrac * dispH).toFloat().coerceIn(0f, dispH - h)
+        box.x = x; box.y = y
+        handle.x = x + w - handle.layoutParams.width / 2f
+        handle.y = y + h - handle.layoutParams.height / 2f
+        boxXFrac = (x / dispW).toDouble()
+        boxYFrac = (y / dispH).toDouble()
+        boxWFrac = (w / dispW).toDouble()
+    }
+
+    private fun wireBoxDrag(box: View, handle: View) {
+        var offX = 0f
+        var offY = 0f
+        box.setOnTouchListener { _, e ->
+            val iv = pageView ?: return@setOnTouchListener false
+            val dispW = iv.width.toFloat()
+            val dispH = iv.height.toFloat()
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    box.parent?.requestDisallowInterceptTouchEvent(true) // stop the scroll view stealing the drag
+                    offX = e.rawX - box.x; offY = e.rawY - box.y; true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val x = (e.rawX - offX).coerceIn(0f, dispW - box.width)
+                    val y = (e.rawY - offY).coerceIn(0f, dispH - box.height)
+                    box.x = x; box.y = y
+                    handle.x = x + box.width - handle.layoutParams.width / 2f
+                    handle.y = y + box.height - handle.layoutParams.height / 2f
+                    boxXFrac = (x / dispW).toDouble()
+                    boxYFrac = (y / dispH).toDouble()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    box.parent?.requestDisallowInterceptTouchEvent(false); true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun wireHandleDrag(box: View, handle: View) {
+        var downX = 0f
+        var startW = 0
+        handle.setOnTouchListener { _, e ->
+            val iv = pageView ?: return@setOnTouchListener false
+            val dispW = iv.width.toFloat()
+            val dispH = iv.height.toFloat()
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    handle.parent?.requestDisallowInterceptTouchEvent(true)
+                    downX = e.rawX; startW = box.width; true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    var w = (startW + (e.rawX - downX)).coerceIn(0.10f * dispW, dispW - box.x)
+                    var h = w * STAMP_ASPECT
+                    if (box.y + h > dispH) { h = dispH - box.y; w = h / STAMP_ASPECT }
+                    val lp = box.layoutParams as FrameLayout.LayoutParams
+                    lp.width = w.roundToInt(); lp.height = h.roundToInt()
+                    box.layoutParams = lp
+                    handle.x = box.x + w - handle.layoutParams.width / 2f
+                    handle.y = box.y + h - handle.layoutParams.height / 2f
+                    boxWFrac = (w / dispW).toDouble()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handle.parent?.requestDisallowInterceptTouchEvent(false); true
+                }
+                else -> false
+            }
+        }
+    }
+
     private fun confirmThenSign(uri: Uri) {
         val can = BiometricManager.from(this).canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
@@ -312,8 +574,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun doSign(uri: Uri) {
         val sink = signResult ?: return
+        val place = ApiClient.StampPlacement(signPageIndex + 1, boxXFrac, boxYFrac, boxWFrac)
         task {
-            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "")
+            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", place)
             lastSigned = r.signedPdf
             runOnUiThread {
                 sink.removeAllViews()
@@ -339,6 +602,56 @@ class MainActivity : AppCompatActivity() {
             val json = if (server != null) core.verifyPublic(server, uri) else core.verifyPdf(uri)
             runOnUiThread { sink.removeAllViews(); sink.addView(verdictFromJson(json)) }
         }
+    }
+
+    /** A scanned QR resolves to the server record for that signature — the
+     *  same thing an external scan of the same QR lands on. */
+    private fun onQrScanned(text: String) {
+        val sink = verifyResult ?: return
+        val srv = qrServer.ifBlank { core.state.serverUrl }.trimEnd('/')
+        task {
+            val json = core.recordFromQr(srv, text)
+            runOnUiThread { sink.removeAllViews(); sink.addView(verdictFromRecord(json, srv)) }
+        }
+    }
+
+    private fun verdictFromRecord(json: String, serverUrl: String): View {
+        val rec = runCatching { org.json.JSONObject(json) }.getOrNull()
+            ?: return verdictCard(false, "Hasil tidak terbaca", emptyList())
+        val status = rec.optString("certificate_status", "active")
+        val ok = status == "active"
+        val title = when (status) {
+            "revoked" -> "Sertifikat DICABUT — tanda tangan tidak sah"
+            "device_reported_lost" -> "Perangkat DILAPORKAN HILANG"
+            else -> "Terdaftar & terverifikasi"
+        }
+        val id = rec.optString("public_id")
+        val rows = listOf(
+            "Penanda tangan" to rec.optString("signer_name"),
+            "Perangkat" to rec.optString("device_label"),
+            "No. sertifikat" to rec.optString("certificate_serial"),
+            "Sidik jari sertifikat" to rec.optString("certificate_fingerprint"),
+            "Waktu (klaim perangkat)" to rec.optString("client_claimed_signing_time"),
+            "Diterima server" to rec.optString("server_received_at"),
+            "ID verifikasi" to id,
+        )
+        val wrap = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
+        wrap.addView(
+            verdictCard(
+                ok, title, rows,
+                rec.optString("note").ifEmpty {
+                    "Halaman ini mencocokkan catatan server. Untuk memeriksa keutuhan isi, verifikasi berkas PDF-nya (menu “Pilih PDF”)."
+                },
+            ),
+        )
+        if (id.isNotEmpty()) {
+            wrap.addView(tonal("Buka dokumen dari server") {
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$serverUrl/v/$id/document")))
+                }.onFailure { snack("Tidak bisa membuka browser") }
+            })
+        }
+        return wrap
     }
 
     // ---------------------------------------------------------------- verdict

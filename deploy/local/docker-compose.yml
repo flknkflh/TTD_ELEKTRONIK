@@ -1,22 +1,24 @@
-# Local prototype: PostgreSQL + the receiver API. Signed-PDF blobs live in the
-# `objects` table (no MinIO). Everything persists in named volumes:
+# PostgreSQL + the receiver API. Signed-PDF blobs live in the `objects` table
+# (no MinIO). Everything persists in named volumes:
 #   pgdata  -> accounts, devices, certificates, signatures, audit
 #   cadata  -> the lab CA keys + revocation ledger
 # `docker compose up -d --build`  rebuilds the image, keeps the data.
 # `docker compose down`           stops containers, keeps the data.
 # `docker compose down -v`        ALSO deletes the data (fresh start).
 #
-# QR codes point at PQC_PUBLIC_BASE_URL. For phones on your Wi-Fi, start with:
-#   PQC_PUBLIC_BASE_URL=http://<your-LAN-IP>:8099 docker compose up -d --build
+# Config comes from a `.env` file next to this one (see .env.example). The
+# important one is PQC_PUBLIC_BASE_URL — the QR codes point there and it is
+# the default server address the apps use. On a VPS set it to the public IP:
+#   PQC_PUBLIC_BASE_URL=http://136.244.116.132:8099
 
-name: pqc-pdf-sign-local
+name: pqc-pdf-sign
 
 services:
   postgres:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: pqc
-      POSTGRES_PASSWORD: pqc
+      POSTGRES_PASSWORD: "${PQC_DB_PASSWORD:-pqc}"
       POSTGRES_DB: pqc
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -31,13 +33,14 @@ services:
       context: ../..
       dockerfile: deploy/local/Dockerfile
     environment:
-      PQC_DATABASE_URL: "postgres://pqc:pqc@postgres:5432/pqc?sslmode=disable"
-      PQC_JWT_SECRET: "local-prototype-secret-change-me-0123456789"
+      PQC_DATABASE_URL: "postgres://pqc:${PQC_DB_PASSWORD:-pqc}@postgres:5432/pqc?sslmode=disable"
+      PQC_JWT_SECRET: "${PQC_JWT_SECRET:-local-prototype-secret-change-me-0123456789}"
       PQC_PUBLIC_BASE_URL: "${PQC_PUBLIC_BASE_URL:-http://localhost:8099}"
     volumes:
       - cadata:/ca
     ports:
-      - "8099:8099"
+      - "8099:8099"   # full API (register / login / sign / admin)
+      - "8098:8098"   # verification-only site — no login, verify + QR pages only
     depends_on:
       postgres:
         condition: service_healthy

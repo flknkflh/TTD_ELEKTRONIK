@@ -1,7 +1,12 @@
 package id.example.pqcsign.app
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import id.example.pqcsign.core.CsrRequest
 import id.example.pqcsign.core.KeyVault
 import id.example.pqcsign.core.SignOptions
@@ -144,7 +149,7 @@ class AppCore(private val context: Context, val state: AppState) {
      * cryptographically. The signed bytes are returned for the caller to write
      * via SAF.
      */
-    fun signPdf(inUri: Uri, reason: String, signerName: String): SignResult {
+    fun signPdf(inUri: Uri, reason: String, signerName: String, place: ApiClient.StampPlacement): SignResult {
         val pdf = context.contentResolver.openInputStream(inUri)!!.use { it.readBytes() }
         require(!looksSigned(pdf)) {
             "Dokumen ini sudah memiliki tanda tangan digital — satu dokumen hanya boleh ditandatangani sekali; pilih PDF yang belum ditandatangani."
@@ -158,10 +163,10 @@ class AppCore(private val context: Context, val state: AppState) {
         val origSha = sha512Hex(pdf)
         val res = api.reserve(deviceId, origSha, fileName(inUri))
 
-        // The verification page is composed server-side and appended BEFORE
-        // signing so it is inside the signed byte range (Rencana RB-2b). A PDF
-        // the server cannot process fails here with a clear message.
-        val toSign = api.coverPage(res.publicId, pdf, reason)
+        // The QR stamp is drawn server-side BEFORE signing so it is inside the
+        // signed byte range (Rencana RB-2c). A PDF the server cannot process
+        // fails here with a clear message.
+        val toSign = api.stamp(res.publicId, pdf, place, reason)
 
         var keyPem = vault.load()
         val signed: ByteArray
@@ -193,6 +198,51 @@ class AppCore(private val context: Context, val state: AppState) {
         )
     }
 
+    // ---- 4b. PDF preview for QR placement ----
+
+    /** One rendered page + the total page count, for the placement screen. */
+    data class PageImage(val bitmap: Bitmap, val pageIndex: Int, val pageCount: Int)
+
+    private var previewFile: java.io.File? = null
+    private var previewKey: String? = null
+
+    /**
+     * Renders page [pageIndex] (0-based) of the PDF at [inUri] to a white
+     * bitmap [widthPx] wide, keeping the page aspect ratio. Uses the platform
+     * PdfRenderer (API 21+, no dependency). The source is copied to the cache
+     * ONCE per uri and reused for subsequent page turns so navigation is fast.
+     */
+    fun renderPdfPage(inUri: Uri, pageIndex: Int, widthPx: Int): PageImage {
+        val f = previewSource(inUri)
+        ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+            PdfRenderer(pfd).use { r ->
+                val count = r.pageCount
+                val idx = pageIndex.coerceIn(0, count - 1)
+                r.openPage(idx).use { pg ->
+                    val w = widthPx.coerceAtLeast(240)
+                    val h = (w.toLong() * pg.height / pg.width).toInt().coerceAtLeast(1)
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    Canvas(bmp).drawColor(Color.WHITE)
+                    pg.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    return PageImage(bmp, idx, count)
+                }
+            }
+        }
+    }
+
+    private fun previewSource(uri: Uri): java.io.File {
+        val key = uri.toString()
+        val cached = previewFile
+        if (key == previewKey && cached != null && cached.exists()) return cached
+        cached?.delete()
+        val f = java.io.File.createTempFile("preview", ".pdf", context.cacheDir)
+        context.contentResolver.openInputStream(uri)!!.use { input ->
+            java.io.FileOutputStream(f).use { input.copyTo(it) }
+        }
+        previewFile = f; previewKey = key
+        return f
+    }
+
     // ---- 5. Verify ----
 
     /** Local, offline verify against the cached Root CA (post-login). */
@@ -207,6 +257,17 @@ class AppCore(private val context: Context, val state: AppState) {
     fun verifyPublic(serverUrl: String, uri: Uri): String {
         val pdf = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         return ApiClient(serverUrl, true).verifyPublic(pdf).toString(2)
+    }
+
+    /** Resolve a scanned QR (a bare ID, or a URL whose path ends /v/<id> or
+     *  /s/<id>) against [serverUrl] and return the server record JSON — the
+     *  same thing a normal external QR scan lands on. No account needed. */
+    fun recordFromQr(serverUrl: String, qrText: String): String {
+        val raw = qrText.trim().substringBefore('?').substringBefore('#')
+            .substringAfterLast("/v/").substringAfterLast("/s/").substringAfterLast('/')
+        val id = Regex("[^A-Za-z0-9_-]").replace(raw, "")
+        require(id.isNotEmpty()) { "QR tidak berisi ID verifikasi yang bisa dibaca" }
+        return ApiClient(serverUrl, true).publicRecord(id).toString(2)
     }
 
     // ---- 6. History ----

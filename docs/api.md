@@ -25,7 +25,8 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ POST /api/v1/verify                               (public, multipart)
 ✔ GET  /api/v1/public/signatures/{public_id}
 ✔ GET  /api/v1/public/ca/root.crt | chain.pem | crl.pem
-✔ POST /api/v1/signatures/{public_id}/cover-page    (RB-2b: append verification page, returns PDF)
+✔ POST /api/v1/signatures/{public_id}/stamp         (RB-2c: draw a placed QR stamp, returns PDF)
+✔ GET  /v/{public_id}/document                      (public: the authoritative signed PDF behind the QR)
 ✔ GET  /api/v1/admin/enrollments
 ✔ POST /api/v1/admin/enrollments/{id}/certificate   (chain + CSR-key match check)
 ✔ POST /api/v1/admin/enrollments/{id}/issue-lab     (RB-1: drive the online CA; when Config.LabIssuer set)
@@ -83,22 +84,30 @@ POST /api/v1/devices/{device_id}/report-lost
 ## Signatures
 ```
 POST /api/v1/signatures/reserve
-POST /api/v1/signatures/{public_id}/cover-page   (body: application/pdf; ?reason=; returns the PDF with a verification page appended. 422 if the PDF cannot be processed.)
+POST /api/v1/signatures/{public_id}/stamp        (body: application/pdf; ?page=&x=&y=&w=&reason=; x,y = top-left of the QR box as page fractions, w = width fraction. Returns the PDF with one QR stamp drawn at that spot, page count unchanged. 422 if the PDF cannot be processed.)
 PUT  /api/v1/signatures/{public_id}/document
 GET  /api/v1/signatures/{public_id}
 GET  /api/v1/signatures/{public_id}/download
 GET  /api/v1/me/signatures
 ```
-Client sign flow: `reserve` → `cover-page` (sign the returned bytes on-device) → `document`.
+Client sign flow: `reserve` → `stamp` (sign the returned bytes on-device) → `document`.
 
 ## Public verification
 ```
-POST /api/v1/verify
+GET  /                              (browser upload page — verification-only service only)
+POST /api/v1/verify                 (multipart 'file'; no auth)
+GET  /v/{public_id}                 (QR landing page)
+GET  /v/{public_id}/document        (authoritative signed PDF behind the QR)
 GET  /api/v1/public/signatures/{public_id}
 GET  /api/v1/public/ca/root.crt
 GET  /api/v1/public/ca/chain.pem
 GET  /api/v1/public/ca/crl.pem
 ```
+
+Run `api --verify-addr :8098` (or `PQC_VERIFY_ADDR=:8098`) to also serve a
+**verification-only** site on a second port: just the routes above, no
+`/auth`, `/signatures`, `/devices`, or `/admin`. Publish it separately from
+the signing API when only verification should be reachable.
 
 ## Admin
 ```

@@ -105,13 +105,20 @@ func toCertView(cs appcore.CertStatus) certView {
 	return v
 }
 
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string) (signView, error) {
-	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin)
+// SignPDF takes the QR placement as four primitives (page + top-left x,y +
+// width, page-relative fractions) so nothing but scalars crosses the bridge.
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin string, page int, qx, qy, qw float64) (signView, error) {
+	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, appcore.QRPlacement{
+		Page: page, X: qx, Y: qy, W: qw,
+	})
 	return signView{
 		OutputPath: r.OutputPath, PublicID: r.PublicID, VerificationURL: r.VerificationURL,
 		OriginalSHA512: r.OriginalSHA512, SignedSHA512: r.SignedSHA512, ServerStatus: r.ServerStatus,
 	}, err
 }
+
+// LoadPdfB64 returns the PDF at path as base64 for the placement preview.
+func (a *App) LoadPdfB64(path string) (string, error) { return a.core.PdfBytesB64(path) }
 
 func (a *App) VerifyPDF(path string) (string, error) {
 	b, err := a.core.VerifyPDF(path)

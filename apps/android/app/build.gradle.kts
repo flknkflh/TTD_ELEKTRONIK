@@ -77,6 +77,7 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0") // in-app QR scanner (verify screen)
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

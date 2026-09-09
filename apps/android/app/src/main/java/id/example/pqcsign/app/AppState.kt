@@ -9,7 +9,7 @@ class AppState(context: Context) {
     var serverUrl: String
         // Default matches tools/dev-up.sh (plain HTTP on :8099). For a TLS
         // server (Caddy) use https:// and keep insecureTls on for a lab cert.
-        get() = sp.getString("server_url", "http://10.0.2.2:8099") ?: ""
+        get() = sp.getString("server_url", "http://136.244.116.132:8099") ?: ""
         set(v) = sp.edit().putString("server_url", v.trim().trimEnd('/'))
             .apply()
 

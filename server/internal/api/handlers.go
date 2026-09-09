@@ -543,10 +543,45 @@ func (s *Server) publicRecord(sig store.Signature, a store.Account, d store.Devi
 	}
 }
 
-func (s *Server) verifyURL(publicID string) string {
+func (s *Server) publicBase() string {
 	base := strings.TrimRight(s.cfg.PublicBaseURL, "/")
 	if base == "" {
 		base = "http://localhost:8443"
 	}
-	return base + "/v/" + publicID
+	return base
+}
+
+func (s *Server) verifyURL(publicID string) string { return s.publicBase() + "/v/" + publicID }
+
+func isLoopbackBase(b string) bool {
+	return b == "" || strings.Contains(b, "localhost") || strings.Contains(b, "127.0.0.1")
+}
+
+// qrTarget builds what the QR code encodes for one signature.
+//
+// The signer is already logged into a server at some address; the QR should
+// just point there. In order: an explicit ?base= from the client, then the
+// address the /stamp request actually came in on (i.e. the client's own
+// server URL, from the Host header), then the configured PublicBaseURL. The
+// first of those that is NOT loopback wins and the QR becomes
+// <that>/v/{id} — one scan on any device on the same network opens the
+// result. If every candidate is localhost/127.0.0.1 (e.g. the signer runs on
+// the same box as the server) a link would be useless from a phone, so the
+// QR carries the bare verification ID as plain text instead.
+func (s *Server) qrTarget(r *http.Request, publicID string) string {
+	for _, cand := range []string{
+		strings.TrimSpace(r.URL.Query().Get("base")),
+		reqBase(r),
+		strings.TrimRight(s.cfg.PublicBaseURL, "/"),
+	} {
+		cand = strings.TrimRight(cand, "/")
+		if isLoopbackBase(cand) {
+			continue
+		}
+		if !strings.HasPrefix(cand, "http://") && !strings.HasPrefix(cand, "https://") {
+			cand = "http://" + cand
+		}
+		return cand + "/v/" + publicID
+	}
+	return publicID
 }

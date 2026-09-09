@@ -28,6 +28,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", envOr("PQC_ADDR", ":8080"), "listen address")
+	verifyAddr := flag.String("verify-addr", envOr("PQC_VERIFY_ADDR", ""), "if set, also serve a verification-ONLY site (upload page + /api/v1/verify + QR pages) on this address, no auth")
 	rootPath := flag.String("root-ca", os.Getenv("PQC_ROOT_CA_PEM"), "Root CA PEM file (required)")
 	chainPath := flag.String("ca-chain", os.Getenv("PQC_CA_CHAIN_PEM"), "Root+Intermediate chain PEM file")
 	crlPath := flag.String("crl", os.Getenv("PQC_CRL_PEM"), "current CRL PEM file")
@@ -87,6 +88,15 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	var verifySrv *http.Server
+	if *verifyAddr != "" {
+		verifySrv = &http.Server{
+			Addr:              *verifyAddr,
+			Handler:           srv.VerifyRoutes(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() {
@@ -95,10 +105,21 @@ func main() {
 			log.Fatalf("api: serve: %v", err)
 		}
 	}()
+	if verifySrv != nil {
+		go func() {
+			fmt.Printf("pqc-pdf-sign verification-only site listening on %s\n", verifySrv.Addr)
+			if err := verifySrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalf("api: verify serve: %v", err)
+			}
+		}()
+	}
 	<-ctx.Done()
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutCtx)
+	if verifySrv != nil {
+		_ = verifySrv.Shutdown(shutCtx)
+	}
 }
 
 func openStore() (api.Store, string, error) {

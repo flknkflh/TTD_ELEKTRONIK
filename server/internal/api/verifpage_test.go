@@ -2,20 +2,100 @@ package api_test
 
 import (
 	"bytes"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	pdfcpu "github.com/pdfcpu/pdfcpu/pkg/api"
 
+	"example.internal/pqc-pdf-sign/core/labpki"
 	"example.internal/pqc-pdf-sign/core/testpdf"
+	"example.internal/pqc-pdf-sign/server/internal/api"
 	"example.internal/pqc-pdf-sign/server/internal/store"
 )
 
-// RB-2b: the server composes the verification page (POST .../cover-page); the
+// The standalone verification service (PQC_VERIFY_ADDR) exposes ONLY the
+// upload page + verify API + QR pages + public CA material — nothing that
+// needs a login, and no signing or admin routes.
+func TestVerifyOnlyService(t *testing.T) {
+	root, _ := labpki.NewRootCA("Test Root", 10*365*24*time.Hour)
+	inter, _ := labpki.NewIntermediateCA(root, "Test Intermediate", 5*365*24*time.Hour)
+	srv, err := api.New(store.NewMemory(), api.Config{
+		RootCAPEM: labpki.CertPEM(root.Cert), CAChainPEM: labpki.ChainPEM(inter.Cert, root.Cert),
+		JWTSecret: []byte("test-secret-0123456789"), PublicBaseURL: "https://verify.test",
+		RateLimits: &api.RateLimits{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.VerifyRoutes()
+
+	call := func(method, path string, body *bytes.Buffer, ct string) *httptest.ResponseRecorder {
+		var r *http.Request
+		if body != nil {
+			r = httptest.NewRequest(method, path, body)
+		} else {
+			r = httptest.NewRequest(method, path, nil)
+		}
+		if ct != "" {
+			r.Header.Set("Content-Type", ct)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	// landing page
+	w := call("GET", "/", nil, "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Verifikasi Dokumen") || !strings.Contains(w.Body.String(), "/api/v1/verify") {
+		t.Fatalf("home page: %d %s", w.Code, w.Body.String()[:min(200, w.Body.Len())])
+	}
+	if b := w.Body.String(); !strings.Contains(b, "masukkan ID verifikasi") || !strings.Contains(b, "Alamat server verifikasi") {
+		t.Fatalf("home page should carry the ID box + server-address bar")
+	}
+
+	// verify route exists (garbage -> 400, not 404)
+	var mb bytes.Buffer
+	mw := multipart.NewWriter(&mb)
+	fw, _ := mw.CreateFormFile("file", "x.pdf")
+	_, _ = fw.Write([]byte("not a pdf"))
+	_ = mw.Close()
+	if code := call("POST", "/api/v1/verify", &mb, mw.FormDataContentType()).Code; code == 404 {
+		t.Fatalf("/api/v1/verify missing on verify service")
+	}
+
+	// public CA material is served
+	if call("GET", "/api/v1/public/ca/root.crt", nil, "").Code != 200 {
+		t.Fatalf("root.crt not served")
+	}
+
+	// the QR scan resolver renders for ANY id (no store lookup) and carries
+	// the server-address control + a link to /v/{id}
+	sr := call("GET", "/s/sig_anything", nil, "")
+	if sr.Code != 200 || !strings.Contains(sr.Body.String(), "Alamat server") ||
+		!strings.Contains(sr.Body.String(), "sig_anything") {
+		t.Fatalf("scan resolver: %d %s", sr.Code, sr.Body.String()[:min(200, sr.Body.Len())])
+	}
+
+	// signing / auth / admin routes are ABSENT
+	for _, p := range []struct{ m, path string }{
+		{"POST", "/api/v1/auth/register"}, {"POST", "/api/v1/auth/login"},
+		{"POST", "/api/v1/signatures/reserve"}, {"GET", "/api/v1/me/signatures"},
+		{"GET", "/admin"}, {"GET", "/api/v1/admin/accounts"},
+	} {
+		if code := call(p.m, p.path, nil, "").Code; code != 404 {
+			t.Errorf("%s %s should be 404 on the verify-only service, got %d", p.m, p.path, code)
+		}
+	}
+}
+
+// RB-2c: the server stamps a QR onto a chosen spot (POST .../stamp); the
 // client signs what comes back. The result passes strict re-verification and
-// the public verifier, and carries one extra page.
-func TestCoverPageThenSubmit(t *testing.T) {
+// the public verifier, and the page count is UNCHANGED (no extra page).
+func TestStampThenSubmit(t *testing.T) {
 	e := newEnv(t)
 	user := e.account("user@test", store.RoleUser)
 	admin := e.account("admin@test", store.RoleAdmin)
@@ -27,20 +107,23 @@ func TestCoverPageThenSubmit(t *testing.T) {
 	mustCode(t, w, http.StatusCreated)
 	pid := jbody(t, w)["public_id"].(string)
 
-	// cover-page: one more page than the original
+	// stamp: same page count as the original
 	before, _ := pdfcpu.PageCount(bytes.NewReader(testpdf.Sample()), nil)
-	w = e.do("POST", "/api/v1/signatures/"+pid+"/cover-page?reason=Persetujuan", user, testpdf.Sample())
+	w = e.do("POST", "/api/v1/signatures/"+pid+"/stamp?page=1&x=0.55&y=0.75&w=0.3", user, testpdf.Sample())
 	mustCode(t, w, http.StatusOK)
-	augmented := w.Body.Bytes()
-	after, err := pdfcpu.PageCount(bytes.NewReader(augmented), nil)
+	stamped := w.Body.Bytes()
+	if w.Header().Get("X-QR-Stamp") != "applied" {
+		t.Fatalf("missing X-QR-Stamp header")
+	}
+	after, err := pdfcpu.PageCount(bytes.NewReader(stamped), nil)
 	if err != nil {
 		t.Fatalf("page count: %v", err)
 	}
-	if after != before+1 {
-		t.Fatalf("pages: before=%d after=%d, want +1", before, after)
+	if after != before {
+		t.Fatalf("pages: before=%d after=%d, want unchanged", before, after)
 	}
 
-	signed := e.coverAndSign(user, d, pid) // signs a fresh cover-page copy
+	signed := e.stampAndSign(user, d, pid) // signs a fresh stamped copy
 	w = e.do("PUT", "/api/v1/signatures/"+pid+"/document", user, signed)
 	mustCode(t, w, http.StatusOK)
 	if jbody(t, w)["status"] != "accepted" {
@@ -73,8 +156,11 @@ func TestQRLandingPage(t *testing.T) {
 	if b := w.Body.String(); !strings.Contains(b, "TERVERIFIKASI") || !strings.Contains(b, "Verifikasi Tanda Tangan") {
 		t.Fatalf("landing page missing expected content: %s", b[:min(400, len(b))])
 	}
-	if b := w.Body.String(); !strings.Contains(b, "/v/"+pid+"/document") || !strings.Contains(b, "Dokumen asli yang ditandatangani") {
+	if b := w.Body.String(); !strings.Contains(b, "/v/"+pid+"/document") || !strings.Contains(b, "Dokumen yang ditandatangani") {
 		t.Fatalf("landing page should embed the signed document: %s", b[:min(600, len(b))])
+	}
+	if b := w.Body.String(); !strings.Contains(b, "Alamat server verifikasi") {
+		t.Fatalf("landing page should carry the server-address bar")
 	}
 
 	// the authoritative signed PDF is served publicly (no token)
@@ -105,9 +191,9 @@ func TestQRLandingPage(t *testing.T) {
 	}
 }
 
-// cover-page is refused for a reservation the caller does not own and for a
-// device with no active certificate.
-func TestCoverPageGuards(t *testing.T) {
+// stamp is refused for a reservation the caller does not own and for a
+// non-PDF body.
+func TestStampGuards(t *testing.T) {
 	e := newEnv(t)
 	user := e.account("user@test", store.RoleUser)
 	admin := e.account("admin@test", store.RoleAdmin)
@@ -115,7 +201,7 @@ func TestCoverPageGuards(t *testing.T) {
 	pid := e.reserve(user, d.id)
 
 	other := e.account("intruder@test", store.RoleUser)
-	mustCode(t, e.do("POST", "/api/v1/signatures/"+pid+"/cover-page", other, testpdf.Sample()), http.StatusNotFound)
+	mustCode(t, e.do("POST", "/api/v1/signatures/"+pid+"/stamp", other, testpdf.Sample()), http.StatusNotFound)
 
-	mustCode(t, e.do("POST", "/api/v1/signatures/"+pid+"/cover-page", user, []byte("not a pdf")), http.StatusUnprocessableEntity)
+	mustCode(t, e.do("POST", "/api/v1/signatures/"+pid+"/stamp", user, []byte("not a pdf")), http.StatusUnprocessableEntity)
 }

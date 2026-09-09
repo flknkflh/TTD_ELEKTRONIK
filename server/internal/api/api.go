@@ -167,7 +167,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/devices/{device_id}/report-lost", s.user(s.hReportLost))
 
 	mux.HandleFunc("POST /api/v1/signatures/reserve", s.user(s.limit(s.rlReserve, byAccount, s.hReserve)))
-	mux.HandleFunc("POST /api/v1/signatures/{public_id}/cover-page", s.user(s.limit(s.rlSubmit, byAccount, s.hCoverPage)))
+	mux.HandleFunc("POST /api/v1/signatures/{public_id}/stamp", s.user(s.limit(s.rlSubmit, byAccount, s.hStamp)))
 	mux.HandleFunc("PUT /api/v1/signatures/{public_id}/document", s.user(s.limit(s.rlSubmit, byAccount, s.hSubmitDocument)))
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}", s.user(s.hGetSignature))
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}/download", s.user(s.hDownload))
@@ -175,7 +175,8 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
-	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)              // human landing page for the QR
+	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)            // QR target: confirm server address, then -> /v/{id}
+	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)              // human landing page
 	mux.HandleFunc("GET /v/{public_id}/document", s.hPublicDocument) // authoritative signed PDF behind the QR
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))

@@ -42,6 +42,12 @@ module:
 | apps/windows | `golang.org/x/crypto` | BSD-3-Clause | Argon2id (PIN-wrapped key) |
 | core (tool) | `golang.org/x/mobile` (`gobind`) | BSD-3-Clause | Android AAR generation |
 
+## Vendored browser assets
+
+| File | Project | Licence | Role |
+|---|---|---|---|
+| `apps/windows/cmd/pqcsign-desktop/frontend/dist/vendor/pdf.min.js`, `pdf.worker.min.js` | Mozilla pdf.js 3.11.174 | Apache-2.0 | render a PDF page in the desktop app so the signer can drag the QR box onto it (vendored, offline; no CDN at runtime) |
+
 ## Android app dependencies (`apps/android/app/build.gradle.kts`)
 
 | Dependency | Licence | Role |

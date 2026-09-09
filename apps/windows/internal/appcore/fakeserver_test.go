@@ -125,9 +125,10 @@ func (f *fakeReceiver) mux(t *testing.T) http.Handler {
 		f.mu.Unlock()
 		j(w, 201, map[string]string{"public_id": pid, "verification_url": "https://verify.test/v/" + pid, "expires_at": "later"})
 	})
-	m.HandleFunc("POST /api/v1/signatures/{public_id}/cover-page", func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body) // no real composition in the fake; echo the PDF
+	m.HandleFunc("POST /api/v1/signatures/{public_id}/stamp", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body) // no real stamping in the fake; echo the PDF
 		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("X-QR-Stamp", "applied")
 		_, _ = w.Write(body)
 	})
 	m.HandleFunc("PUT /api/v1/signatures/{public_id}/document", func(w http.ResponseWriter, r *http.Request) {

@@ -190,6 +190,34 @@
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #toast.ok { background: #15803d; }
   #toast.bad { background: #b91c1c; }
+
+  /* ---- QR placement ---- */
+  body.placing main { max-width: 1040px; }
+  .qr-nav { display: flex; align-items: center; justify-content: center; gap: 12px;
+    margin: 4px 0 12px; color: var(--fg-soft); font-size: 13px; }
+  .qr-nav button { border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg);
+    width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font: inherit; line-height: 1; }
+  .qr-nav button:disabled { opacity: .4; cursor: default; }
+  .qr-nav input[type=number] { width: 58px; padding: 5px 6px; text-align: center; font: inherit;
+    background: var(--bg-elev); color: var(--fg); border: 1px solid var(--border-strong);
+    border-radius: 7px; }
+  .qr-nav input[type=number]:focus { outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft); }
+  .qr-scroll { max-height: 72vh; overflow: auto; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--bg); padding: 16px; }
+  .qr-stage { position: relative; margin: 0 auto; width: fit-content;
+    border: 1px solid var(--border-strong); border-radius: 4px; overflow: hidden;
+    background: #fff; box-shadow: var(--shadow); touch-action: none; }
+  .qr-stage canvas { display: block; }
+  .qr-box { position: absolute; left: 0; top: 0;
+    border: 2px solid var(--accent); background: rgba(79,70,229,.12);
+    border-radius: 4px; cursor: move; box-shadow: 0 0 0 1px #fff inset; }
+  .qr-box .lbl { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    text-align: center; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+    color: var(--accent); pointer-events: none; }
+  .qr-box .hdl { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px;
+    background: var(--accent); border: 2px solid #fff; border-radius: 50%; cursor: nwse-resize; }
+  .qr-help { color: var(--fg-faint); font-size: 12px; text-align: center; margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -219,7 +247,7 @@
 
     <div class="card" id="paneLogin">
       <label>Alamat server</label>
-      <input type="text" id="srv" placeholder="http://localhost:8099" />
+      <input type="text" id="srv" placeholder="http://136.244.116.132:8099" />
       <label>Email</label>
       <input type="text" id="lemail" autocomplete="username" placeholder="nama@instansi.go.id" />
       <label>Kata sandi</label>
@@ -230,7 +258,7 @@
 
     <div class="card" id="paneReg" hidden>
       <label>Alamat server</label>
-      <input type="text" id="rsrv" placeholder="http://localhost:8099" />
+      <input type="text" id="rsrv" placeholder="http://136.244.116.132:8099" />
       <label>Nama lengkap</label>
       <input type="text" id="rname" placeholder="Nama sesuai identitas" />
       <label>Instansi</label>
@@ -247,7 +275,7 @@
     <div class="card" id="paneVerify" hidden>
       <p class="hint" style="margin-top:0">Verifikasi terbuka untuk umum — tidak perlu akun.</p>
       <label>Alamat server</label>
-      <input type="text" id="vsrv" placeholder="http://localhost:8099" />
+      <input type="text" id="vsrv" placeholder="http://136.244.116.132:8099" />
       <div class="filepick" id="vpPick" style="margin-top:14px">
         <span>📄</span><span id="vpName">Pilih berkas PDF…</span>
       </div>
@@ -270,10 +298,10 @@
     <p class="note" id="homeNote"></p>
   </section>
 
-  <!-- SIGN -->
+  <!-- SIGN (pick) -->
   <section class="screen" id="scSign">
     <h1>Tanda tangani dokumen</h1>
-    <p class="sub">Berkas asli tidak dikirim ke server. Halaman verifikasi ber-QR ditambahkan di akhir.</p>
+    <p class="sub">Berkas asli tidak dikirim ke server. QR "TTD Elektronik" ditempel di titik yang Anda pilih.</p>
     <div class="card">
       <div class="filepick" id="pickIn">
         <span>📄</span><span id="inName">Pilih berkas PDF…</span>
@@ -281,10 +309,37 @@
       <label>Alasan penandatanganan</label>
       <input type="text" id="sreason" value="Persetujuan" />
       <div style="display:flex; gap:10px; margin-top:18px">
-        <button class="btn" id="btnSign" disabled><span class="spin"></span><span class="txt">Tandatangani &amp; simpan</span></button>
+        <button class="btn" id="btnPlace" disabled><span class="txt">Atur posisi QR →</span></button>
         <button class="btn secondary" id="signBack">Kembali</button>
       </div>
       <div class="msg" id="signMsg"></div>
+    </div>
+  </section>
+
+  <!-- SIGN (place QR) -->
+  <section class="screen" id="scPlace">
+    <h1>Letakkan QR tanda tangan</h1>
+    <p class="sub">Seret kotak QR ke kolom tanda tangan. Tarik titik di sudut untuk mengatur ukuran.</p>
+    <div class="card">
+      <div class="qr-nav">
+        <button id="qrPrev" type="button">‹</button>
+        <span>Halaman</span>
+        <input id="qrPageInput" type="number" min="1" value="1" />
+        <span>/ <span id="qrPageTotal">1</span></span>
+        <button id="qrNext" type="button">›</button>
+      </div>
+      <div class="qr-scroll">
+        <div class="qr-stage" id="qrStage">
+          <canvas id="qrCanvas"></canvas>
+          <div class="qr-box" id="qrBox"><span class="lbl">QR</span><span class="hdl" id="qrHandle"></span></div>
+        </div>
+      </div>
+      <p class="qr-help" id="qrHelp">Memuat pratinjau…</p>
+      <div style="display:flex; gap:10px; margin-top:18px">
+        <button class="btn" id="btnSign"><span class="spin"></span><span class="txt">Tandatangani &amp; simpan</span></button>
+        <button class="btn secondary" id="placeBack">← Ganti berkas</button>
+      </div>
+      <div class="msg" id="placeMsg"></div>
       <div class="result" id="signResult" hidden></div>
     </div>
   </section>
@@ -305,15 +360,19 @@
 
 <div id="toast"></div>
 
+<script src="vendor/pdf.min.js"></script>
 <script>
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const api = () => window.go && window.go.main && window.go.main.App;
+  const pdfjs = window.pdfjsLib;
+  if (pdfjs) pdfjs.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+  const STAMP_ASPECT = 1.0; // square QR — must match the server
 
   let currentScreen = "scAuth";
   const state = {
-    get srv() { return localStorage.getItem("pqc_srv") || "http://localhost:8099"; },
+    get srv() { return localStorage.getItem("pqc_srv") || "http://136.244.116.132:8099"; },
     set srv(v) { try { localStorage.setItem("pqc_srv", v); } catch (_) {} },
     get email() { return localStorage.getItem("pqc_email") || ""; },
     set email(v) { try { localStorage.setItem("pqc_email", v); } catch (_) {} },
@@ -444,7 +503,8 @@
   }
   $("goSign").addEventListener("click", () => { resetSign(); screen("scSign"); });
   $("goVerify").addEventListener("click", () => { resetVerify(); screen("scVerify"); });
-  $("signBack").addEventListener("click", () => screen("scHome"));
+  $("signBack").addEventListener("click", () => { document.body.classList.remove("placing"); screen("scHome"); });
+  $("placeBack").addEventListener("click", () => { document.body.classList.remove("placing"); screen("scSign"); });
   $("verifyBack").addEventListener("click", () => screen("scHome"));
 
   // ---------- account menu ----------
@@ -469,12 +529,108 @@
   });
 
   // ---------- sign ----------
+  const STAGE_W = 780;
+  let pdfDoc = null, pdfPage = 1, pdfPages = 1;
+
   function resetSign() {
     signIn = ""; signOut = "";
+    document.body.classList.remove("placing");
     $("inName").textContent = "Pilih berkas PDF…"; $("inName").classList.remove("fn");
-    $("btnSign").disabled = true; $("signMsg").textContent = "";
+    $("btnPlace").disabled = true;
+    $("signMsg").textContent = ""; $("placeMsg").textContent = "";
     $("signResult").hidden = true; $("signResult").innerHTML = "";
+    pdfDoc = null; pdfPage = 1; pdfPages = 1;
+    $("qrBox").dataset.init = "";
   }
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64); const a = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return a;
+  }
+
+  async function renderQrPage(n) {
+    if (!pdfDoc) return;
+    pdfPage = Math.min(Math.max(1, n), pdfPages);
+    const pg = await pdfDoc.getPage(pdfPage);
+    const base = pg.getViewport({ scale: 1 });
+    const scale = STAGE_W / base.width;
+    const vp = pg.getViewport({ scale });
+    const dpr = window.devicePixelRatio || 1;
+    const cv = $("qrCanvas");
+    cv.width = Math.round(vp.width * dpr); cv.height = Math.round(vp.height * dpr);
+    cv.style.width = vp.width + "px"; cv.style.height = vp.height + "px";
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+    if (document.activeElement !== $("qrPageInput")) $("qrPageInput").value = pdfPage;
+    $("qrPageInput").max = pdfPages;
+    $("qrPageTotal").textContent = pdfPages;
+    $("qrPrev").disabled = pdfPage <= 1; $("qrNext").disabled = pdfPage >= pdfPages;
+    placeDefaultBox(vp.width, vp.height);
+  }
+
+  function placeDefaultBox(sw, sh) {
+    const box = $("qrBox");
+    if (box.dataset.init === signIn) { clampBox(); return; }
+    const w = Math.round(0.26 * sw);
+    const h = Math.round(w * STAMP_ASPECT);
+    box.style.width = w + "px"; box.style.height = h + "px";
+    box.style.left = Math.round(sw - w - 0.10 * sw) + "px";
+    box.style.top = Math.round(sh - h - 0.10 * sh) + "px";
+    box.dataset.init = signIn;
+    clampBox();
+  }
+
+  function clampBox() {
+    const st = $("qrStage"), box = $("qrBox");
+    const sw = st.clientWidth, sh = st.clientHeight;
+    let w = Math.min(box.offsetWidth, sw), h = w * STAMP_ASPECT;
+    if (h > sh) { h = sh; w = h / STAMP_ASPECT; }
+    let l = Math.min(Math.max(0, box.offsetLeft), sw - w);
+    let t = Math.min(Math.max(0, box.offsetTop), sh - h);
+    box.style.width = Math.round(w) + "px"; box.style.height = Math.round(h) + "px";
+    box.style.left = Math.round(l) + "px"; box.style.top = Math.round(t) + "px";
+  }
+
+  (function wireDrag() {
+    const st = $("qrStage"), box = $("qrBox");
+    let mode = null, sx = 0, sy = 0, ox = 0, oy = 0, ow = 0;
+    const start = (e, m) => {
+      mode = m; sx = e.clientX; sy = e.clientY;
+      ox = box.offsetLeft; oy = box.offsetTop; ow = box.offsetWidth;
+      box.setPointerCapture && box.setPointerCapture(e.pointerId);
+      e.preventDefault(); e.stopPropagation();
+    };
+    $("qrHandle").addEventListener("pointerdown", (e) => start(e, "resize"));
+    box.addEventListener("pointerdown", (e) => { if (e.target !== $("qrHandle")) start(e, "move"); });
+    window.addEventListener("pointermove", (e) => {
+      if (!mode) return;
+      const sw = st.clientWidth, sh = st.clientHeight;
+      if (mode === "move") {
+        box.style.left = Math.min(Math.max(0, ox + e.clientX - sx), sw - box.offsetWidth) + "px";
+        box.style.top = Math.min(Math.max(0, oy + e.clientY - sy), sh - box.offsetHeight) + "px";
+      } else {
+        let w = Math.min(Math.max(0.08 * sw, ow + e.clientX - sx), sw - ox);
+        let h = w * STAMP_ASPECT;
+        if (oy + h > sh) { h = sh - oy; w = h / STAMP_ASPECT; }
+        box.style.width = Math.round(w) + "px"; box.style.height = Math.round(h) + "px";
+      }
+    });
+    window.addEventListener("pointerup", () => { mode = null; });
+  })();
+
+  $("qrPrev").addEventListener("click", () => renderQrPage(pdfPage - 1));
+  $("qrNext").addEventListener("click", () => renderQrPage(pdfPage + 1));
+  function jumpToTypedPage() {
+    const n = parseInt($("qrPageInput").value, 10);
+    if (!pdfDoc || isNaN(n)) { $("qrPageInput").value = pdfPage; return; }
+    const clamped = Math.min(Math.max(1, n), pdfPages);
+    if (clamped === pdfPage) { $("qrPageInput").value = pdfPage; return; }
+    renderQrPage(clamped);
+  }
+  $("qrPageInput").addEventListener("change", jumpToTypedPage);
+  $("qrPageInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("qrPageInput").blur(); jumpToTypedPage(); } });
+
   $("pickIn").addEventListener("click", async () => {
     try {
       const p = await call("PickPDF"); if (!p) return;
@@ -483,13 +639,46 @@
       $("inName").textContent = base; $("inName").classList.add("fn");
       const save = await call("SaveSignedPDF", base.replace(/\.pdf$/i, "") + "-bertandatangan.pdf");
       signOut = save || "";
-      $("btnSign").disabled = !signIn;
+      $("btnPlace").disabled = !(signIn && signOut);
     } catch (e) { $("signMsg").textContent = friendly(e); }
   });
-  $("btnSign").addEventListener("click", () => withBtn($("btnSign"), async () => {
-    $("signMsg").textContent = ""; $("signResult").hidden = true;
+
+  $("btnPlace").addEventListener("click", async () => {
+    $("signMsg").textContent = "";
+    $("qrBox").dataset.init = ""; pdfDoc = null;
+    document.body.classList.add("placing");
+    screen("scPlace");
+    $("signResult").hidden = true;
+    if (!pdfjs) { $("qrHelp").textContent = "Pratinjau tidak tersedia; QR akan ditaruh di kanan bawah halaman terakhir."; return; }
+    $("qrHelp").textContent = "Memuat pratinjau…";
     try {
-      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "");
+      const b64 = await call("LoadPdfB64", signIn);
+      pdfDoc = await pdfjs.getDocument({ data: b64ToBytes(b64) }).promise;
+      pdfPages = pdfDoc.numPages;
+      await renderQrPage(pdfPages); // default to the last page
+      $("qrHelp").textContent = "Seret kotak QR ke kolom tanda tangan. Tarik titik sudut untuk ukuran.";
+    } catch (err) {
+      $("qrHelp").textContent = "Pratinjau gagal dimuat; QR akan ditaruh di kanan bawah halaman terakhir.";
+    }
+  });
+
+  function qrPlacement() {
+    if (!pdfDoc) return { page: 0, x: 0.62, y: 0.80, w: 0.26 };
+    const st = $("qrStage"), box = $("qrBox");
+    const sw = st.clientWidth, sh = st.clientHeight;
+    return {
+      page: pdfPage,
+      x: box.offsetLeft / sw,
+      y: box.offsetTop / sh,
+      w: box.offsetWidth / sw,
+    };
+  }
+
+  $("btnSign").addEventListener("click", () => withBtn($("btnSign"), async () => {
+    $("placeMsg").textContent = ""; $("signResult").hidden = true;
+    try {
+      const q = qrPlacement();
+      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", q.page, q.x, q.y, q.w);
       $("signResult").innerHTML =
         '<div class="verdict ok"><span class="mark">✓</span> Dokumen ditandatangani</div>' +
         '<dl class="kv">' +
@@ -500,7 +689,7 @@
         "</dl>";
       $("signResult").hidden = false;
       toast("Berhasil ditandatangani & disimpan.", "ok");
-    } catch (e) { $("signMsg").textContent = friendly(e); }
+    } catch (e) { $("placeMsg").textContent = friendly(e); }
   }));
 
   // ---------- verify ----------

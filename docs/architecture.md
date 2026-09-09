@@ -11,16 +11,15 @@ tracks decisions as they are implemented.
 user       --register {name,instansi,email,pw}-->  receiver   (account: pending)
 admin      --approve (1 click)---------------->    receiver   (account: active)
 device app --CSR (silent, on first login)---->    receiver --> online CA auto-issues the cert
-device app --original PDF-------------------->    receiver --> returns PDF + appended verification page
+device app --original PDF + QR placement---->    receiver --> returns PDF with a placed QR stamp
 device app --signed PDF--------------------->     receiver --> strict verify -> storage / audit / public verifier
 admin      --disable/delete account---------->    receiver --> revoke all its certs + republish CRL
 ```
 
 The device still holds the only copy of its ML-DSA-65 private key; signing
-happens on-device and the server has no signing endpoint (§17.5). The
-verification page is composed server-side (so `core` needs no PDF-composition
-library) and signed on-device with the rest of the document. Public
-verification needs no account.
+happens on-device and the server has no signing endpoint (§17.5). The QR stamp is drawn server-side at the spot the signer chose in the app
+(so `core` needs no PDF-composition library) and signed on-device with the
+rest of the document. Public verification needs no account.
 
 ## Modules (this repo)
 
@@ -29,7 +28,7 @@ verification needs no account.
   Windows client and, through `core/mobilebridge`, by the Android AAR.
   * `keys` — ML-DSA-65 generate / PKCS#8 marshal / parse / fingerprint / key-pair match.
   * `enrollment` — `CreateDeviceCSR`, `ParseAndValidateCSR` (proof of possession, algo check, subject ignored).
-  * `signing` — `SignPDF` (PAdES-B, SHA-512), `BuildSignatureAppearance` (identity, time, serial). No PDF-composition dependency; the RB verification page is added by the server before signing.
+  * `signing` — `SignPDF` (PAdES-B, SHA-512), `BuildSignatureAppearance` (identity, time, serial). No PDF-composition dependency; the RB QR stamp is drawn by the server before signing.
   * `verification` — `VerifyPDF` against an explicit Root CA; offline CRL check; shared JSON result (§11.3).
   * `certutil` — X.509/CRL parsing, profile enforcement, chain build.
   * `labpki` — **lab only** Root/Intermediate/device/CRL generation for fixtures.
@@ -54,8 +53,8 @@ verification needs no account.
   reservation). RB additions: account lifecycle (`pending`/`active`/`disabled`)
   in `handlers.go`/`accounts.go`, online CA issuance in `devissue.go`
   (`Config.LabIssuer` → `ca-admin` subprocess for issue/revoke/CRL), the
-  server-side verification page in `coverpage.go` (uses `pdfcpu`, server module
-  only), and the static operator console at `GET /admin` (`adminui.html`).
+  server-side placed QR stamp in `stamp.go` + `stamppng.go` (uses `pdfcpu` +
+  `x/image`, server module only), and the static operator console at `GET /admin` (`adminui.html`).
   `deploy/lab/` runs it as caddy+api+postgres+minio via Compose.
 * **tools/ca-admin** — M2 done: offline CLI for CSR validation, operator-
   assigned cert issuance, revocation ledger, ML-DSA-65 CRL publishing; keeps

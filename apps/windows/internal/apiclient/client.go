@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -246,14 +247,31 @@ func (c *Client) Reserve(deviceID, originalSHA512, fileName string) (Reservation
 	return out, err
 }
 
-// CoverPage uploads the original PDF and returns it with the server-composed
-// verification page appended (Rencana RB-2b), ready to sign on-device.
-func (c *Client) CoverPage(publicID string, pdf []byte, reason string) ([]byte, error) {
-	p := "/api/v1/signatures/" + publicID + "/cover-page"
-	if reason != "" {
-		p += "?reason=" + url.QueryEscape(reason)
+// StampPlacement is where the signer dropped the QR box in the app: page
+// number (1-based) and a page-relative rectangle with the origin at the
+// top-left. X,Y is the box's top-left corner; W is its width. All fractions
+// in [0,1].
+type StampPlacement struct {
+	Page    int
+	X, Y, W float64
+}
+
+// Stamp uploads the original PDF and returns it with one "TTD Elektronik" QR
+// stamp drawn at the requested spot (Rencana RB-2c), ready to sign on-device.
+// The page count is unchanged.
+func (c *Client) Stamp(publicID string, pdf []byte, p StampPlacement, reason string) ([]byte, error) {
+	q := url.Values{}
+	if p.Page > 0 {
+		q.Set("page", strconv.Itoa(p.Page))
 	}
-	raw, _, err := c.do(http.MethodPost, p, bytes.NewReader(pdf), "application/pdf")
+	q.Set("x", strconv.FormatFloat(p.X, 'f', 4, 64))
+	q.Set("y", strconv.FormatFloat(p.Y, 'f', 4, 64))
+	q.Set("w", strconv.FormatFloat(p.W, 'f', 4, 64))
+	if reason != "" {
+		q.Set("reason", reason)
+	}
+	path := "/api/v1/signatures/" + publicID + "/stamp?" + q.Encode()
+	raw, _, err := c.do(http.MethodPost, path, bytes.NewReader(pdf), "application/pdf")
 	return raw, err
 }
 
