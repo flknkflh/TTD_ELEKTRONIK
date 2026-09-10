@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"example.internal/pqc-pdf-sign/server/internal/store"
 )
@@ -108,24 +109,63 @@ func TestAcceptance_DifferentAccountCertificate(t *testing.T) {
 	}
 }
 
-// §25.5 — the record distinguishes the client-claimed signing time from the
-// server-received time; they are separate fields.
+// §25.5 — the record keeps the client-claimed signing time and the
+// server-received time as separate, independently sourced fields: the server
+// records what the device asserted without substituting its own clock.
+//
+// Both fields are RFC3339 at second precision, and signing and submission
+// otherwise complete inside the same second, which made the two strings
+// identical and failed this test on timing alone. The signing time cannot be
+// dictated by the caller either -- the PDF library stamps /M from its own
+// clock and exposes no setter (see signing.Options.ClaimedSigningTime) -- so
+// the two clocks are separated by waiting past a second boundary before
+// submitting, and the claim is then checked against the time actually
+// embedded in the document. A server that substituted its own clock for the
+// device's claim now fails here instead of slipping through whenever the two
+// happened to land in the same second.
 func TestAcceptance_ClientTimeVsServerTime(t *testing.T) {
 	e := newEnv(t)
 	user := e.account("user@test", store.RoleUser)
 	admin := e.account("admin@test", store.RoleAdmin)
 	d := e.enrolledDevice(user, admin, "Laptop")
 	pid := e.reserve(user, d.id)
-	mustCode(t, e.do("PUT", "/api/v1/signatures/"+pid+"/document", user, signWith(t, d, pid)), http.StatusOK)
+
+	signed, claimed := signWithTime(t, d, pid)
+	time.Sleep(1100 * time.Millisecond) // cross a second boundary
+	submittedAt := time.Now().UTC()
+	mustCode(t, e.do("PUT", "/api/v1/signatures/"+pid+"/document", user, signed), http.StatusOK)
 
 	rec := jbody(t, e.do("GET", "/api/v1/public/signatures/"+pid, "", nil))
 	cc, _ := rec["client_claimed_signing_time"].(string)
 	sr, _ := rec["server_received_at"].(string)
+	if cc == "" {
+		t.Fatal("client_claimed_signing_time missing")
+	}
 	if sr == "" {
 		t.Fatal("server_received_at missing")
 	}
 	if cc == sr {
-		t.Fatal("client and server timestamps are the same field/value")
+		t.Fatalf("client and server timestamps are the same value (%s); they are separate fields", cc)
+	}
+
+	// The stored claim must be the one inside the document, not the server's
+	// clock at the moment it happened to arrive.
+	gotClaimed, err := time.Parse(time.RFC3339, cc)
+	if err != nil {
+		t.Fatalf("client_claimed_signing_time %q is not RFC3339: %v", cc, err)
+	}
+	if diff := gotClaimed.Sub(claimed.UTC().Truncate(time.Second)); diff < -time.Second || diff > time.Second {
+		t.Fatalf("server did not preserve the document's signing time: stored %s, document says %s",
+			cc, claimed.UTC().Format(time.RFC3339))
+	}
+
+	// ...and the server's own field must be when it actually received it.
+	gotServer, err := time.Parse(time.RFC3339, sr)
+	if err != nil {
+		t.Fatalf("server_received_at %q is not RFC3339: %v", sr, err)
+	}
+	if gotServer.Before(submittedAt.Add(-2*time.Second)) || gotServer.After(time.Now().UTC().Add(2*time.Second)) {
+		t.Fatalf("server_received_at %s is not the moment of receipt", sr)
 	}
 }
 

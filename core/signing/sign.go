@@ -37,9 +37,15 @@ type Options struct {
 	X         float64 `json:"x,omitempty"`    // widget X in points; only used when IncludeQR
 	Y         float64 `json:"y,omitempty"`    // widget Y in points; only used when IncludeQR
 
-	// ClaimedSigningTime is bound into the signature (CMS signed attribute).
-	// It is the client's clock and is NOT a trusted timestamp (Rencana V1
-	// §4). Zero -> now.
+	// ClaimedSigningTime sets the date printed on the VISIBLE appearance only
+	// (and only when IncludeQR is set). It does NOT set the signature's own
+	// time: for the ETSI.CAdES.detached subfilter this profile uses, the CMS
+	// signing-time attribute is deliberately omitted (PAdES takes the time
+	// from /M or a timestamp token instead), and digitorus/pdfsign writes /M
+	// from its own clock with no API to override it. Whatever is passed here,
+	// the time a verifier reports is the moment SignPDF ran -- which is why
+	// Result.ClaimedSigningTime reports that, not this. Either way it is the
+	// signer's clock and NOT a trusted timestamp (Rencana V1 §4). Zero -> now.
 	ClaimedSigningTime time.Time `json:"client_claimed_signing_time,omitempty"`
 
 	// Timeout bounds the parse+sign. 0 means no watchdog. A network-facing
@@ -61,6 +67,9 @@ type Result struct {
 	CertificateSerial  string    `json:"certificate_serial"`
 	CertificateFP      string    `json:"certificate_fingerprint_sha256"`
 	PublicID           string    `json:"public_id,omitempty"`
+	// ClaimedSigningTime is the time a verifier will read back from this
+	// document (the signer's clock at the moment of signing), not whatever
+	// Options.ClaimedSigningTime asked for -- see that field.
 	ClaimedSigningTime time.Time `json:"client_claimed_signing_time"`
 }
 
@@ -184,8 +193,16 @@ func signPDF(pdf, privateKeyPKCS8, certChainPEM []byte, o Options) (*Result, err
 	}
 
 	var out bytes.Buffer
-	if _, err := doc.Write(&out); err != nil {
+	wres, err := doc.Write(&out)
+	if err != nil {
 		return nil, fmt.Errorf("signing: write signed PDF: %w", err)
+	}
+	// Report the time that actually went into the document. The library
+	// stamps it during Write and offers no setter, so echoing the requested
+	// value here would claim a time no verifier will ever read back.
+	embedded := claimed
+	if wres != nil && len(wres.Signatures) > 0 && !wres.Signatures[0].SigningTime.IsZero() {
+		embedded = wres.Signatures[0].SigningTime
 	}
 
 	return &Result{
@@ -197,7 +214,7 @@ func signPDF(pdf, privateKeyPKCS8, certChainPEM []byte, o Options) (*Result, err
 		CertificateSerial:  fmt.Sprintf("%x", leaf.SerialNumber),
 		CertificateFP:      certutil.FingerprintSHA256(leaf),
 		PublicID:           o.PublicID,
-		ClaimedSigningTime: claimed,
+		ClaimedSigningTime: embedded,
 	}, nil
 }
 

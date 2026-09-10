@@ -232,6 +232,21 @@ func signWith(t *testing.T, d device, publicID string) []byte {
 	return res.SignedPDF
 }
 
+// signWithTime is signWith that also reports the signing time actually
+// embedded in the document, so a test can check the server stored the
+// document's time rather than substituting its own clock. The time cannot be
+// chosen by the caller -- see signing.Options.ClaimedSigningTime.
+func signWithTime(t *testing.T, d device, publicID string) ([]byte, time.Time) {
+	t.Helper()
+	res, err := signing.SignPDF(testpdf.Sample(), d.keyPEM, d.chainPEM, signing.Options{
+		SignerName: "Tester", PublicID: publicID,
+	})
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	return res.SignedPDF, res.ClaimedSigningTime
+}
+
 // stampAndSign runs the RB-2c flow: upload the original to the server's stamp
 // endpoint (with a placement), then sign what comes back on the "device".
 func (e *env) stampAndSign(userTok string, d device, publicID string) []byte {
