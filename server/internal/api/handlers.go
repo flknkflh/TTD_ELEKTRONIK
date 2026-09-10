@@ -580,11 +580,18 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 				// it with what was uploaded. VerifyPDF already hashed the
 				// input, so reuse that rather than hashing up to 350 MB twice.
 				uploadHash := res.DocumentSHA512
-				match := sig.SignedSHA512 != "" && strings.EqualFold(uploadHash, sig.SignedSHA512)
-				out["hash_match"] = match
 				out["uploaded_sha512"] = uploadHash
 
-				if !match && sig.VerificationStatus == store.VerificationAccepted {
+				// No recorded digest means "unknown", not "mismatch" -- leave
+				// hash_match absent rather than reporting a difference we
+				// cannot actually establish.
+				known := sig.SignedSHA512 != ""
+				match := known && strings.EqualFold(uploadHash, sig.SignedSHA512)
+				if known {
+					out["hash_match"] = match
+				}
+
+				if known && !match && sig.VerificationStatus == store.VerificationAccepted {
 					// The server re-verified this document at submission and
 					// recorded its bytes; this upload is not those bytes, so
 					// reject it whatever the crypto over /ByteRange says.
