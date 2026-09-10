@@ -109,9 +109,6 @@ func (s *Server) hVerifyPage(w http.ResponseWriter, r *http.Request) {
 	d, _ := s.st.Device(sig.DeviceID)
 	rec := s.publicRecord(sig, a, d)
 
-	_, objErr := s.st.GetObject(sig.StorageObjectKey)
-	docPath := "/v/" + pid + "/document"
-
 	status := str(rec["certificate_status"])
 	badge := `<span class="badge ok">TERVERIFIKASI</span>`
 	statusNote := "Sertifikat penanda tangan aktif saat halaman ini dibuka."
@@ -146,122 +143,111 @@ func (s *Server) hVerifyPage(w http.ResponseWriter, r *http.Request) {
 	add("SHA-512 dokumen bertanda tangan", str(rec["signed_pdf_sha512"]))
 	add("ID verifikasi", str(rec["public_id"]))
 
-	doc := ""
-	if objErr == nil {
-		doc = `
-		<div class="doc">
-		  <h2>Dokumen yang ditandatangani</h2>
-		  <p class="muted">Ini berkas asli yang tersimpan di server. Bandingkan dengan dokumen
-		  yang Anda terima — jika berbeda, dokumen yang Anda pegang tidak asli.</p>
-		  <iframe id="docFrame" title="Dokumen bertanda tangan"></iframe>
-		  <div class="docbtns">
-		    <a class="btn" id="docLink" target="_blank" rel="noopener">Buka layar penuh / unduh (PDF)</a>
-		  </div>
-		</div>`
-	}
-
-	// Hash-only check: the browser hashes the chosen file locally and sends
-	// only the 64-byte digest. Nothing of the document itself is transmitted,
-	// so a confidential file can be checked here.
+	// Hash-only check. This is now the page's only interactive step: the
+	// browser reads the chosen file, digests it locally and sends just the
+	// 64-byte hash. The document itself is never transmitted, and the server's
+	// copy is never shown or offered for download.
 	hashCheck := `
-		<div class="hashcheck" id="hashcheck" hidden>
-		  <h2>Verifikasi tanpa mengunggah berkas</h2>
-		  <p class="muted">Untuk dokumen rahasia. Berkas tidak dikirim ke mana pun — hanya sidik jari
-		  SHA-512 (64 byte) yang dihitung di perangkat Anda lalu dicocokkan dengan catatan server.</p>
+		<div class="hashcheck">
+		  <h2>Cocokkan berkas Anda</h2>
+		  <p class="muted">Pilih berkas PDF yang Anda terima. Sidik jari SHA-512-nya dihitung
+		  di perangkat Anda lalu dibandingkan dengan yang tercatat di server. Berkas tidak
+		  diunggah ke mana pun, jadi aman untuk dokumen rahasia.</p>
 		  <label class="hpick" for="hf">
 		    <input type="file" id="hf" accept="application/pdf" style="display:none">
 		    <b>📄 Pilih berkas PDF</b>
 		    <span>Berkas hanya dibaca &amp; di-hash di browser Anda</span>
 		  </label>
 		  <div id="hres" class="muted"></div>
-		</div>
-		<div class="hashcheck" id="hashcheck-off" hidden>
-		  <h2>Verifikasi tanpa mengunggah berkas</h2>
-		  <p class="muted">Pemeriksaan sidik jari di browser memerlukan koneksi aman (HTTPS).
-		  Halaman ini dibuka lewat HTTP biasa, sehingga fitur ini dimatikan browser.
-		  Gunakan aplikasi desktop atau Android untuk mencocokkan sidik jari tanpa mengunggah berkas.</p>
 		</div>`
 
 	body := serverBar(reqBase(r)) + `
 		<div class="status">` + badge + `<p>` + html.EscapeString(statusNote) + `</p></div>
 		<table>` + rows + `</table>
-		<p class="muted">` + html.EscapeString(str(rec["note"])) + `</p>` + doc + hashCheck + `
-		<p class="muted">Untuk memeriksa keutuhan isi dokumen secara kriptografis, unggah berkas PDF di
-		<a id="homeLink" href="/">halaman verifikasi</a>. Halaman ini mencocokkan catatan server
-		dan menampilkan berkas asli dari server.</p>
+		<p class="muted">` + html.EscapeString(str(rec["note"])) + `</p>` + hashCheck + `
+		<p class="muted">Halaman ini mencocokkan catatan server dengan berkas yang Anda pegang.
+		Untuk pemeriksaan tanda tangan kriptografis yang lengkap, unggah berkas PDF di
+		<a id="homeLink" href="/">halaman verifikasi</a>.</p>
 <script>
 (function(){
-  var p = ` + jsString(docPath) + `;
-  var f = document.getElementById("docFrame"), l = document.getElementById("docLink");
-  if (f) f.src = window.SRV + p;
-  if (l) l.href = window.SRV + p;
   var h = document.getElementById("homeLink"); if (h) h.href = window.SRV + "/";
 
-  // crypto.subtle exists only in a secure context (HTTPS, or localhost). On a
-  // plain-HTTP LAN/VPS address it is undefined, so offer the block only where
-  // it can actually work and point elsewhere when it cannot.
-  var PID  = ` + jsString(pid) + `;
-  var secure = (window.isSecureContext === true) && window.crypto && window.crypto.subtle;
-  var on = document.getElementById("hashcheck"), off = document.getElementById("hashcheck-off");
-  if (!secure) { if (off) off.hidden = false; return; }
-  if (on) on.hidden = false;
-
+  var PID = ` + jsString(pid) + `;
   var hf = document.getElementById("hf"), o = document.getElementById("hres");
+
+  function say(cls, html){ o.className = cls; o.innerHTML = html; }
+
   hf.addEventListener("change", function(){
     var file = hf.files && hf.files[0];
     if (!file) return;
-    o.className = "muted";
-    o.textContent = "Menghitung sidik jari…";
-    file.arrayBuffer().then(function(buf){
-      return crypto.subtle.digest("SHA-512", buf);
-    }).then(function(d){
-      var hex = Array.prototype.map.call(new Uint8Array(d), function(b){
-        return ("0" + b.toString(16)).slice(-2); }).join("");
-      return fetch(window.SRV + "/api/v1/public/verify-hash", {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ public_id: PID, sha512: hex })
-      }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j, hex: hex }; }); });
+    say("muted", "Membaca berkas…");
+    var reader = new FileReader();
+    reader.onerror = function(){ say("bad", "Gagal membaca berkas."); };
+    reader.onload = function(){
+      var bytes = new Uint8Array(reader.result);
+      say("muted", "Menghitung sidik jari…");
+      digest(bytes, function(hex){ send(hex); }, function(pct){
+        say("muted", "Menghitung sidik jari… " + pct + "%");
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  // crypto.subtle is only defined in a secure context (HTTPS or localhost).
+  // This site is commonly served over plain HTTP on a LAN or VPS address, so
+  // fall back to the bundled SHA-512 rather than disabling the feature.
+  function digest(bytes, done, progress){
+    if (window.crypto && window.crypto.subtle && window.isSecureContext) {
+      crypto.subtle.digest("SHA-512", bytes).then(function(d){
+        done(Array.prototype.map.call(new Uint8Array(d), function(b){
+          return ("0" + b.toString(16)).slice(-2); }).join(""));
+      }).catch(function(){ jsDigest(bytes, done, progress); });
+      return;
+    }
+    jsDigest(bytes, done, progress);
+  }
+
+  // Chunked so a large file does not freeze the tab: hash ~4 MB per tick and
+  // yield to the event loop in between.
+  function jsDigest(bytes, done, progress){
+    var H = sha512New(), fullEnd = bytes.length - (bytes.length % 128), off = 0, CH = 4 << 20;
+    (function step(){
+      var to = Math.min(off + CH, fullEnd);
+      sha512Blocks(H, bytes, off, to);
+      off = to;
+      if (off < fullEnd) {
+        progress(Math.floor((off / bytes.length) * 100));
+        setTimeout(step, 0);
+      } else {
+        done(sha512Final(H, bytes, fullEnd));
+      }
+    })();
+  }
+
+  function send(hex){
+    fetch(window.SRV + "/api/v1/public/verify-hash", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ public_id: PID, sha512: hex })
+    }).then(function(r){
+      return r.json().then(function(j){ return { ok: r.ok, j: j }; });
     }).then(function(v){
       if (!v.ok) {
-        o.className = "bad";
-        o.textContent = "Gagal memeriksa: " + ((v.j && v.j.error) || "server menolak permintaan");
+        say("bad", "Gagal memeriksa: " + ((v.j && v.j.error) || "server menolak permintaan"));
         return;
       }
-      o.className = "";
-      o.innerHTML = v.j.match
+      say("", (v.j.match
         ? '<span class="badge ok">COCOK</span> <span class="muted">Berkas ini byte-identik dengan yang diterbitkan server untuk ID ini.</span>'
-        : '<span class="badge bad">TIDAK COCOK</span> <span class="muted">Berkas ini berbeda dari yang diterbitkan server untuk ID ini.</span>';
-      o.innerHTML += '<p class="muted" style="margin:8px 0 0">SHA-512 berkas Anda:<br><code>' + v.hex + '</code></p>';
+        : '<span class="badge bad">TIDAK COCOK</span> <span class="muted">Berkas ini berbeda dari yang diterbitkan server untuk ID ini.</span>')
+        + '<p class="muted" style="margin:8px 0 0">SHA-512 berkas Anda:<br><code>' + hex + '</code></p>');
     }).catch(function(e){
-      o.className = "bad";
-      o.textContent = "Gagal memeriksa: " + e;
+      say("bad", "Gagal menghubungi server: " + e);
     });
-  });
+  }
 })();
-</script>`
+</script>` + sha512JS
 	_, _ = w.Write([]byte(verifyPageShell("Verifikasi Tanda Tangan", body)))
 }
 
-// hPublicDocument serves the authoritative signed PDF behind a QR code:
-// GET /v/{public_id}/document, no account required.
-func (s *Server) hPublicDocument(w http.ResponseWriter, r *http.Request) {
-	pid := r.PathValue("public_id")
-	sig, err := s.st.Signature(pid)
-	if err != nil {
-		http.Error(w, "tidak ada dokumen dengan ID itu", http.StatusNotFound)
-		return
-	}
-	b, err := s.st.GetObject(sig.StorageObjectKey)
-	if err != nil {
-		http.Error(w, "berkas dokumen tidak tersedia di server", http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", `inline; filename="`+pid+`.pdf"`)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(b)
-}
 
 func str(v any) string {
 	if s, ok := v.(string); ok {
@@ -328,9 +314,6 @@ func verifyPageShell(title, inner string) string {
                font-weight:600; white-space:nowrap; width:228px; }
   .v-card td { word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; }
 
-  .doc { margin:20px 0 4px; padding:20px 0 0; border-top:1px solid var(--glass-border); }
-  .doc iframe { width:100%; height:min(84vh,1100px); min-height:520px; border:1px solid var(--glass-border);
-    border-radius:var(--radius-md); background:#fff; margin-top:12px; }
   .docbtns { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
   .btn.alt { background:linear-gradient(135deg,var(--cyan-500),var(--blue-600)); color:#fff; border-color:transparent; }
 
@@ -443,3 +426,123 @@ func verifyPageShell(title, inner string) string {
 ` + lgScripts + `
 </body></html>`
 }
+
+// sha512JS is a self-contained SHA-512 for the QR landing page. The page
+// prefers crypto.subtle, but that is defined only in a secure context and this
+// site is routinely served over plain HTTP on a LAN or VPS address -- without
+// this fallback the "cocokkan berkas" step would silently not exist for most
+// visitors. Implemented over 32-bit hi/lo pairs (not BigInt) for speed, and
+// exposed as an incremental API so the page can hash in chunks and keep the
+// tab responsive. Verified against the NIST vectors and Node's crypto.
+const sha512JS = `
+<script>
+// SHA-512 over 32-bit hi/lo pairs. Needed because crypto.subtle exists only in
+// a secure context (HTTPS/localhost) and this site is often served over plain
+// HTTP on a LAN or VPS address.
+var K512 = [
+  0x428a2f98,0xd728ae22,0x71374491,0x23ef65cd,0xb5c0fbcf,0xec4d3b2f,0xe9b5dba5,0x8189dbbc,
+  0x3956c25b,0xf348b538,0x59f111f1,0xb605d019,0x923f82a4,0xaf194f9b,0xab1c5ed5,0xda6d8118,
+  0xd807aa98,0xa3030242,0x12835b01,0x45706fbe,0x243185be,0x4ee4b28c,0x550c7dc3,0xd5ffb4e2,
+  0x72be5d74,0xf27b896f,0x80deb1fe,0x3b1696b1,0x9bdc06a7,0x25c71235,0xc19bf174,0xcf692694,
+  0xe49b69c1,0x9ef14ad2,0xefbe4786,0x384f25e3,0x0fc19dc6,0x8b8cd5b5,0x240ca1cc,0x77ac9c65,
+  0x2de92c6f,0x592b0275,0x4a7484aa,0x6ea6e483,0x5cb0a9dc,0xbd41fbd4,0x76f988da,0x831153b5,
+  0x983e5152,0xee66dfab,0xa831c66d,0x2db43210,0xb00327c8,0x98fb213f,0xbf597fc7,0xbeef0ee4,
+  0xc6e00bf3,0x3da88fc2,0xd5a79147,0x930aa725,0x06ca6351,0xe003826f,0x14292967,0x0a0e6e70,
+  0x27b70a85,0x46d22ffc,0x2e1b2138,0x5c26c926,0x4d2c6dfc,0x5ac42aed,0x53380d13,0x9d95b3df,
+  0x650a7354,0x8baf63de,0x766a0abb,0x3c77b2a8,0x81c2c92e,0x47edaee6,0x92722c85,0x1482353b,
+  0xa2bfe8a1,0x4cf10364,0xa81a664b,0xbc423001,0xc24b8b70,0xd0f89791,0xc76c51a3,0x0654be30,
+  0xd192e819,0xd6ef5218,0xd6990624,0x5565a910,0xf40e3585,0x5771202a,0x106aa070,0x32bbd1b8,
+  0x19a4c116,0xb8d2d0c8,0x1e376c08,0x5141ab53,0x2748774c,0xdf8eeb99,0x34b0bcb5,0xe19b48a8,
+  0x391c0cb3,0xc5c95a63,0x4ed8aa4a,0xe3418acb,0x5b9cca4f,0x7763e373,0x682e6ff3,0xd6b2b8a3,
+  0x748f82ee,0x5defb2fc,0x78a5636f,0x43172f60,0x84c87814,0xa1f0ab72,0x8cc70208,0x1a6439ec,
+  0x90befffa,0x23631e28,0xa4506ceb,0xde82bde9,0xbef9a3f7,0xb2c67915,0xc67178f2,0xe372532b,
+  0xca273ece,0xea26619c,0xd186b8c7,0x21c0c207,0xeada7dd6,0xcde0eb1e,0xf57d4f7f,0xee6ed178,
+  0x06f067aa,0x72176fba,0x0a637dc5,0xa2c898a6,0x113f9804,0xbef90dae,0x1b710b35,0x131c471b,
+  0x28db77f5,0x23047d84,0x32caab7b,0x40c72493,0x3c9ebe0a,0x15c9bebc,0x431d67c4,0x9c100d4c,
+  0x4cc5d4be,0xcb3e42b6,0x597f299c,0xfc657e2a,0x5fcb6fab,0x3ad6faec,0x6c44198c,0x4a475817
+];
+
+// --- incremental core -------------------------------------------------
+// blockRange compresses bytes[from..to) (a whole number of 128-byte blocks)
+// into H. Hashing the caller's buffer directly avoids copying the whole file
+// just to append padding, which matters for a 100 MB+ document.
+function sha512New() {
+  return [
+    0x6a09e667,0xf3bcc908, 0xbb67ae85,0x84caa73b, 0x3c6ef372,0xfe94f82b, 0xa54ff53a,0x5f1d36f1,
+    0x510e527f,0xade682d1, 0x9b05688c,0x2b3e6c1f, 0x1f83d9ab,0xfb41bd6b, 0x5be0cd19,0x137e2179
+  ];
+}
+
+var _W = new Array(160);
+
+function sha512Blocks(H, p, from, to) {
+  var W = _W;
+  for (var off = from; off < to; off += 128) {
+    for (var i = 0; i < 32; i++) {
+      var j = off + i * 4;
+      W[i] = ((p[j] << 24) | (p[j+1] << 16) | (p[j+2] << 8) | p[j+3]) >>> 0;
+    }
+    for (var t = 16; t < 80; t++) {
+      var i2 = t * 2;
+      var xh = W[i2-30], xl = W[i2-29];
+      var s0h = ((xh >>> 1) | (xl << 31)) ^ ((xh >>> 8) | (xl << 24)) ^ (xh >>> 7);
+      var s0l = ((xl >>> 1) | (xh << 31)) ^ ((xl >>> 8) | (xh << 24)) ^ ((xl >>> 7) | (xh << 25));
+      var yh = W[i2-4], yl = W[i2-3];
+      var s1h = ((yh >>> 19) | (yl << 13)) ^ ((yl >>> 29) | (yh << 3)) ^ (yh >>> 6);
+      var s1l = ((yl >>> 19) | (yh << 13)) ^ ((yh >>> 29) | (yl << 3)) ^ ((yl >>> 6) | (yh << 26));
+      var ah = W[i2-32], al = W[i2-31], bh = W[i2-14], bl = W[i2-13];
+      var lo = (s0l + al) | 0; var hi = (s0h + ah + (((lo >>> 0) < (s0l >>> 0)) ? 1 : 0)) | 0;
+      var lo2 = (lo + s1l) | 0; hi = (hi + s1h + (((lo2 >>> 0) < (lo >>> 0)) ? 1 : 0)) | 0;
+      var lo3 = (lo2 + bl) | 0; hi = (hi + bh + (((lo3 >>> 0) < (lo2 >>> 0)) ? 1 : 0)) | 0;
+      W[i2] = hi >>> 0; W[i2+1] = lo3 >>> 0;
+    }
+    var ah0=H[0],al0=H[1],bh0=H[2],bl0=H[3],ch0=H[4],cl0=H[5],dh0=H[6],dl0=H[7],
+        eh0=H[8],el0=H[9],fh0=H[10],fl0=H[11],gh0=H[12],gl0=H[13],hh0=H[14],hl0=H[15];
+    for (var t2 = 0; t2 < 80; t2++) {
+      var k2 = t2 * 2;
+      var S1h = ((eh0 >>> 14) | (el0 << 18)) ^ ((eh0 >>> 18) | (el0 << 14)) ^ ((el0 >>> 9) | (eh0 << 23));
+      var S1l = ((el0 >>> 14) | (eh0 << 18)) ^ ((el0 >>> 18) | (eh0 << 14)) ^ ((eh0 >>> 9) | (el0 << 23));
+      var chh = (eh0 & fh0) ^ (~eh0 & gh0);
+      var chl = (el0 & fl0) ^ (~el0 & gl0);
+      var S0h = ((ah0 >>> 28) | (al0 << 4)) ^ ((al0 >>> 2) | (ah0 << 30)) ^ ((al0 >>> 7) | (ah0 << 25));
+      var S0l = ((al0 >>> 28) | (ah0 << 4)) ^ ((ah0 >>> 2) | (al0 << 30)) ^ ((ah0 >>> 7) | (al0 << 25));
+      var majh = (ah0 & bh0) ^ (ah0 & ch0) ^ (bh0 & ch0);
+      var majl = (al0 & bl0) ^ (al0 & cl0) ^ (bl0 & cl0);
+      var t1l = (hl0 + S1l) | 0; var t1h = (hh0 + S1h + (((t1l >>> 0) < (hl0 >>> 0)) ? 1 : 0)) | 0;
+      var pl = t1l; t1l = (t1l + chl) | 0; t1h = (t1h + chh + (((t1l >>> 0) < (pl >>> 0)) ? 1 : 0)) | 0;
+      pl = t1l; t1l = (t1l + K512[k2+1]) | 0; t1h = (t1h + K512[k2] + (((t1l >>> 0) < (pl >>> 0)) ? 1 : 0)) | 0;
+      pl = t1l; t1l = (t1l + W[k2+1]) | 0; t1h = (t1h + W[k2] + (((t1l >>> 0) < (pl >>> 0)) ? 1 : 0)) | 0;
+      var t2l = (S0l + majl) | 0; var t2h = (S0h + majh + (((t2l >>> 0) < (S0l >>> 0)) ? 1 : 0)) | 0;
+      hh0=gh0; hl0=gl0; gh0=fh0; gl0=fl0; fh0=eh0; fl0=el0;
+      var el1 = (dl0 + t1l) | 0; var eh1 = (dh0 + t1h + (((el1 >>> 0) < (dl0 >>> 0)) ? 1 : 0)) | 0;
+      eh0 = eh1 >>> 0; el0 = el1 >>> 0;
+      dh0=ch0; dl0=cl0; ch0=bh0; cl0=bl0; bh0=ah0; bl0=al0;
+      var al1 = (t1l + t2l) | 0; var ah1 = (t1h + t2h + (((al1 >>> 0) < (t1l >>> 0)) ? 1 : 0)) | 0;
+      ah0 = ah1 >>> 0; al0 = al1 >>> 0;
+    }
+    var st = [ah0,al0,bh0,bl0,ch0,cl0,dh0,dl0,eh0,el0,fh0,fl0,gh0,gl0,hh0,hl0];
+    for (var q = 0; q < 16; q += 2) {
+      var nl = (H[q+1] + st[q+1]) | 0;
+      var nh = (H[q] + st[q] + (((nl >>> 0) < (H[q+1] >>> 0)) ? 1 : 0)) | 0;
+      H[q] = nh >>> 0; H[q+1] = nl >>> 0;
+    }
+  }
+}
+
+// sha512Final compresses the trailing partial block plus the padding.
+function sha512Final(H, bytes, fullEnd) {
+  var ml = bytes.length, rem = ml - fullEnd;
+  var tail = new Uint8Array(rem + 17 > 128 ? 256 : 128);
+  tail.set(bytes.subarray(fullEnd));
+  tail[rem] = 0x80;
+  var bitsHi = Math.floor(ml / 536870912), bitsLo = (ml * 8) >>> 0, n = tail.length;
+  tail[n-8] = (bitsHi >>> 24) & 0xff; tail[n-7] = (bitsHi >>> 16) & 0xff;
+  tail[n-6] = (bitsHi >>> 8) & 0xff;  tail[n-5] = bitsHi & 0xff;
+  tail[n-4] = (bitsLo >>> 24) & 0xff; tail[n-3] = (bitsLo >>> 16) & 0xff;
+  tail[n-2] = (bitsLo >>> 8) & 0xff;  tail[n-1] = bitsLo & 0xff;
+  sha512Blocks(H, tail, 0, n);
+  var out = "";
+  for (var z = 0; z < 16; z++) out += ("00000000" + H[z].toString(16)).slice(-8);
+  return out;
+}
+</script>`

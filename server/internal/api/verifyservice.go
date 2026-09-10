@@ -23,7 +23,6 @@ func (s *Server) VerifyRoutes() http.Handler {
 	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, byIP, s.hVerifyHash))
 	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)
 	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)
-	mux.HandleFunc("GET /v/{public_id}/document", s.hPublicDocument)
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
@@ -271,7 +270,7 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     // from the copy the server holds.
     if (storedOnly && top.hash_match === false) {
       storedNote += '<p class="bad"><b>⚠ Berkas ini BERBEDA dari salinan yang tersimpan di server untuk ID tersebut.</b> ' +
-        'Sidik jari SHA-512-nya tidak cocok. Bandingkan dengan dokumen asli dari server di bawah.</p>';
+        'Sidik jari SHA-512-nya tidak cocok, jadi isinya sudah tidak sama dengan yang diserahkan penanda tangan.</p>';
     }
     if (o.valid && sigs.length){
       var s = sigs[0];
@@ -279,18 +278,15 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
       var name = (subj.match(/CN=([^,]+)/) || [,'-'])[1];
       var org  = (subj.match(/O=([^,]+)/)  || [,'-'])[1];
       var pid  = rec.public_id || String(s.contact || '').replace('pqc-public-id:', '');
+      // The stored document is never shown or offered for download; the
+      // verdict plus the SHA-512 comparison below is the whole answer.
       var docv = '';
       if (top.registered === true && pid){
-        var docURL = window.SRV + '/v/' + encodeURIComponent(pid) + '/document';
         var pageURL = window.SRV + '/v/' + encodeURIComponent(pid);
         docv =
-          '<div class="doc"><h2>Dokumen yang ditandatangani</h2>' +
-          '<p class="muted">Berkas asli yang tersimpan di server. Bandingkan dengan yang Anda terima.</p>' +
-          '<iframe src="'+esc(docURL)+'" title="Dokumen bertanda tangan"></iframe>' +
-          '<div class="docbtns">' +
-          '<a class="btn" href="'+esc(docURL)+'" target="_blank" rel="noopener">Buka layar penuh / unduh (PDF)</a>' +
-          '<a class="btn alt" href="'+esc(pageURL)+'" target="_blank" rel="noopener">Halaman verifikasi lengkap</a>' +
-          '</div></div>';
+          '<div class="docbtns" style="margin-top:14px">' +
+          '<a class="btn alt" href="'+esc(pageURL)+'" target="_blank" rel="noopener">Halaman catatan server</a>' +
+          '</div>';
       }
       out.innerHTML =
         '<div class="status"><span class="badge ok">TANDA TANGAN SAH</span></div>' +

@@ -190,3 +190,54 @@ No migration, no new env var:
 ```bash
 cd /opt/pqc && git pull && cd deploy/local && docker compose up -d --build
 ```
+
+---
+
+## 7. Amendment — the stored PDF is no longer served publicly
+
+The verification surfaces used to embed the server's copy of the signed PDF
+and offer it for download. That is removed. What a visitor gets now is the
+record sheet plus a comparison of **their own** file against the recorded
+SHA-512 — which answers "is the document in my hands the real one?" without
+the server handing out the document to anyone who has, or can guess, an id.
+
+Removed:
+
+- `/v/{id}` (QR landing page) — the `<iframe>` and "Buka layar penuh / unduh".
+- `/` (verification upload page) — the same iframe and its two buttons; a link
+  to the record page remains.
+- Android — the "Buka dokumen dari server" button on a scanned-QR verdict.
+- **`GET /v/{public_id}/document` itself**, from both muxes, along with
+  `hPublicDocument`. The route now 404s.
+
+This is a deliberate break in the public API. An **already-installed** apk
+still has that button and will get a 404 when it is pressed; rebuilding at
+v0.5.0 removes it. Nothing else consumed the endpoint.
+
+### The hash check had to work over plain HTTP
+
+Removing the viewer makes the hash comparison the QR page's only interactive
+step, so it has to actually run. `crypto.subtle` is defined **only** in a
+secure context, and this system is routinely deployed on a plain-HTTP VPS or
+LAN address (`PQC_PUBLIC_BASE_URL=http://…`), where it is `undefined`. The
+earlier version detected that and hid the block — which would have left the
+page with nothing to do for most visitors.
+
+So `qrpage.go` now carries `sha512JS`, a self-contained SHA-512:
+
+- 32-bit hi/lo word pairs, not `BigInt` — roughly 15 MB/s, where a BigInt
+  implementation is orders of magnitude slower.
+- An incremental API (`sha512New` / `sha512Blocks` / `sha512Final`) so the page
+  hashes ~4 MB per tick and yields, keeping the tab responsive and showing a
+  percentage on a large file.
+- It hashes the caller's buffer in place and builds only the final padded
+  block, instead of copying the whole file to append padding.
+
+`crypto.subtle` is still preferred when available (it is faster and native);
+the JS path is the fallback, and also catches a `crypto.subtle` rejection.
+
+Correctness was checked against Node's `crypto` on the NIST vectors (empty,
+`abc`, the two multi-block messages, one million `a`), on every block/padding
+boundary (55, 56, 63, 64, 111, 112, 113, 127, 128, 129, …), on the real
+309 KB signed PDF, and — for the chunked driver specifically — across chunk
+sizes of 128 B / 1 KB / 64 KB / 1 MB, all matching the reference exactly.

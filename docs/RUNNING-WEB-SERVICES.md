@@ -180,7 +180,6 @@ Prefix semua endpoint JSON: `/api/v1`. Auth memakai header
 | `GET /api/v1/public/signatures/{public_id}` | Record publik satu tanda tangan. |
 | `GET /s/{public_id}` | Target QR: konfirmasi alamat server lalu redirect ke `/v/{id}`. |
 | `GET /v/{public_id}` | Halaman hasil verifikasi (HTML, untuk manusia). |
-| `GET /v/{public_id}/document` | PDF otoritatif di balik QR. |
 | `GET /api/v1/public/ca/root.crt` | Root CA (PEM). |
 | `GET /api/v1/public/ca/chain.pem` | Root + Intermediate (PEM). |
 | `GET /api/v1/public/ca/crl.pem` | CRL terkini (PEM). |
@@ -217,7 +216,6 @@ GET  /                                     halaman upload + verdict + pemindai Q
 POST /api/v1/verify                        verifikasi PDF (multipart)
 GET  /s/{public_id}                        resolver target QR
 GET  /v/{public_id}                        halaman hasil (manusia)
-GET  /v/{public_id}/document               PDF otoritatif
 GET  /api/v1/public/signatures/{public_id} record publik
 GET  /api/v1/public/ca/root.crt            Root CA (PEM)
 GET  /api/v1/public/ca/chain.pem           chain (PEM)

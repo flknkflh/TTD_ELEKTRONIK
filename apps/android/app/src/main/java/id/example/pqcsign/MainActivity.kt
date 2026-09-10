@@ -1,6 +1,5 @@
 package id.example.pqcsign
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
@@ -701,11 +700,11 @@ class MainActivity : AppCompatActivity() {
         val srv = qrServer.ifBlank { core.state.serverUrl }.trimEnd('/')
         task {
             val json = core.recordFromQr(srv, text)
-            runOnUiThread { sink.removeAllViews(); sink.addView(verdictFromRecord(json, srv)) }
+            runOnUiThread { sink.removeAllViews(); sink.addView(verdictFromRecord(json)) }
         }
     }
 
-    private fun verdictFromRecord(json: String, serverUrl: String): View {
+    private fun verdictFromRecord(json: String): View {
         val rec = runCatching { org.json.JSONObject(json) }.getOrNull()
             ?: return verdictCard(false, "Hasil tidak terbaca", emptyList())
         val status = rec.optString("certificate_status", "active")
@@ -737,13 +736,9 @@ class MainActivity : AppCompatActivity() {
                 },
             ),
         )
-        if (id.isNotEmpty()) {
-            wrap.addView(tonal("Buka dokumen dari server") {
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$serverUrl/v/$id/document")))
-                }.onFailure { snack("Tidak bisa membuka browser") }
-            })
-        }
+        // The server no longer serves the stored PDF publicly. Matching the
+        // file the user already holds against the recorded SHA-512 is the
+        // check that replaces "open the copy from the server".
         return wrap
     }
 

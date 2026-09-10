@@ -220,23 +220,20 @@ func TestQRLandingPage(t *testing.T) {
 	if b := w.Body.String(); !strings.Contains(b, "TERVERIFIKASI") || !strings.Contains(b, "Verifikasi Tanda Tangan") {
 		t.Fatalf("landing page missing expected content: %s", b[:min(400, len(b))])
 	}
-	if b := w.Body.String(); !strings.Contains(b, "/v/"+pid+"/document") || !strings.Contains(b, "Dokumen yang ditandatangani") {
-		t.Fatalf("landing page should embed the signed document: %s", b[:min(600, len(b))])
+	// The stored PDF is never shown or linked; the page offers the record plus
+	// a local hash comparison instead.
+	if b := w.Body.String(); strings.Contains(b, "/v/"+pid+"/document") || strings.Contains(b, "<iframe") {
+		t.Fatalf("landing page must not expose the stored document")
+	}
+	if b := w.Body.String(); !strings.Contains(b, "Cocokkan berkas Anda") || !strings.Contains(b, "verify-hash") {
+		t.Fatalf("landing page should offer the hash comparison: %s", b[:min(600, len(b))])
 	}
 	if b := w.Body.String(); !strings.Contains(b, "Alamat server verifikasi") {
 		t.Fatalf("landing page should carry the server-address bar")
 	}
 
-	// the authoritative signed PDF is served publicly (no token)
-	w = e.do("GET", "/v/"+pid+"/document", "", nil)
-	mustCode(t, w, http.StatusOK)
-	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
-		t.Fatalf("document content-type = %q", ct)
-	}
-	if !bytes.HasPrefix(w.Body.Bytes(), []byte("%PDF-")) {
-		t.Fatalf("document response is not a PDF")
-	}
-	mustCode(t, e.do("GET", "/v/sig_does_not_exist/document", "", nil), http.StatusNotFound)
+	// the document endpoint is gone from both muxes
+	mustCode(t, e.do("GET", "/v/"+pid+"/document", "", nil), http.StatusNotFound)
 
 	// unknown id -> 404 HTML, not a JSON error
 	w = e.do("GET", "/v/sig_does_not_exist", "", nil)

@@ -264,8 +264,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, byIP, s.hVerifyHash))
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
 	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)            // QR target: confirm server address, then -> /v/{id}
-	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)              // human landing page
-	mux.HandleFunc("GET /v/{public_id}/document", s.hPublicDocument) // authoritative signed PDF behind the QR
+	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage) // human landing page
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))

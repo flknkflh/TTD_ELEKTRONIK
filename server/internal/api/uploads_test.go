@@ -89,12 +89,6 @@ func TestStoreOnlyLargeSubmit(t *testing.T) {
 	if rec["certificate_status"] != "not_server_verified" || rec["verification_status"] != store.VerificationStoredOnly {
 		t.Fatalf("public record: %v", rec)
 	}
-	w = e.do("GET", "/v/"+pid+"/document", "", nil)
-	mustCode(t, w, http.StatusOK)
-	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
-		t.Fatalf("stored doc content-type = %q", ct)
-	}
-
 	// the human /v/{id} landing page calls it out (web, apk and exe all key off
 	// certificate_status / verification_status)
 	w = e.do("GET", "/v/"+pid, "", nil)

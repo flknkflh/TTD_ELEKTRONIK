@@ -27,7 +27,6 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ GET  /api/v1/public/signatures/{public_id}
 ✔ GET  /api/v1/public/ca/root.crt | chain.pem | crl.pem
 ✔ POST /api/v1/signatures/{public_id}/stamp         (RB-2c: draw a placed QR stamp, returns PDF)
-✔ GET  /v/{public_id}/document                      (public: the authoritative signed PDF behind the QR)
 ✔ GET  /api/v1/admin/enrollments
 ✔ POST /api/v1/admin/enrollments/{id}/certificate   (chain + CSR-key match check)
 ✔ POST /api/v1/admin/enrollments/{id}/issue-lab     (RB-1: drive the online CA; when Config.LabIssuer set)
@@ -122,7 +121,6 @@ GET  /                              (browser upload page — verification-only s
 POST /api/v1/verify                 (multipart 'file'; no auth)
 POST /api/v1/public/verify-hash     (JSON {public_id, sha512}; no auth, no upload)
 GET  /v/{public_id}                 (QR landing page)
-GET  /v/{public_id}/document        (authoritative signed PDF behind the QR)
 GET  /api/v1/public/signatures/{public_id}
 GET  /api/v1/public/ca/root.crt
 GET  /api/v1/public/ca/chain.pem
