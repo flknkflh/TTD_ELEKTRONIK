@@ -12,7 +12,7 @@ android {
         applicationId = "id.example.pqcsign"
         minSdk = 29          // matches gomobile bind -androidapi 29 (Rencana V1 §21)
         targetSdk = 36
-        versionCode = 4
+        versionCode = 5
         versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // arm64 only: the AAR ships jni/arm64-v8a/libgojni.so

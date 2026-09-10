@@ -272,8 +272,6 @@
       <input type="text" id="rnip" placeholder="18 digit" />
       <label>Instansi / unit</label>
       <input type="text" id="rorg" placeholder="Nama instansi / unit kerja" />
-      <label>Dikeluarkan di (kota)</label>
-      <input type="text" id="rplace" placeholder="mis. Jakarta" />
       <label>Email</label>
       <input type="text" id="remail" />
       <label>Kata sandi <span style="color:var(--fg-faint)">(min. 8 karakter)</span></label>
@@ -319,6 +317,8 @@
       </div>
       <label>Alasan penandatanganan</label>
       <input type="text" id="sreason" value="Persetujuan" />
+      <label>Dikeluarkan di (kota)</label>
+      <input type="text" id="splace" placeholder="mis. Jakarta" />
       <div style="display:flex; gap:10px; margin-top:18px">
         <button class="btn" id="btnPlace" disabled><span class="txt">Atur posisi QR →</span></button>
         <button class="btn secondary" id="signBack">Kembali</button>
@@ -482,7 +482,7 @@
     try {
       await call("Connect", $("rsrv").value.trim(), true);
       const r = await call("Register", $("rname").value.trim(), $("rorg").value.trim(), email, $("rpw").value,
-        $("rpos").value.trim(), $("rnip").value.trim(), $("rplace").value.trim());
+        $("rpos").value.trim(), $("rnip").value.trim());
       state.srv = $("rsrv").value.trim(); state.email = email;
       $("srv").value = state.srv; $("lemail").value = email;
       tab(true);
@@ -736,7 +736,7 @@
     $("placeMsg").textContent = ""; $("signResult").hidden = true;
     try {
       const placements = savedStamps.concat([qrPlacement()]);
-      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", JSON.stringify(placements));
+      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", JSON.stringify(placements), $("splace").value.trim());
       $("signResult").innerHTML =
         '<div class="verdict ok"><span class="mark">✓</span> Dokumen ditandatangani</div>' +
         '<dl class="kv">' +

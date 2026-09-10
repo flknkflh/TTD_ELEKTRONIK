@@ -84,12 +84,12 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
      *  admin approves it before login works. */
     fun register(
         fullName: String, org: String, email: String, password: String,
-        position: String = "", nip: String = "", issuedPlace: String = "",
+        position: String = "", nip: String = "",
     ): RegisterResult {
         val o = obj(req("POST", "/api/v1/auth/register", json(JSONObject().apply {
             put("email", email); put("password", password)
             put("full_name", fullName); put("organization", org); put("display_name", fullName)
-            put("position", position); put("nip", nip); put("issued_place", issuedPlace)
+            put("position", position); put("nip", nip)
         })))
         return RegisterResult(o.optString("account_id"), o.optString("status"), o.optString("message"))
     }
@@ -151,9 +151,10 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
      *  placement (Rencana RB-2c), ready to sign on-device. Page count
      *  unchanged. Placements go as a JSON `stamps` param; a single placement
      *  also sends page/x/y/w for older servers. */
-    fun stamp(publicId: String, pdf: ByteArray, places: List<StampPlacement>, reason: String): ByteArray {
+    fun stamp(publicId: String, pdf: ByteArray, places: List<StampPlacement>, reason: String, issuedPlace: String = ""): ByteArray {
         val q = StringBuilder("?")
         if (reason.isNotEmpty()) q.append("reason=").append(java.net.URLEncoder.encode(reason, "UTF-8")).append('&')
+        if (issuedPlace.isNotEmpty()) q.append("issued_place=").append(java.net.URLEncoder.encode(issuedPlace, "UTF-8")).append('&')
         val arr = org.json.JSONArray()
         for (p in places) arr.put(JSONObject().apply {
             put("page", p.page); put("x", p.x); put("y", p.y); put("w", p.w)

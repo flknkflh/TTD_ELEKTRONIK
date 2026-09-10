@@ -48,7 +48,7 @@ import kotlin.concurrent.thread
  * Verifikasi (public, no account). Post-login: Beranda / Tanda Tangan /
  * Verifikasi / Akun. All crypto stays in AppCore / the AAR.
  */
-private const val APP_VERSION = "v0.3.0"
+private const val APP_VERSION = "v0.4.0"
 
 class MainActivity : AppCompatActivity() {
 
@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
 
     private var loggedIn = false
     private var signReason = "Persetujuan"
+    private var signIssuedPlace = ""
     private var lastSigned: ByteArray? = null
 
     // QR placement (Rencana RB-2c) — must match the server's stampAspect.
@@ -213,7 +214,6 @@ class MainActivity : AppCompatActivity() {
             val position = field(this, "Jabatan")
             val nip = field(this, "NIP")
             val org = field(this, "Instansi / unit")
-            val place = field(this, "Dikeluarkan di (kota)")
             val email = field(this, "Email")
             val pw = field(this, "Kata sandi (min. 8 karakter)", password = true)
             addView(primary("Daftar") {
@@ -222,7 +222,7 @@ class MainActivity : AppCompatActivity() {
                     val r = core.register(
                         name.text.toString().trim(), org.text.toString().trim(),
                         email.text.toString().trim(), pw.text.toString(),
-                        position.text.toString().trim(), nip.text.toString().trim(), place.text.toString().trim(),
+                        position.text.toString().trim(), nip.text.toString().trim(),
                     )
                     runOnUiThread { snack(r.message.ifEmpty { "Akun dibuat (${r.status})" }) }
                 }
@@ -284,8 +284,10 @@ class MainActivity : AppCompatActivity() {
         addView(heading("Tanda tangani dokumen"))
         addView(card {
             val reason = field(this, "Alasan penandatanganan", "Persetujuan")
+            val place = field(this, "Dikeluarkan di (kota)")
             addView(primary("Pilih PDF") {
                 signReason = reason.text.toString().trim().ifEmpty { "Persetujuan" }
+                signIssuedPlace = place.text.toString().trim()
                 pickToSign.launch(arrayOf("application/pdf"))
             })
             addView(tonal("Simpan PDF hasil") {
@@ -621,7 +623,7 @@ class MainActivity : AppCompatActivity() {
             add(ApiClient.StampPlacement(signPageIndex + 1, boxXFrac, boxYFrac, boxWFrac))
         }
         task {
-            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", places)
+            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", places, signIssuedPlace)
             lastSigned = r.signedPdf
             runOnUiThread {
                 sink.removeAllViews()
