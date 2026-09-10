@@ -253,6 +253,32 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     xhr.send(fd);
   }
 
+  // The underlying libraries report failures in English, and the CMS digest
+  // mismatch arrives as a two-line hex dump. Neither belongs in front of a
+  // member of the public, so translate the ones we recognise and drop the
+  // lines that merely restate a consequence.
+  function humanErrs(errs){
+    var out = [], seen = {};
+    (errs || []).forEach(function(raw){
+      var e = String(raw), low = e.toLowerCase(), msg;
+      if (low.indexOf('message digest mismatch') >= 0 || low.indexOf('signature verification failed') >= 0) {
+        msg = 'Isi dokumen tidak cocok dengan tanda tangannya — berkas sudah diubah setelah ditandatangani.';
+      } else if (low.indexOf('byterange') >= 0 || low.indexOf('unexpected eof') >= 0) {
+        msg = 'Struktur tanda tangan tidak utuh — berkas kemungkinan disimpan ulang atau dipotong oleh aplikasi lain.';
+      } else if (low.indexOf('no signer certificate') >= 0) {
+        return; // a consequence of the failure above, not a separate cause
+      } else if (low.indexOf('x509') >= 0 || low.indexOf('certificate signed by unknown authority') >= 0) {
+        msg = 'Sertifikat penanda tangan tidak berasal dari CA yang dipercaya server ini.';
+      } else if (low.indexOf('no processable signatures') >= 0) {
+        msg = 'Dokumen ini tidak memuat tanda tangan elektronik.';
+      } else {
+        msg = e.split('\n')[0]; // already Indonesian, or unknown: first line only
+      }
+      if (!seen[msg]) { seen[msg] = 1; out.push(msg); }
+    });
+    return out;
+  }
+
   function humanCert(s){
     return ({revoked:'DICABUT', device_reported_lost:'perangkat dilaporkan hilang',
              not_server_verified:'tidak diverifikasi otomatis oleh server', active:'aktif'})[s] || s; }
@@ -314,10 +340,11 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
         ? '<p class="bad"><b>Sidik jari SHA-512 berkas ini tidak cocok dengan catatan server.</b> ' +
           'Server menerbitkan satu urutan byte untuk ID tersebut, dan berkas ini bukan itu.</p>'
         : '';
+      var shown = humanErrs(errs);
       out.innerHTML =
         '<div class="status"><span class="badge bad">TIDAK SAH</span></div>' + hashNote +
-        (errs.length ? '<ul class="muted">' + errs.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('') + '</ul>'
-                     : '<p class="muted">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</p>');
+        (shown.length ? '<ul class="muted">' + shown.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('') + '</ul>'
+                      : '<p class="muted">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</p>');
     }
   }
 })();

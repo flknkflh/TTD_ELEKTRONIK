@@ -862,10 +862,36 @@
     const hashNote = top.hash_match === false
       ? '<div class="hint">⚠ Sidik jari SHA-512 berkas ini tidak cocok dengan catatan server untuk ID tersebut.</div>'
       : "";
+    const shown = humanErrs(errs);
     return '<div class="verdict bad"><span class="mark">✕</span> Tanda tangan TIDAK sah / tidak ditemukan</div>' + hashNote +
-      (errs.length ? '<ul class="hint">' + errs.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>"
+      (shown.length ? '<ul class="hint">' + shown.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>"
         : '<div class="hint">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</div>');
   }
+  // The verifier reports failures in English and the CMS digest mismatch is a
+  // two-line hex dump; neither is useful to the person holding the document.
+  function humanErrs(errs) {
+    const out = [], seen = new Set();
+    (errs || []).forEach((raw) => {
+      const e = String(raw), low = e.toLowerCase();
+      let msg;
+      if (low.includes("message digest mismatch") || low.includes("signature verification failed")) {
+        msg = "Isi dokumen tidak cocok dengan tanda tangannya — berkas sudah diubah setelah ditandatangani.";
+      } else if (low.includes("byterange") || low.includes("unexpected eof")) {
+        msg = "Struktur tanda tangan tidak utuh — berkas kemungkinan disimpan ulang atau dipotong oleh aplikasi lain.";
+      } else if (low.includes("no signer certificate")) {
+        return; // a consequence of the failure above, not a separate cause
+      } else if (low.includes("x509") || low.includes("certificate signed by unknown authority")) {
+        msg = "Sertifikat penanda tangan tidak berasal dari CA yang dipercaya.";
+      } else if (low.includes("no processable signatures")) {
+        msg = "Dokumen ini tidak memuat tanda tangan elektronik.";
+      } else {
+        msg = e.split("\n")[0];
+      }
+      if (!seen.has(msg)) { seen.add(msg); out.push(msg); }
+    });
+    return out;
+  }
+
   function row(k, v, mono) {
     if (v == null || v === "") return "";
     return "<dt>" + esc(k) + "</dt><dd" + (mono ? ' class="mono"' : "") + ">" + esc(v) + "</dd>";

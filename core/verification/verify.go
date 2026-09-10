@@ -257,7 +257,8 @@ func verifyPDF(pdf []byte, o Options) (*Result, error) {
 				"dokumen diubah setelah ditandatangani: ada konten yang ditambahkan setelah rentang byte bertanda tangan")
 		}
 		res.Errors = append(res.Errors,
-			"dokumen diubah setelah ditandatangani (incremental update di luar tanda tangan)")
+			"dokumen diubah setelah ditandatangani: ada byte di luar rentang yang ditandatangani "+
+				"(konten ditambahkan, atau berkas disimpan ulang oleh aplikasi lain)")
 	}
 	return res, nil
 }
