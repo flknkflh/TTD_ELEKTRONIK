@@ -744,6 +744,13 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- verdict
 
+    /** A DN escapes a comma inside a value as "\,", so splitting on the first
+     *  comma truncates any name carrying a degree. Consume escaped characters,
+     *  then unescape. */
+    private fun dnPart(subject: String, key: String): String =
+        Regex("$key=((?:\\\\.|[^,])*)").find(subject)?.groupValues?.get(1)
+            ?.replace(Regex("\\\\(.)")) { it.groupValues[1] }.orEmpty()
+
     private fun verdictFromJson(json: String): View {
         val top = runCatching { org.json.JSONObject(json) }.getOrNull()
             ?: return verdictCard(false, "Hasil tidak terbaca", emptyList())
@@ -752,8 +759,8 @@ class MainActivity : AppCompatActivity() {
         if (o.optBoolean("valid") && sigs != null && sigs.length() > 0) {
             val s = sigs.getJSONObject(0)
             val subject = s.optString("subject")
-            val name = Regex("CN=([^,]+)").find(subject)?.groupValues?.get(1) ?: "-"
-            val org = Regex("O=([^,]+)").find(subject)?.groupValues?.get(1) ?: "-"
+            val name = dnPart(subject, "CN").ifEmpty { "-" }
+            val org = dnPart(subject, "O").ifEmpty { "-" }
             val pid = s.optString("contact").removePrefix("pqc-public-id:")
             val rows = mutableListOf(
                 "Penanda tangan" to name,

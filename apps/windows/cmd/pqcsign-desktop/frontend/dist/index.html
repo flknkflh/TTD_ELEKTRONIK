@@ -838,8 +838,8 @@
     if (o.valid && sigs.length) {
       const s = sigs[0];
       const subj = s.subject || "";
-      const name = (subj.match(/CN=([^,]+)/) || [, "-"])[1];
-      const org = (subj.match(/O=([^,]+)/) || [, "-"])[1];
+      const name = dnPart(subj, "CN") || "-";
+      const org = dnPart(subj, "O") || "-";
       const pid = String(s.contact || "").replace("pqc-public-id:", "");
       return '<div class="verdict ok"><span class="mark">✓</span> Tanda tangan SAH</div>' +
         '<dl class="kv">' +
@@ -867,6 +867,14 @@
       (shown.length ? '<ul class="hint">' + shown.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>"
         : '<div class="hint">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</div>');
   }
+  // A DN escapes a comma inside a value as "\,", so splitting on the first
+  // comma truncates any name carrying a degree. Consume escaped characters,
+  // then unescape.
+  function dnPart(subject, key) {
+    const m = new RegExp(key + "=((?:\\\\.|[^,])*)").exec(subject || "");
+    return m ? m[1].replace(/\\(.)/g, "$1") : "";
+  }
+
   // The verifier reports failures in English and the CMS digest mismatch is a
   // two-line hex dump; neither is useful to the person holding the document.
   function humanErrs(errs) {

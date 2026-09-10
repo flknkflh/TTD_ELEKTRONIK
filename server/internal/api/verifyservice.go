@@ -279,6 +279,14 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     return out;
   }
 
+  // A DN escapes a comma inside a value as "\,", so splitting on the
+  // first comma truncates any name carrying a degree ("Gita Aurora\, S.Ap."
+  // came out as "Gita Aurora\"). Consume escaped characters, then unescape.
+  function dn(subject, key){
+    var m = new RegExp(key + "=((?:\\\\.|[^,])*)").exec(subject || "");
+    return m ? m[1].replace(/\\(.)/g, "$1") : "";
+  }
+
   function humanCert(s){
     return ({revoked:'DICABUT', device_reported_lost:'perangkat dilaporkan hilang',
              not_server_verified:'tidak diverifikasi otomatis oleh server', active:'aktif'})[s] || s; }
@@ -301,8 +309,8 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     if (o.valid && sigs.length){
       var s = sigs[0];
       var subj = s.subject || '';
-      var name = (subj.match(/CN=([^,]+)/) || [,'-'])[1];
-      var org  = (subj.match(/O=([^,]+)/)  || [,'-'])[1];
+      var name = dn(subj, 'CN') || '-';
+      var org  = dn(subj, 'O')  || '-';
       var pid  = rec.public_id || String(s.contact || '').replace('pqc-public-id:', '');
       // The stored document is never shown or offered for download; the
       // verdict plus the SHA-512 comparison below is the whole answer.
