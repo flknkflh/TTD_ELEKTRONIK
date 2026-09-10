@@ -1,6 +1,14 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+)
+
+// verifyLimitBytes is the byte ceiling POST /api/v1/verify enforces on an
+// uploaded PDF. It mirrors hPublicVerify so the browser-side warning and the
+// server-side rejection can never disagree.
+func (s *Server) verifyLimitBytes() int64 { return s.cfg.MaxUploadBytes }
 
 // VerifyRoutes is a stripped-down handler that exposes ONLY public
 // verification: a browser upload page, the verify API, the QR landing page,
@@ -12,6 +20,7 @@ func (s *Server) VerifyRoutes() http.Handler {
 
 	mux.HandleFunc("GET /{$}", s.hVerifyHome)
 	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
+	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, byIP, s.hVerifyHash))
 	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)
 	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)
 	mux.HandleFunc("GET /v/{public_id}/document", s.hPublicDocument)
@@ -47,7 +56,11 @@ func corsAny(next http.Handler) http.Handler {
 func (s *Server) hVerifyHome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	body := serverBar(reqBase(r)) + verifyHomeBody
+	// Hand the page the ceiling this endpoint actually enforces, so the
+	// "file too large" warning can be raised before anything is uploaded.
+	limit := `<script>window.PQC_VERIFY_MAX_BYTES=` +
+		strconv.FormatInt(s.verifyLimitBytes(), 10) + `;</script>`
+	body := serverBar(reqBase(r)) + limit + verifyHomeBody
 	_, _ = w.Write([]byte(verifyPageShell("Verifikasi Dokumen", body)))
 }
 
@@ -62,7 +75,7 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
   <span id="dz">Seret &amp; lepas berkas PDF di sini</span>
   <span class="muted" style="display:block;margin-top:8px">atau</span>
   <span class="btn btn-primary" style="margin-top:10px" data-no-ripple>Pilih Berkas PDF</span>
-  <span class="muted" style="display:block;margin-top:10px">Hanya berkas PDF · ukuran maksimal 50 MB</span>
+  <span class="muted" style="display:block;margin-top:10px" id="dzLimit">Hanya berkas PDF</span>
 </label>
 
 <div id="out" style="margin-top:16px"></div>
@@ -95,17 +108,150 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     return ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]; }); }
   function row(k,v){ return v ? '<tr><th>'+esc(k)+'</th><td>'+esc(v)+'</td></tr>' : ''; }
 
+  // ---- size limit -------------------------------------------------
+  // The server tells the page its own ceiling, so the warning can never
+  // drift away from what the API actually accepts.
+  var MAX = Number(window.PQC_VERIFY_MAX_BYTES) || 0;
+  function human(b){
+    if (!(b > 0)) return '-';
+    var u = ['B','KB','MB','GB'], i = 0, n = b;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i];
+  }
+  var limitEl = document.getElementById('dzLimit');
+  if (limitEl && MAX) limitEl.textContent = 'Hanya berkas PDF · ukuran maksimal ' + human(MAX);
+
+  function warn(title, msg, meter){
+    drop.classList.add('too-big');
+    setTimeout(function(){ drop.classList.remove('too-big'); }, 2500);
+    out.innerHTML =
+      '<div class="vwarn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/>' +
+      '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>' +
+      '<div style="flex:1"><b>' + esc(title) + '</b><p>' + msg + '</p>' +
+      (meter ? '<div class="meter"><i></i></div>' : '') + '</div></div>';
+  }
+
+  // accept() runs before a single byte leaves the browser
+  function accept(f){
+    var isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+    if (!isPdf) {
+      warn('Bukan berkas PDF',
+        'Berkas <b>' + esc(f.name) + '</b> bukan PDF. Verifikasi tanda tangan hanya bisa dilakukan pada berkas PDF.');
+      return false;
+    }
+    if (f.size === 0) {
+      warn('Berkas kosong', 'Berkas <b>' + esc(f.name) + '</b> berukuran 0 byte, tidak ada yang bisa diperiksa.');
+      return false;
+    }
+    if (MAX && f.size > MAX) {
+      warn('Ukuran berkas terlalu besar',
+        'Berkas <b>' + esc(f.name) + '</b> berukuran <b>' + human(f.size) + '</b>, melebihi batas ' +
+        '<b>' + human(MAX) + '</b> yang diterima server verifikasi. Kecilkan berkasnya (mis. kompres PDF) lalu coba lagi.',
+        true);
+      return false;
+    }
+    return true;
+  }
+
+  // ---- progress panel --------------------------------------------
+  var STEPS = ['Mengunggah berkas', 'Memeriksa tanda tangan', 'Menyusun hasil'];
+  var CIRC = 314, pct = 0, creep = null;
+
+  function progressUI(f){
+    out.innerHTML =
+      '<div class="vprog" id="vprog">' +
+        '<div class="ringwrap">' +
+          '<svg class="ring" viewBox="0 0 120 120" aria-hidden="true"><defs>' +
+            '<linearGradient id="vgrad" x1="0" y1="0" x2="1" y2="1">' +
+              '<stop offset="0%" stop-color="var(--cyan-400)"/>' +
+              '<stop offset="55%" stop-color="var(--blue-500)"/>' +
+              '<stop offset="100%" stop-color="var(--violet-400)"/>' +
+            '</linearGradient></defs>' +
+            '<circle class="track" cx="60" cy="60" r="50"/>' +
+            '<circle class="bar" id="vbar" cx="60" cy="60" r="50"/>' +
+          '</svg>' +
+          '<div class="pct" id="vpct" role="status" aria-live="polite">0<span>%</span></div>' +
+        '</div>' +
+        '<div class="steps">' +
+          '<p class="fname">' + esc(f.name) + ' <em>· ' + human(f.size) + '</em></p>' +
+          STEPS.map(function(s, i){
+            return '<div class="vstep" id="vstep' + i + '"><span class="dot">&#10003;</span>' + esc(s) + '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+    step(0);
+    setPct(0, true);
+  }
+  function setPct(p, immediate){
+    pct = Math.max(pct, Math.min(100, p));
+    var bar = document.getElementById('vbar'), lbl = document.getElementById('vpct');
+    if (!bar) return;
+    if (immediate) { pct = p; }
+    bar.style.strokeDashoffset = String(CIRC - (CIRC * pct) / 100);
+    lbl.innerHTML = Math.round(pct) + '<span>%</span>';
+  }
+  function step(i){
+    for (var n = 0; n < STEPS.length; n++) {
+      var el = document.getElementById('vstep' + n);
+      if (!el) continue;
+      el.className = 'vstep' + (n < i ? ' done' : n === i ? ' doing' : '');
+    }
+  }
+  // while the server is verifying there is nothing to measure, so ease
+  // asymptotically toward 99% instead of freezing the ring
+  function startCreep(){
+    stopCreep();
+    creep = setInterval(function(){ setPct(pct + (99 - pct) * 0.06); }, 180);
+  }
+  function stopCreep(){ if (creep) { clearInterval(creep); creep = null; } }
+  function finish(){
+    stopCreep(); step(STEPS.length); setPct(100);
+    var p = document.getElementById('vprog'); if (p) p.classList.add('done');
+  }
+
   function run(f){
+    if (!accept(f)) return;
     dz.textContent = f.name;
-    out.innerHTML = '<p class="muted">Memeriksa…</p>';
+    pct = 0;
+    progressUI(f);
+
     var fd = new FormData(); fd.append('file', f);
-    fetch(window.SRV + '/api/v1/verify', { method:'POST', body: fd })
-      .then(function(r){ return r.json().then(function(j){ return { ok:r.ok, j:j }; }); })
-      .then(function(res){
-        if (!res.ok) { out.innerHTML = '<p class="bad">'+esc(res.j && res.j.error || 'Gagal memeriksa berkas.')+'</p>'; return; }
-        render(res.j);
-      })
-      .catch(function(e){ out.innerHTML = '<p class="bad">Gagal menghubungi server verifikasi di '+esc(window.SRV)+'. Periksa alamat server di atas.</p>'; });
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', window.SRV + '/api/v1/verify');
+    xhr.responseType = 'text';
+
+    // real upload percentage, mapped onto the first 85% of the ring
+    xhr.upload.onprogress = function(e){
+      if (e.lengthComputable) setPct((e.loaded / e.total) * 85);
+    };
+    xhr.upload.onload = function(){ setPct(86); step(1); startCreep(); };
+
+    xhr.onload = function(){
+      stopCreep();
+      var j = null;
+      try { j = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status === 413) {
+        warn('Ukuran berkas terlalu besar',
+          'Server verifikasi menolak berkas ini karena melebihi batas' + (MAX ? ' ' + human(MAX) : '') +
+          '. Kecilkan berkasnya lalu coba lagi.', true);
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        warn('Gagal memeriksa berkas', esc((j && j.error) || ('Server menjawab HTTP ' + xhr.status)) + '.');
+        return;
+      }
+      step(2); setPct(96);
+      // let the last step be visible for a beat before swapping in the verdict
+      setTimeout(function(){ finish(); setTimeout(function(){ render(j); }, 320); }, 220);
+    };
+    xhr.onerror = function(){
+      stopCreep();
+      warn('Tidak bisa menghubungi server',
+        'Gagal menghubungi server verifikasi di <b>' + esc(window.SRV) + '</b>. Periksa "Alamat server" di atas.');
+    };
+    xhr.onabort = function(){ stopCreep(); };
+    xhr.send(fd);
   }
 
   function humanCert(s){
@@ -120,6 +266,13 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     var storedNote = storedOnly
       ? '<p class="muted">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis oleh server saat diunggah — server hanya menyimpan salinan &amp; mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung sekarang dari berkas yang Anda unggah.</p>'
       : '';
+    // A stored-only record was never verified server-side, so a hash mismatch
+    // does not flip the crypto verdict -- say plainly that the bytes differ
+    // from the copy the server holds.
+    if (storedOnly && top.hash_match === false) {
+      storedNote += '<p class="bad"><b>⚠ Berkas ini BERBEDA dari salinan yang tersimpan di server untuk ID tersebut.</b> ' +
+        'Sidik jari SHA-512-nya tidak cocok. Bandingkan dengan dokumen asli dari server di bawah.</p>';
+    }
     if (o.valid && sigs.length){
       var s = sigs[0];
       var subj = s.subject || '';
@@ -154,13 +307,19 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
           row('Rantai tepercaya', s.trusted_chain ? 'ya' : 'TIDAK') +
           row('Sertifikat dicabut', s.revoked ? 'YA' : 'tidak') +
           row('Terdaftar di server', top.registered === true ? (storedOnly ? 'ya (disimpan, tidak diverifikasi otomatis)' : 'ya') : 'tidak') +
+          row('Sidik jari cocok dengan catatan server',
+              top.hash_match === true ? 'ya' : (top.hash_match === false ? 'TIDAK — berkas berbeda' : '')) +
           row('ID verifikasi', pid) +
         '</table>' + docv + storedNote +
         '<p class="muted">Waktu di atas berasal dari jam perangkat penandatangan, bukan stempel waktu tepercaya.</p>';
     } else {
       var errs = o.errors || (sigs[0] && sigs[0].errors) || [];
+      var hashNote = top.hash_match === false
+        ? '<p class="bad"><b>Sidik jari SHA-512 berkas ini tidak cocok dengan catatan server.</b> ' +
+          'Server menerbitkan satu urutan byte untuk ID tersebut, dan berkas ini bukan itu.</p>'
+        : '';
       out.innerHTML =
-        '<div class="status"><span class="badge bad">TIDAK SAH</span></div>' +
+        '<div class="status"><span class="badge bad">TIDAK SAH</span></div>' + hashNote +
         (errs.length ? '<ul class="muted">' + errs.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('') + '</ul>'
                      : '<p class="muted">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</p>');
     }

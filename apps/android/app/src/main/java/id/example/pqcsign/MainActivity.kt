@@ -92,6 +92,10 @@ class MainActivity : AppCompatActivity() {
     private val pickToVerify = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runVerify(uri)
     }
+    private var pendingHashId = ""
+    private val pickToHashVerify = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) runHashVerify(uri)
+    }
     private var qrServer = ""
     private val scanQr = registerForActivityResult(ScanContract()) { r ->
         r.contents?.let { onQrScanned(it) }
@@ -307,6 +311,19 @@ class MainActivity : AppCompatActivity() {
                 scanQr.launch(scanOpts())
             })
             addView(hint("Pindai QR memakai alamat server tempat Anda masuk."))
+        })
+        addView(card {
+            addView(TextView(themed()).apply {
+                text = "Verifikasi tanpa unggah"; typeface = Typeface.DEFAULT_BOLD
+            })
+            val hashId = field(this, "ID verifikasi (dari QR)")
+            addView(tonal("Pilih PDF & cocokkan sidik jari") {
+                pendingHashId = hashId.text.toString().trim()
+                if (pendingHashId.isEmpty()) { snack("Isi ID verifikasi dulu"); return@tonal }
+                pickToHashVerify.launch(arrayOf("application/pdf"))
+            })
+            addView(hint("Berkas tidak diunggah — hanya SHA-512 (64 byte) yang dikirim. " +
+                "Cocok untuk dokumen rahasia atau berkas yang terlalu besar untuk diunggah."))
         })
         verifyResult = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
         addView(verifyResult)
@@ -632,6 +649,49 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Hash-only check: digest the file on-device and ask the server whether
+     *  that is the byte sequence it issued for the id. Nothing of the document
+     *  is uploaded. */
+    private fun runHashVerify(uri: Uri) {
+        val sink = verifyResult ?: return
+        val srv = core.state.serverUrl
+        val id = pendingHashId
+        task {
+            val res = core.verifyByHash(srv, id, uri)
+            runOnUiThread { sink.removeAllViews(); sink.addView(verdictFromHash(res)) }
+        }
+    }
+
+    private fun verdictFromHash(res: org.json.JSONObject): View {
+        if (!res.optBoolean("match")) {
+            return verdictCard(
+                false, "TIDAK COCOK", emptyList(),
+                "Berkas ini berbeda dari yang diterbitkan server untuk ID tersebut.",
+            )
+        }
+        val rec = res.optJSONObject("record")
+        val storedOnly = res.optString("verification_status") == "stored_unverified"
+        val rows = mutableListOf("ID verifikasi" to res.optString("public_id"))
+        rec?.let {
+            rows += listOf(
+                "Penanda tangan" to it.optString("signer_name"),
+                "Jabatan" to it.optString("position"),
+                "NIP" to it.optString("nip"),
+                "Perangkat" to it.optString("device_label"),
+                "No. sertifikat" to it.optString("certificate_serial"),
+                "Waktu (klaim perangkat)" to it.optString("client_claimed_signing_time"),
+                "Diterima server" to it.optString("server_received_at"),
+            )
+        }
+        return verdictCard(
+            true, "COCOK", rows,
+            if (storedOnly)
+                "Server tidak pernah memverifikasi tanda tangan berkas ini (terlalu besar saat diserahkan) — kecocokan di atas hanya membuktikan bytenya sama dengan salinan server."
+            else
+                "Berkas ini byte-identik dengan yang diterbitkan server untuk ID tersebut.",
+        )
+    }
+
     /** A scanned QR resolves to the server record for that signature — the
      *  same thing an external scan of the same QR lands on. */
     private fun onQrScanned(text: String) {
@@ -711,6 +771,9 @@ class MainActivity : AppCompatActivity() {
             val storedOnly = top.optJSONObject("record")?.optString("verification_status") == "stored_unverified"
             if (top.optBoolean("registered"))
                 rows += "Terdaftar di server" to if (storedOnly) "ya (disimpan, tidak diverifikasi server)" else "ya"
+            if (top.has("hash_match"))
+                rows += "Sidik jari cocok dengan catatan server" to
+                    if (top.optBoolean("hash_match")) "ya" else "TIDAK — berkas berbeda"
             if (pid.isNotEmpty()) rows += "ID verifikasi" to pid
             return verdictCard(
                 true, "Tanda tangan SAH", rows,
@@ -721,7 +784,10 @@ class MainActivity : AppCompatActivity() {
             )
         }
         val errs = o.optJSONArray("errors") ?: sigs?.optJSONObject(0)?.optJSONArray("errors")
-        val detail = (0 until (errs?.length() ?: 0)).joinToString("\n") { "• " + errs!!.optString(it) }
+        var detail = (0 until (errs?.length() ?: 0)).joinToString("\n") { "• " + errs!!.optString(it) }
+        if (top.has("hash_match") && !top.optBoolean("hash_match")) {
+            detail = (detail + "\n• Sidik jari SHA-512 berkas ini tidak cocok dengan catatan server.").trim()
+        }
         return verdictCard(
             false, "Tanda tangan TIDAK sah / tidak ditemukan", emptyList(),
             detail.ifEmpty { "Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid." },

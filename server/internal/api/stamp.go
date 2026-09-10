@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/png"
 	"io"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	pdfcpu "github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 
 	"example.internal/pqc-pdf-sign/server/internal/store"
 )
@@ -99,20 +100,26 @@ func (s *Server) hStamp(w http.ResponseWriter, r *http.Request) {
 
 	places := parseStampPlacements(r)
 
-	// "Dikeluarkan di <kota>" is per signature, not a fixed account field: it
-	// rides on the request as a query param next to `reason`. Absent -> the
-	// line is simply omitted from the caption.
-	issuedPlace := strings.TrimSpace(r.URL.Query().Get("issued_place"))
+	// "Dikeluarkan di <kota>", the letter number and the subject are per
+	// signature, not fixed account fields: they ride on the request as query
+	// params next to `reason`. Absent -> the line is simply omitted from the
+	// caption.
+	q := r.URL.Query()
+	issuedPlace := strings.TrimSpace(q.Get("issued_place"))
+	letterNo := strings.TrimSpace(q.Get("letter_no"))
+	letterSubject := strings.TrimSpace(q.Get("letter_subject"))
 
 	stamped, err := stampQR(body, places, coverData{
 		PublicID:  res.PublicID,
 		VerifyURL: s.qrTarget(r, res.PublicID), // QR -> the server address the signer is logged into
 	}, captionData{
-		FullName:    firstNonEmpty(acc.FullName, acc.DisplayName),
-		Position:    acc.Position,
-		NIP:         acc.NIP,
-		IssuedPlace: issuedPlace,
-		DateText:    idDate(jakartaNow()),
+		LetterNo:      letterNo,
+		LetterSubject: letterSubject,
+		FullName:      firstNonEmpty(acc.FullName, acc.DisplayName),
+		Position:      acc.Position,
+		NIP:           acc.NIP,
+		IssuedPlace:   issuedPlace,
+		DateText:      idDate(jakartaNow()),
 	})
 	if err != nil {
 		s.audit("stamp.apply", c, res.DeviceID, "fail", err.Error())
@@ -186,10 +193,25 @@ func parseStampPlacements(r *http.Request) []stampPlacement {
 }
 
 // stampQR draws one caption+QR stamp per placement onto pdf and returns the new
-// bytes. The page count is unchanged; every placement's image is embedded in a
-// single pdfcpu.Create pass. Any failure is returned so hStamp can tell the
-// user the PDF is unsupported. An entry that cannot be placed on the page is a
-// hard error (§2b).
+// bytes. The page count is unchanged. Any failure is returned so hStamp can
+// tell the user the PDF is unsupported. An entry that cannot be placed on the
+// page is a hard error (§2b).
+//
+// Placement uses pdfcpu's STAMP (watermark with OnTop) rather than its
+// create-JSON. That matters for correctness, not style:
+//
+//  1. A stamp wraps the page's existing content in `q ... Q` before drawing.
+//     Many real PDFs set a top-left-origin base CTM (e.g.
+//     `0.75 0 0 -0.75 0 612 cm`) at the top level, outside any q/Q. Content
+//     appended without that wrapping inherits the flip, so the stamp came out
+//     upside down, vertically mirrored and scaled by 0.75.
+//  2. create-JSON laid the image out against a default A4 page, clamping x to
+//     595pt. On a 792pt-wide (Letter landscape) page every x past ~0.49 was
+//     silently pulled back to the same spot.
+//
+// With `position:bl` the form's lower-left lands exactly on `offset`, and
+// `scalefactor:<w/px> abs` sets its width in points, so the box the signer
+// dragged maps 1:1 onto the page.
 func stampQR(pdf []byte, places []stampPlacement, d coverData, cap captionData) ([]byte, error) {
 	if len(places) == 0 {
 		return nil, fmt.Errorf("tidak ada titik QR")
@@ -216,12 +238,6 @@ func stampQR(pdf []byte, places []stampPlacement, d coverData, cap captionData) 
 		return nil, fmt.Errorf("gagal membaca ukuran halaman: %w", err)
 	}
 
-	tmp, err := os.MkdirTemp("", "pqc-stamp-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(tmp)
-
 	qrContent := d.VerifyURL
 	if qrContent == "" {
 		qrContent = d.PublicID
@@ -230,13 +246,12 @@ func stampQR(pdf []byte, places []stampPlacement, d coverData, cap captionData) 
 	if err != nil {
 		return nil, fmt.Errorf("menyusun stempel: %w", err)
 	}
-	pngPath := filepath.Join(tmp, "stamp.png")
-	if err := os.WriteFile(pngPath, png, 0o600); err != nil {
-		return nil, err
+	imgCfg, _, err := image.DecodeConfig(bytes.NewReader(png))
+	if err != nil || imgCfg.Width == 0 {
+		return nil, fmt.Errorf("membaca ukuran stempel: %w", err)
 	}
-	src := filepath.ToSlash(pngPath)
 
-	byPage := map[int][]cpImage{}
+	cur := pdf
 	for _, p := range places {
 		page := p.Page
 		if page < 1 || page > pageCount {
@@ -258,31 +273,23 @@ func stampQR(pdf []byte, places []stampPlacement, d coverData, cap captionData) 
 		xf := clampf(p.X, 0, 1)
 		yf := clampf(p.Y, 0, 1)
 		llx := clampf(xf*pw, 0, math.Max(0, pw-boxW))
-		// app coordinates have Y growing downward from the top; pdfcpu's origin
+		// app coordinates have Y growing downward from the top; PDF's origin
 		// is bottom-left.
 		lly := clampf(ph-yf*ph-boxH, 0, math.Max(0, ph-boxH))
 
-		byPage[page] = append(byPage[page], cpImage{
-			Src:    src,
-			Pos:    [2]float64{round2(llx), round2(lly)},
-			Width:  round2(boxW),
-			Height: round2(boxH),
-		})
+		desc := fmt.Sprintf("position:bl, offset:%.2f %.2f, scalefactor:%.6f abs, rotation:0, opacity:1",
+			round2(llx), round2(lly), boxW/float64(imgCfg.Width))
+		wm, err := pdfcpu.ImageWatermarkForReader(bytes.NewReader(png), desc, true /*onTop=stamp*/, false, types.POINTS)
+		if err != nil {
+			return nil, fmt.Errorf("menyiapkan stempel: %w", err)
+		}
+		var out bytes.Buffer
+		if err := pdfcpu.AddWatermarks(bytes.NewReader(cur), &out, []string{strconv.Itoa(page)}, wm, conf); err != nil {
+			return nil, fmt.Errorf("menempel QR: %w", err)
+		}
+		cur = out.Bytes()
 	}
-
-	pages := make(map[string]cpPage, len(byPage))
-	for page, imgs := range byPage {
-		pages[strconv.Itoa(page)] = cpPage{Content: cpContent{Image: imgs}}
-	}
-	desc, err := json.Marshal(cpDoc{Origin: "LowerLeft", Pages: pages})
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	if err := pdfcpu.Create(bytes.NewReader(pdf), bytes.NewReader(desc), &out, conf); err != nil {
-		return nil, fmt.Errorf("menempel QR: %w", err)
-	}
-	return out.Bytes(), nil
+	return cur, nil
 }
 
 // idMonths are the Indonesian month names, index 0 = Januari.
@@ -307,25 +314,6 @@ func jakartaNow() time.Time {
 		loc = time.FixedZone("WIB", 7*3600)
 	}
 	return time.Now().In(loc)
-}
-
-// --- pdfcpu "create" JSON (tiny subset: one image on an existing page) ---
-
-type cpImage struct {
-	Src    string     `json:"src"`
-	Pos    [2]float64 `json:"pos"`
-	Width  float64    `json:"width,omitempty"`
-	Height float64    `json:"height,omitempty"`
-}
-type cpContent struct {
-	Image []cpImage `json:"image,omitempty"`
-}
-type cpPage struct {
-	Content cpContent `json:"content"`
-}
-type cpDoc struct {
-	Origin string            `json:"origin"`
-	Pages  map[string]cpPage `json:"pages"`
 }
 
 func atoiDefault(s string, def int) int {

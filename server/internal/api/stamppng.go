@@ -25,15 +25,17 @@ const stampAspect = 0.42
 
 // captionData is the text drawn beside the QR. FullName/Position/NIP are the
 // signer's fixed identity, taken from the server-side Account record (never the
-// client, so they cannot be spoofed). IssuedPlace and DateText are per
-// signature: the place rides in on the /stamp request, the date is server time.
-// Empty fields drop their line.
+// client, so they cannot be spoofed). LetterNo, LetterSubject, IssuedPlace and
+// DateText are per signature: the first three ride in on the /stamp request,
+// the date is server time. Empty fields drop their line.
 type captionData struct {
-	FullName    string
-	Position    string
-	NIP         string
-	IssuedPlace string
-	DateText    string // already formatted, e.g. "8 September 2026"
+	LetterNo      string // "Nomor: ..."   — the letter's reference number
+	LetterSubject string // "Perihal: ..." — what the letter is about
+	FullName      string
+	Position      string
+	NIP           string
+	IssuedPlace   string
+	DateText      string // already formatted, e.g. "8 September 2026"
 }
 
 var (
@@ -120,17 +122,28 @@ func buildStampPNG(qrContent string, cap captionData, widthPx int) ([]byte, erro
 type captionLine struct {
 	text string
 	bold bool
+	// header marks the small-type "Ditandatangani secara elektronik oleh:"
+	// lead-in. It is flagged explicitly rather than inferred from its index,
+	// because the letter number/subject now sit above it.
+	header bool
 }
 
 // captionLines assembles the caption in order, skipping any line whose field
 // is empty (§2c). The header + name are the anchor; a stamp with only a name
 // still renders.
 func captionLines(c captionData) []captionLine {
-	name := strings.TrimSpace(c.FullName)
 	var out []captionLine
+	// The letter's own identity comes first, above the signer block.
+	if n := strings.TrimSpace(c.LetterNo); n != "" {
+		out = append(out, captionLine{text: "Nomor: " + n})
+	}
+	if sub := strings.TrimSpace(c.LetterSubject); sub != "" {
+		out = append(out, captionLine{text: "Perihal: " + sub})
+	}
+	name := strings.TrimSpace(c.FullName)
 	if name != "" {
 		out = append(out,
-			captionLine{text: "Ditandatangani secara elektronik oleh:"},
+			captionLine{text: "Ditandatangani secara elektronik oleh:", header: true},
 			captionLine{text: name, bold: true},
 		)
 	}
@@ -165,12 +178,12 @@ func drawCaption(dst *image.RGBA, lines []captionLine, x0, y0, maxW, maxH int) {
 			f    font.Face
 		}
 		var ps []placed
-		for i, ln := range lines {
+		for _, ln := range lines {
 			f := body
 			if ln.bold {
 				f = bold
 			}
-			if i == 0 && !ln.bold { // the "Ditandatangani ..." header
+			if ln.header { // the "Ditandatangani ..." lead-in, in smaller type
 				f = head
 			}
 			for _, w := range wrapText(f, ln.text, maxW) {

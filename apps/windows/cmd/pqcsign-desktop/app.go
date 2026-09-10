@@ -157,3 +157,13 @@ func (a *App) SaveSignedPDF(suggested string) (string, error) {
 
 func (a *App) ReportLost() error { return a.core.ReportLost() }
 func (a *App) Reset() error      { return a.core.Reset() }
+
+// VerifyByHash checks a local PDF against the server record for publicID by
+// sending only its SHA-512. The file itself is never uploaded.
+func (a *App) VerifyByHash(serverURL, publicID, path string) (string, error) {
+	b, err := a.core.VerifyByHash(serverURL, publicID, path)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}

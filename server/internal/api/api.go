@@ -261,6 +261,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/me/signatures", s.user(s.hMySignatures))
 
 	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
+	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, byIP, s.hVerifyHash))
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
 	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)            // QR target: confirm server address, then -> /v/{id}
 	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)              // human landing page

@@ -367,6 +367,17 @@
       </div>
       <div style="margin-top:16px"><button class="btn secondary" id="verifyBack">Kembali</button></div>
       <div class="result" id="verifyResult" hidden></div>
+
+      <hr style="margin:22px 0;border:0;border-top:1px solid var(--border)">
+      <label>Atau verifikasi tanpa mengunggah (untuk berkas rahasia)</label>
+      <p class="note" style="margin-top:4px">Berkas tidak diunggah — hanya sidik jari SHA-512
+      (64 byte) yang dikirim ke server untuk dicocokkan.</p>
+      <input type="text" id="vhId" placeholder="ID verifikasi (dari QR, mis. sig_ab12…)" />
+      <div class="filepick" id="pickVhFile">
+        <span>📄</span><span id="vhName">Pilih PDF (hanya di-hash lokal)…</span>
+      </div>
+      <div style="margin-top:12px"><button class="btn" id="btnVhCheck">Cocokkan sidik jari</button></div>
+      <div class="result" id="vhResult" hidden></div>
     </div>
   </section>
 </main>
@@ -383,7 +394,7 @@
   if (pdfjs) pdfjs.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
   const STAMP_ASPECT = 0.42; // caption+QR block, height/width — must match the server
 
-  const APP_VERSION = "v0.3.0";
+  const APP_VERSION = "v0.5.0";
   const DEFAULT_SRV = "http://136.244.116.132:8099";
 
   let currentScreen = "scAuth";
@@ -744,6 +755,9 @@
     verifyPath = "";
     $("vName").textContent = "Pilih berkas PDF…"; $("vName").classList.remove("fn");
     $("verifyResult").hidden = true; $("verifyResult").innerHTML = "";
+    vhPath = "";
+    $("vhName").textContent = "Pilih PDF (hanya di-hash lokal)…"; $("vhName").classList.remove("fn");
+    $("vhResult").hidden = true; $("vhResult").innerHTML = "";
   }
   $("pickVerify").addEventListener("click", async () => {
     try {
@@ -759,6 +773,56 @@
       $("verifyResult").innerHTML = '<div class="verdict bad"><span class="mark">✕</span> Gagal memverifikasi</div><div class="hint">' + esc(friendly(e)) + "</div>";
     }
   });
+
+  // ---- hash-only check: the PDF stays on this machine; only its SHA-512 goes out
+  let vhPath = "";
+  $("pickVhFile").addEventListener("click", async () => {
+    try {
+      const p = await call("PickPDF"); if (!p) return;
+      vhPath = p;
+      $("vhName").textContent = p.split(/[\\/]/).pop(); $("vhName").classList.add("fn");
+    } catch (e) { toast(friendly(e), "bad"); }
+  });
+  $("btnVhCheck").addEventListener("click", async () => {
+    const id = $("vhId").value.trim();
+    if (!id) { toast("Isi ID verifikasi dulu.", "bad"); return; }
+    if (!vhPath) { toast("Pilih berkas PDF dulu.", "bad"); return; }
+    $("vhResult").hidden = false;
+    $("vhResult").innerHTML = '<div class="hint">Menghitung sidik jari &amp; mencocokkan…</div>';
+    try {
+      const raw = await call("VerifyByHash", state.srv, id, vhPath);
+      $("vhResult").innerHTML = renderHashMatch(raw);
+    } catch (e) {
+      $("vhResult").innerHTML = '<div class="verdict bad"><span class="mark">✕</span> Gagal memeriksa</div>' +
+        '<div class="hint">' + esc(friendly(e)) + "</div>";
+    }
+  });
+
+  function renderHashMatch(raw) {
+    let j; try { j = JSON.parse(raw); } catch (_) { return "<div class='hint'>Hasil tidak terbaca.</div>"; }
+    if (!j.match) {
+      return '<div class="verdict bad"><span class="mark">✕</span> TIDAK COCOK</div>' +
+        '<div class="hint">Berkas ini berbeda dari yang diterbitkan server untuk ID tersebut.</div>';
+    }
+    const rec = j.record || {};
+    const storedOnly = j.verification_status === "stored_unverified";
+    return '<div class="verdict ok"><span class="mark">✓</span> COCOK</div>' +
+      '<div class="hint">Berkas ini byte-identik dengan yang diterbitkan server untuk ID tersebut.</div>' +
+      '<dl class="kv">' +
+      row("Penanda tangan", rec.signer_name) +
+      row("Jabatan", rec.position) +
+      row("NIP", rec.nip, true) +
+      row("Perangkat", rec.device_label) +
+      row("No. sertifikat", rec.certificate_serial, true) +
+      row("Waktu (klaim perangkat)", rec.client_claimed_signing_time) +
+      row("Diterima server", rec.server_received_at) +
+      row("ID verifikasi", j.public_id, true) +
+      "</dl>" +
+      (storedOnly
+        ? '<div class="hint">⚠ Server tidak pernah memverifikasi tanda tangan berkas ini (terlalu besar saat diserahkan) — ' +
+          'kecocokan di atas hanya membuktikan bytenya sama dengan salinan server.</div>'
+        : "");
+  }
 
   function renderVerdict(raw) {
     let top; try { top = JSON.parse(raw); } catch (_) { return "<div class='hint'>Hasil tidak terbaca.</div>"; }
@@ -788,12 +852,17 @@
         row("Rantai tepercaya", s.trusted_chain ? "ya" : "TIDAK") +
         row("Sertifikat dicabut", s.revoked ? "YA" : "tidak") +
         (top.registered === true ? row("Terdaftar di server", storedOnly ? "ya (disimpan, tidak diverifikasi server)" : "ya") : "") +
+        (top.hash_match === true ? row("Sidik jari cocok dengan catatan server", "ya")
+          : top.hash_match === false ? row("Sidik jari cocok dengan catatan server", "TIDAK — berkas berbeda") : "") +
         (pid ? row("ID verifikasi", pid, true) : "") +
         "</dl>" + storedBanner +
         '<p class="note">Waktu di atas berasal dari jam perangkat penandatangan, bukan stempel waktu tepercaya.</p>';
     }
     const errs = (o.errors || (sigs[0] && sigs[0].errors) || []);
-    return '<div class="verdict bad"><span class="mark">✕</span> Tanda tangan TIDAK sah / tidak ditemukan</div>' +
+    const hashNote = top.hash_match === false
+      ? '<div class="hint">⚠ Sidik jari SHA-512 berkas ini tidak cocok dengan catatan server untuk ID tersebut.</div>'
+      : "";
+    return '<div class="verdict bad"><span class="mark">✕</span> Tanda tangan TIDAK sah / tidak ditemukan</div>' + hashNote +
       (errs.length ? '<ul class="hint">' + errs.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>"
         : '<div class="hint">Dokumen tidak memuat tanda tangan ML-DSA-65 yang valid.</div>');
   }

@@ -94,6 +94,41 @@ func TestClientEndToEnd(t *testing.T) {
 		t.Fatalf("public verify (no login) failed: %s", pjson)
 	}
 
+	// Hash-only check: the same fresh, logged-out client proves the file
+	// matches the server record without uploading a single byte of it.
+	hjson, err := nolo.VerifyByHash(ts.URL, sr.PublicID, out)
+	must(t, err)
+	var hv map[string]any
+	must(t, json.Unmarshal(hjson, &hv))
+	if hv["match"] != true {
+		t.Fatalf("hash-only verify of the genuine file failed: %s", hjson)
+	}
+	if rec, _ := hv["record"].(map[string]any); rec == nil || rec["public_id"] != sr.PublicID {
+		t.Fatalf("a matching hash must return the record: %s", hjson)
+	}
+
+	// A file that is not the one the server recorded must not match. Appending
+	// a byte leaves the PDF parseable, so only the digest can tell them apart.
+	altered := filepath.Join(t.TempDir(), "altered.pdf")
+	signedBytes, rerr := os.ReadFile(out)
+	must(t, rerr)
+	must(t, os.WriteFile(altered, append(signedBytes, '\n'), 0o644))
+	hjson2, err := nolo.VerifyByHash(ts.URL, sr.PublicID, altered)
+	must(t, err)
+	var hv2 map[string]any
+	must(t, json.Unmarshal(hjson2, &hv2))
+	if hv2["match"] != false {
+		t.Fatalf("altered file must not match: %s", hjson2)
+	}
+	if _, ok := hv2["record"]; ok {
+		t.Fatalf("a non-matching hash must not return the record: %s", hjson2)
+	}
+
+	// An empty verification id is refused before anything is read or sent.
+	if _, err := nolo.VerifyByHash(ts.URL, "  ", out); err == nil {
+		t.Fatal("VerifyByHash accepted an empty public id")
+	}
+
 	hist, err := app.History()
 	must(t, err)
 	if len(hist) != 1 {

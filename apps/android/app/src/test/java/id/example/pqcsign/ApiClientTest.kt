@@ -121,6 +121,31 @@ class ApiClientTest {
         assertEquals("application/pdf", rec.getHeader("Content-Type"))
     }
 
+    @Test fun verifyHash_posts_public_id_and_digest_only() {
+        val digest = "ab".repeat(64) // 128 hex chars
+        json(200, """{"match":true,"public_id":"sig_1","verification_status":"accepted","record":{"public_id":"sig_1"}}""")
+
+        val res = api.verifyHash("sig_1", digest)
+        assertTrue(res.getBoolean("match"))
+        assertEquals("sig_1", res.getJSONObject("record").getString("public_id"))
+
+        val rec = server.takeRequest()
+        assertEquals("POST /api/v1/public/verify-hash", "${rec.method} ${rec.path}")
+        val body = rec.body.readUtf8()
+        assertTrue(body.contains("\"public_id\":\"sig_1\""))
+        assertTrue(body.contains("\"sha512\":\"$digest\""))
+        // the document itself must never be part of this request
+        assertTrue(body.length < 300)
+    }
+
+    @Test fun verifyHash_reports_a_mismatch_without_a_record() {
+        json(200, """{"match":false,"public_id":"sig_1","verification_status":"accepted"}""")
+        val res = api.verifyHash("sig_1", "cd".repeat(64))
+        assertEquals(false, res.getBoolean("match"))
+        assertNull(res.optJSONObject("record"))
+        server.takeRequest()
+    }
+
     @Test fun server_error_body_surfaces_in_exception() {
         api.setToken("t")
         server.enqueue(MockResponse().setResponseCode(422).setBody("""{"error":"public id mismatch"}"""))

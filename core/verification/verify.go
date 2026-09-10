@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/digitorus/pdfsign"
@@ -239,7 +241,68 @@ func verifyPDF(pdf []byte, o Options) (*Result, error) {
 		res.Signatures = append(res.Signatures, sr)
 	}
 	res.Valid = allValid && len(res.Errors) == 0
+
+	// Whole-document coverage: the signature must cover the file to its end.
+	// Bytes appended after the signed /ByteRange (a barcode added via an
+	// incremental update, a shadow-attack overlay) are NOT covered by the
+	// ML-DSA signature, yet the CMS check over the byte range still passes --
+	// digitorus/pdfsign only reads what /ByteRange names, and its own
+	// incremental-update detection fires only for a certification (DocMDP)
+	// signature, which ours (ETSI.CAdES.detached, approval) is not.
+	if end := signedRangeEnd(pdf); end >= 0 && !tailIsBenign(pdf, end) {
+		res.Valid = false
+		for i := range res.Signatures {
+			res.Signatures[i].Valid = false
+			res.Signatures[i].Errors = append(res.Signatures[i].Errors,
+				"dokumen diubah setelah ditandatangani: ada konten yang ditambahkan setelah rentang byte bertanda tangan")
+		}
+		res.Errors = append(res.Errors,
+			"dokumen diubah setelah ditandatangani (incremental update di luar tanda tangan)")
+	}
 	return res, nil
+}
+
+// byteRangeRe matches the /ByteRange array of a signature dictionary. The
+// array is always cleartext in the PDF -- it sits outside the /Contents hex
+// string, and a signer cannot compress the dictionary that names its own
+// signed span -- so scanning for it is safe and parser-independent.
+var byteRangeRe = regexp.MustCompile(`/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]`)
+
+// signedRangeEnd returns the byte offset where the LAST signature's
+// /ByteRange ends (start2 + len2), or -1 when no parsable ByteRange is found.
+// "Last" is by file position, which for incremental-update multi-signing is
+// the outermost signature -- the one that covers the most of the file.
+//
+// LIMIT: if an incremental update is written with a cross-reference stream and
+// its signature dictionary lives inside a compressed object stream, the array
+// is not cleartext and this scan misses it. Tools that append a barcode or an
+// annotation the ordinary way keep /ByteRange in the clear, so this covers the
+// realistic case; the stored-hash comparison in the server's verify handler
+// (docs/CHANGE-hash-verification.md) closes the remainder.
+func signedRangeEnd(pdf []byte) int64 {
+	m := byteRangeRe.FindAllSubmatch(pdf, -1)
+	if len(m) == 0 {
+		return -1
+	}
+	last := m[len(m)-1]
+	start2, err1 := strconv.ParseInt(string(last[3]), 10, 64)
+	len2, err2 := strconv.ParseInt(string(last[4]), 10, 64)
+	if err1 != nil || err2 != nil || start2 < 0 || len2 < 0 {
+		return -1
+	}
+	return start2 + len2
+}
+
+// tailIsBenign reports whether everything after off is only whitespace and at
+// most one trailing "%%EOF" marker -- i.e. the signer's own final bytes, not
+// an appended incremental update.
+func tailIsBenign(pdf []byte, off int64) bool {
+	if off < 0 || off > int64(len(pdf)) {
+		return false
+	}
+	tail := bytes.TrimSpace(pdf[off:])
+	tail = bytes.TrimSuffix(tail, []byte("%%EOF"))
+	return len(bytes.TrimSpace(tail)) == 0
 }
 
 // VerifyPDFJSON is the gomobile-friendly entry point matching mobilebridge:

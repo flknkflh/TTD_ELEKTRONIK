@@ -23,6 +23,7 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ GET  /api/v1/signatures/{public_id}/download
 ✔ GET  /api/v1/me/signatures
 ✔ POST /api/v1/verify                               (public, multipart)
+✔ POST /api/v1/public/verify-hash                   (public: match a SHA-512, no upload)
 ✔ GET  /api/v1/public/signatures/{public_id}
 ✔ GET  /api/v1/public/ca/root.crt | chain.pem | crl.pem
 ✔ POST /api/v1/signatures/{public_id}/stamp         (RB-2c: draw a placed QR stamp, returns PDF)
@@ -119,6 +120,7 @@ chunks, then `document?upload_id=` / `stamp?upload_id=`.
 ```
 GET  /                              (browser upload page — verification-only service only)
 POST /api/v1/verify                 (multipart 'file'; no auth)
+POST /api/v1/public/verify-hash     (JSON {public_id, sha512}; no auth, no upload)
 GET  /v/{public_id}                 (QR landing page)
 GET  /v/{public_id}/document        (authoritative signed PDF behind the QR)
 GET  /api/v1/public/signatures/{public_id}
@@ -172,4 +174,25 @@ There must be no `POST /api/v1/sign` and no `POST /api/v1/users/{id}/sign`
 `POST /api/v1/verify` and the local verifiers all return the JSON produced by
 `core/verification` (`verification.Result`) — see §11.3 / §16.2. The server
 adds `registered`, `signer_name`, `position`, `nip`, `device_label`,
-`certificate_status`, `server_received_at`.
+`certificate_status`, `server_received_at`, plus `hash_match` and
+`uploaded_sha512` when the document's `public_id` resolves to a record.
+
+A signature must cover the document to its end: bytes appended after the
+signed `/ByteRange` (a barcode added by an incremental update, a shadow-attack
+overlay) make the result invalid even though the CMS check over the byte range
+still passes. When the stored record is `accepted` and `hash_match` is false,
+`valid` is forced false — the server issued one exact byte sequence for that
+id and this is not it. See `docs/CHANGE-hash-verification.md`.
+
+### Hash-only verification (no upload)
+
+```
+POST /api/v1/public/verify-hash
+{ "public_id": "sig_…", "sha512": "<128 hex chars>" }
+
+200 { "match": bool, "public_id": …, "verification_status": …, "record": {…} }
+400 malformed hash / missing public_id     404 no such record
+```
+
+The document never leaves the caller's machine — only its digest is sent, so a
+confidential file can be checked. `record` is returned **only** on a match.

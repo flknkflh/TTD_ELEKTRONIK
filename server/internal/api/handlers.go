@@ -574,6 +574,32 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 				d, _ := s.st.Device(sig.DeviceID)
 				out["registered"] = true
 				out["record"] = s.publicRecord(sig, a, d)
+
+				// Second layer, independent of any PDF parsing: the server
+				// issued one exact byte sequence for this public_id. Compare
+				// it with what was uploaded. VerifyPDF already hashed the
+				// input, so reuse that rather than hashing up to 350 MB twice.
+				uploadHash := res.DocumentSHA512
+				match := sig.SignedSHA512 != "" && strings.EqualFold(uploadHash, sig.SignedSHA512)
+				out["hash_match"] = match
+				out["uploaded_sha512"] = uploadHash
+
+				if !match && sig.VerificationStatus == store.VerificationAccepted {
+					// The server re-verified this document at submission and
+					// recorded its bytes; this upload is not those bytes, so
+					// reject it whatever the crypto over /ByteRange says.
+					res.Valid = false
+					res.Errors = append(res.Errors,
+						"berkas berbeda dari yang diterbitkan server untuk ID ini (sidik jari SHA-512 tidak cocok)")
+					if len(res.Signatures) > 0 {
+						res.Signatures[0].Valid = false
+						res.Signatures[0].Errors = append(res.Signatures[0].Errors,
+							"sidik jari SHA-512 tidak cocok dengan catatan server")
+					}
+				}
+				// For the stored_unverified tier the server never verified the
+				// file cryptographically, so a mismatch is reported (hash_match
+				// false) but does not by itself flip the crypto verdict.
 			}
 		}
 	}
@@ -666,4 +692,47 @@ func (s *Server) qrTarget(r *http.Request, publicID string) string {
 		return cand + "/v/" + publicID
 	}
 	return publicID
+}
+
+// hVerifyHash answers "is this the file the server issued for <public_id>?"
+// from a SHA-512 alone: POST /api/v1/public/verify-hash with
+// {"public_id":..., "sha512":...}. The document never leaves the caller's
+// machine, so a confidential file can be checked without uploading it.
+//
+// This discloses nothing new: the public record behind the QR already carries
+// signed_pdf_sha512. It only turns "read the hash and compare it yourself"
+// into one call, and lets a client with the file but no network path for a
+// large upload still get an answer.
+func (s *Server) hVerifyHash(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		PublicID string `json:"public_id"`
+		SHA512   string `json:"sha512"`
+	}
+	if err := decode(r, &in); err != nil || strings.TrimSpace(in.PublicID) == "" {
+		writeErr(w, http.StatusBadRequest, "public_id and sha512 required")
+		return
+	}
+	in.PublicID = strings.TrimSpace(in.PublicID)
+	in.SHA512 = strings.ToLower(strings.TrimSpace(in.SHA512))
+	if len(in.SHA512) != 128 || strings.Trim(in.SHA512, "0123456789abcdef") != "" {
+		writeErr(w, http.StatusBadRequest, "sha512 must be 128 hex characters")
+		return
+	}
+	sig, err := s.st.Signature(in.PublicID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "no such record")
+		return
+	}
+	match := sig.SignedSHA512 != "" && strings.EqualFold(in.SHA512, sig.SignedSHA512)
+	resp := map[string]any{
+		"match":               match,
+		"public_id":           sig.PublicID,
+		"verification_status": sig.VerificationStatus,
+	}
+	if match {
+		a, _ := s.st.Account(sig.AccountID)
+		d, _ := s.st.Device(sig.DeviceID)
+		resp["record"] = s.publicRecord(sig, a, d)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

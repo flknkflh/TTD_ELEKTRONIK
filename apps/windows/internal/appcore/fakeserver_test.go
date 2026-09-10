@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"example.internal/pqc-pdf-sign/core/enrollment"
+	"example.internal/pqc-pdf-sign/core/hashutil"
 	"example.internal/pqc-pdf-sign/core/labpki"
 	"example.internal/pqc-pdf-sign/core/verification"
 
@@ -32,6 +34,7 @@ type fakeReceiver struct {
 	enrDev   map[string]string // enrollmentID -> deviceID
 	reserved map[string]bool   // publicID -> exists
 	accepted map[string]bool   // publicID -> submitted
+	signed   map[string]string // publicID -> SHA-512 of the accepted bytes
 	nextID   int
 }
 
@@ -39,7 +42,7 @@ func newFakeReceiver(t *testing.T, root, inter *labpki.CA) *httptest.Server {
 	f := &fakeReceiver{
 		root: root, inter: inter,
 		csr: map[string][]byte{}, cert: map[string][]byte{}, enrDev: map[string]string{},
-		reserved: map[string]bool{}, accepted: map[string]bool{},
+		reserved: map[string]bool{}, accepted: map[string]bool{}, signed: map[string]string{},
 	}
 	return httptest.NewTLSServer(f.mux(t))
 }
@@ -155,6 +158,7 @@ func (f *fakeReceiver) mux(t *testing.T) http.Handler {
 		}
 		f.mu.Lock()
 		f.accepted[pid] = true
+		f.signed[pid] = hashutil.CalculateSHA512(body)
 		f.mu.Unlock()
 		j(w, 200, map[string]string{"public_id": pid, "status": "accepted"})
 	})
@@ -182,6 +186,33 @@ func (f *fakeReceiver) mux(t *testing.T) http.Handler {
 			f.mu.Unlock()
 		}
 		j(w, 200, map[string]any{"verification": vr, "registered": registered})
+	})
+	m.HandleFunc("POST /api/v1/public/verify-hash", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			PublicID string `json:"public_id"`
+			SHA512   string `json:"sha512"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			j(w, 400, map[string]string{"error": "bad json"})
+			return
+		}
+		if len(in.SHA512) != 128 {
+			j(w, 400, map[string]string{"error": "sha512 must be 128 hex characters"})
+			return
+		}
+		f.mu.Lock()
+		want, ok := f.signed[in.PublicID]
+		f.mu.Unlock()
+		if !ok {
+			j(w, 404, map[string]string{"error": "no such record"})
+			return
+		}
+		match := strings.EqualFold(want, in.SHA512)
+		out := map[string]any{"match": match, "public_id": in.PublicID, "verification_status": "accepted"}
+		if match {
+			out["record"] = map[string]any{"public_id": in.PublicID, "signer_name": "Tester"}
+		}
+		j(w, 200, out)
 	})
 	m.HandleFunc("GET /api/v1/me/signatures", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()

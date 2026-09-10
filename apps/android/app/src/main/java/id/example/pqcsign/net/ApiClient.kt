@@ -215,6 +215,15 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
      *  resolves to). No account needed. Throws ApiException(404) if unknown. */
     fun publicRecord(publicId: String): JSONObject =
         obj(req("GET", "/api/v1/public/signatures/" + java.net.URLEncoder.encode(publicId, "UTF-8"), null))
+
+    /** Asks whether sha512Hex is the digest the server recorded for publicId.
+     *  Only the 64-byte digest is sent — the document never leaves the device,
+     *  so a confidential file can be checked without uploading it.
+     *  Returns {match, public_id, verification_status, record?}. */
+    fun verifyHash(publicId: String, sha512Hex: String): JSONObject =
+        obj(req("POST", "/api/v1/public/verify-hash", json(JSONObject().apply {
+            put("public_id", publicId); put("sha512", sha512Hex)
+        })))
 }
 
 private fun trustEverything(b: OkHttpClient.Builder) {

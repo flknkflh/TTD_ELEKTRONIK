@@ -394,3 +394,17 @@ func (c *Client) VerifyPublic(pdf []byte) (map[string]any, error) {
 	_ = json.Unmarshal(raw, &out)
 	return out, nil
 }
+
+// VerifyHash asks the public hash verifier whether sha512Hex is the digest the
+// server recorded for publicID. Only the 64-byte digest is sent -- the document
+// itself never leaves the machine, which is the point: a confidential file can
+// be checked without uploading it (and a very large one without the wait).
+func (c *Client) VerifyHash(publicID, sha512Hex string) (map[string]any, error) {
+	var out map[string]any
+	err := c.postJSON("/api/v1/public/verify-hash",
+		map[string]string{"public_id": publicID, "sha512": sha512Hex}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

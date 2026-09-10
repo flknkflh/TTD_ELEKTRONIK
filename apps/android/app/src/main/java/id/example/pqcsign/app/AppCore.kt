@@ -278,6 +278,18 @@ class AppCore(private val context: Context, val state: AppState) {
         return ApiClient(serverUrl, true).verifyPublic(pdf).toString(2)
     }
 
+    /** Hash-only verify: the document is read and digested on this device and
+     *  only the SHA-512 is sent, so a confidential file never leaves the phone.
+     *  A match proves the bytes are the ones the server issued for [publicId];
+     *  for an accepted-tier record the server already checked the signature at
+     *  submission. Returns the raw {match, record?} JSON. */
+    fun verifyByHash(serverUrl: String, publicId: String, uri: Uri): JSONObject {
+        val id = publicId.trim()
+        require(id.isNotEmpty()) { "ID verifikasi belum diisi" }
+        val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+        return ApiClient(serverUrl, true).verifyHash(id, sha512Hex(bytes))
+    }
+
     /** Resolve a scanned QR (a bare ID, or a URL whose path ends /v/<id> or
      *  /s/<id>) against [serverUrl] and return the server record JSON — the
      *  same thing a normal external QR scan lands on. No account needed. */

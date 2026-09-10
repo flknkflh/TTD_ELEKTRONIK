@@ -56,6 +56,12 @@ Body: the raw PDF (unchanged). Query params:
 - **`issued_place`** — NEW, optional. The city for the caption's
   "Dikeluarkan di <kota>" line, for *this* signature. Absent ⇒ the line is
   omitted. Not stored on the account.
+- **`letter_no`** — NEW, optional. The letter's reference number, drawn as
+  "Nomor: <letter_no>" as the caption's **first** line. Per signature, not a
+  registration field. Absent/blank ⇒ the line is omitted.
+- **`letter_subject`** — NEW, optional. What the letter is about, drawn as
+  "Perihal: <letter_subject>" directly under the number. Long values wrap to
+  the caption width like the position line. Per signature; absent ⇒ omitted.
 - **`stamps`** — NEW. URL-encoded JSON array; each entry is one QR box:
   ```json
   [{"page":1,"x":0.62,"y":0.80,"w":0.30},
@@ -203,3 +209,44 @@ through `SignPDF`), `apps/windows/internal/apiclient/client.go` `Stamp(...)`
 (add an `issuedPlace` arg → `q.Set("issued_place", ...)`), the appcore/app
 wrappers, and Android `net/ApiClient.kt` `stamp(...)` + `AppCore.signPdf(...)`
 + `MainActivity.kt`.
+
+---
+
+## 5. Amendment (implemented) — "Nomor surat" & "Perihal surat"
+
+Two optional per-signature caption fields, shipped alongside the hash
+verification work in `docs/CHANGE-hash-verification.md`.
+
+**Contract.** `POST /api/v1/signatures/{public_id}/stamp` accepts
+`?letter_no=` and `?letter_subject=`, exactly parallel to `reason` and
+`issued_place`: optional, per signature, never stored on the account, never a
+registration field. Both are trimmed; blank ⇒ the line is skipped.
+
+**Caption order** (`captionLines`, `server/internal/api/stamppng.go`):
+
+```
+Nomor: B-1/UM/IX/2026            <- new, only if letter_no
+Perihal: Undangan Rapat          <- new, only if letter_subject (wraps)
+Ditandatangani secara elektronik oleh:
+<Nama Lengkap>                   (bold)
+<Jabatan>                        (wraps)
+NIP. <nip>
+Dikeluarkan di <kota>
+Pada tanggal <tanggal server>
+```
+
+**One thing to watch when changing the caption again.** `drawCaption` used to
+pick the small "header" face with `i == 0 && !ln.bold` — a positional guess
+that silently meant "the first line". With `Nomor:` above it, that guess now
+points at the wrong line, so `captionLine` gained an explicit `header bool`
+and `drawCaption` keys off the flag. Any new line added above the signer block
+inherits the body face automatically; only the lead-in sets `header: true`.
+`TestCaptionLines_HeaderFlaggedNotPositional` guards this.
+
+**Tests.** `TestCaptionLines_LetterFieldsLeadTheBlock`,
+`TestCaptionLines_EmptyLetterFieldsSkipped`,
+`TestCaptionLines_HeaderFlaggedNotPositional`
+(`server/internal/api/caption_internal_test.go`) and `TestStamp_LetterFields`
+(`server/internal/api/hashverify_test.go`) for the HTTP path.
+
+**Deploy.** No migration, no new env var.

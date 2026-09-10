@@ -494,3 +494,29 @@ func firstErr(vr *verification.Result, err error) any {
 	}
 	return "invalid"
 }
+
+// VerifyByHash hashes the file at path locally (SHA-512) and asks the server
+// whether that digest matches the record it holds for publicID. The document
+// is never uploaded -- only the 64-byte digest goes out -- so this works for a
+// confidential file, and for one far too large to push through the verifier.
+//
+// A "match" answers a narrower question than VerifyPublic: it proves the bytes
+// are the ones the server issued for that id, not that the signature verifies.
+// For an accepted-tier record the server already checked the signature at
+// submission, so the two together are the full story.
+func (a *App) VerifyByHash(serverURL, publicID, path string) (json.RawMessage, error) {
+	publicID = strings.TrimSpace(publicID)
+	if publicID == "" {
+		return nil, errors.New("ID verifikasi belum diisi")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	res, err := apiclient.New(serverURL, true).VerifyHash(publicID, hashutil.CalculateSHA512(b))
+	if err != nil {
+		return nil, err
+	}
+	out, _ := json.Marshal(res)
+	return out, nil
+}
