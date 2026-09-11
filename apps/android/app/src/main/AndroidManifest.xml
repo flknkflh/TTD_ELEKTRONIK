@@ -16,9 +16,12 @@
         android:theme="@style/Theme.PqcSign"
         android:supportsRtl="true">
 
+        <!-- adjustResize: the keyboard's insets shrink the scroll area
+             (MainActivity pads its root by them), so no field stays under it. -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

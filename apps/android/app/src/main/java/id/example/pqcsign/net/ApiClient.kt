@@ -26,8 +26,8 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
 
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(2, TimeUnit.MINUTES)   // headroom for one ~8 MiB upload chunk on a slow link
-        .writeTimeout(2, TimeUnit.MINUTES)
+        .readTimeout(5, TimeUnit.MINUTES)   // headroom for one upload chunk / a server stamp on a slow link
+        .writeTimeout(5, TimeUnit.MINUTES)
         .apply { if (insecureTls) trustEverything(this) }
         .build()
 
@@ -39,8 +39,16 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
     private val OCTET = "application/octet-stream".toMediaType()
 
     // Bodies larger than this are pushed through /api/v1/uploads in chunks
-    // instead of one request (docs/large-files.md).
-    private val uploadChunkBytes = 8 * 1024 * 1024
+    // instead of one request (docs/large-files.md). Small enough that one chunk
+    // fits the timeout on a ~0.3 Mbps uplink; an 8 MiB chunk did not.
+    private val uploadChunkBytes = 2 * 1024 * 1024
+
+    // How many times one chunk (or the final submit) is retried after a
+    // network error before giving up.
+    private val uploadRetries = 5
+
+    /** When set, told how many bytes of a chunked upload the server holds. */
+    var progress: ((sent: Long, total: Long) -> Unit)? = null
 
     fun setToken(t: String) { token = t }
     fun token(): String? = token
@@ -177,11 +185,13 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
     /** Returns the server's JSON result (status "accepted", or
      *  "stored_unverified" for a document too large to verify server-side). */
     fun submitDocument(publicId: String, signedPdf: ByteArray): JSONObject {
-        if (signedPdf.size > uploadChunkBytes) {
-            val id = uploadBytes(signedPdf)
-            return obj(req("PUT", "/api/v1/signatures/$publicId/document?upload_id=$id", null))
+        val uploadId = if (signedPdf.size > uploadChunkBytes) uploadBytes(signedPdf) else null
+        // A repeat submit of an accepted reservation returns the existing
+        // record, so retrying after a lost reply is safe.
+        return withRetry {
+            if (uploadId != null) obj(req("PUT", "/api/v1/signatures/$publicId/document?upload_id=$uploadId", null))
+            else obj(req("PUT", "/api/v1/signatures/$publicId/document", signedPdf.toRequestBody(PDF)))
         }
-        return obj(req("PUT", "/api/v1/signatures/$publicId/document", signedPdf.toRequestBody(PDF)))
     }
 
     /** Pushes [data] to a fresh resumable upload and returns its id. */
@@ -191,14 +201,54 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
         var off = 0
         while (off < data.size) {
             val end = minOf(off + uploadChunkBytes, data.size)
-            val part = data.copyOfRange(off, end)
-            val res = obj(req("PATCH", "/api/v1/uploads/$id?offset=$off", part.toRequestBody(OCTET)))
-            val got = res.optInt("received", off)
+            val got = sendChunk(id, off, data.copyOfRange(off, end))
             require(got > off) { "unggah macet di offset $off" }
             off = got
+            progress?.invoke(off.toLong(), data.size.toLong())
         }
         return id
     }
+
+    /** Sends one chunk and returns the server's new size, retrying network
+     *  failures. A chunk may land even when its reply is lost, so each retry
+     *  first asks the server how much it holds and resumes from there. */
+    private fun sendChunk(id: String, off: Int, part: ByteArray): Int {
+        for (attempt in 0..uploadRetries) {
+            try {
+                return obj(req("PATCH", "/api/v1/uploads/$id?offset=$off", part.toRequestBody(OCTET))).optInt("received", off)
+            } catch (e: Exception) {
+                val conflict = e is ApiException && e.status == 409
+                if (!conflict && (!retryable(e) || attempt == uploadRetries)) throw e
+                if (!conflict) Thread.sleep(backoffMs(attempt))
+                val held = runCatching { obj(req("GET", "/api/v1/uploads/$id", null)).optInt("received", -1) }.getOrDefault(-1)
+                if (held > off) return held
+                if (conflict) throw e
+            }
+        }
+        error("unreachable")
+    }
+
+    private fun <T> withRetry(block: () -> T): T {
+        for (attempt in 0..uploadRetries) {
+            try {
+                return block()
+            } catch (e: Exception) {
+                if (!retryable(e) || attempt == uploadRetries) throw e
+                Thread.sleep(backoffMs(attempt))
+            }
+        }
+        error("unreachable")
+    }
+
+    /** A network failure or a server-side 5xx is worth retrying; a 4xx the
+     *  server meant (and a TLS failure, status 0) is not. */
+    private fun retryable(e: Exception): Boolean = when (e) {
+        is ApiException -> e.status >= 500
+        is java.io.IOException -> true
+        else -> false
+    }
+
+    private fun backoffMs(attempt: Int): Long = (attempt + 1) * 3000L
 
     fun mySignatures(): List<JSONObject> {
         val arr = obj(req("GET", "/api/v1/me/signatures", null)).optJSONArray("signatures") ?: return emptyList()

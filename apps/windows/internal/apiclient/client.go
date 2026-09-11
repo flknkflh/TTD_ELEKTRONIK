@@ -20,13 +20,21 @@ import (
 
 // uploadChunkBytes is the size of one resumable-upload chunk, and the
 // threshold above which a body is pushed through /api/v1/uploads instead of a
-// single request (docs/large-files.md).
-const uploadChunkBytes = 8 << 20
+// single request (docs/large-files.md). Kept small so one chunk still fits the
+// request timeout on a ~0.3 Mbps uplink; an 8 MiB chunk did not.
+const uploadChunkBytes = 2 << 20
+
+// uploadRetries is how many times one chunk (or the final submit) is retried
+// after a network error before the operation gives up.
+const uploadRetries = 5
 
 type Client struct {
 	base  string
 	http  *http.Client
 	token string
+	// Progress, when set, is told how many bytes of a chunked upload the
+	// server holds so far.
+	Progress func(sent, total int64)
 }
 
 // New returns a client for baseURL (e.g. https://localhost:8443). insecureTLS
@@ -38,8 +46,9 @@ func New(baseURL string, insecureTLS bool) *Client {
 	}
 	return &Client{
 		base: strings.TrimRight(baseURL, "/"),
-		// enough headroom for one ~8 MiB resumable-upload chunk on a slow link
-		http: &http.Client{Timeout: 2 * time.Minute, Transport: tr},
+		// headroom for one resumable-upload chunk, or a server-side stamp of a
+		// large PDF, on a slow link
+		http: &http.Client{Timeout: 5 * time.Minute, Transport: tr},
 	}
 }
 
@@ -317,14 +326,26 @@ func (c *Client) SubmitDocument(publicID string, signedPDF []byte) (map[string]a
 		raw []byte
 		err error
 	)
+	uploadID := ""
 	if len(signedPDF) > uploadChunkBytes {
 		id, uerr := c.uploadBytes(signedPDF)
 		if uerr != nil {
 			return nil, fmt.Errorf("unggah bertahap: %w", uerr)
 		}
-		raw, _, err = c.do(http.MethodPut, path+"?upload_id="+id, nil, "")
-	} else {
-		raw, _, err = c.do(http.MethodPut, path, bytes.NewReader(signedPDF), "application/pdf")
+		uploadID = id
+	}
+	// The server treats a repeat submit of an accepted reservation as a no-op
+	// that returns the existing record, so retrying after a lost reply is safe.
+	for try := 0; ; try++ {
+		if uploadID != "" {
+			raw, _, err = c.do(http.MethodPut, path+"?upload_id="+uploadID, nil, "")
+		} else {
+			raw, _, err = c.do(http.MethodPut, path, bytes.NewReader(signedPDF), "application/pdf")
+		}
+		if err == nil || !retryable(err) || try >= uploadRetries {
+			break
+		}
+		time.Sleep(backoff(try))
 	}
 	if err != nil {
 		return nil, err
@@ -352,23 +373,75 @@ func (c *Client) uploadBytes(data []byte) (string, error) {
 		if end > int64(len(data)) {
 			end = int64(len(data))
 		}
-		resp, _, cerr := c.do(http.MethodPatch,
-			"/api/v1/uploads/"+mk.UploadID+"?offset="+strconv.FormatInt(off, 10),
-			bytes.NewReader(data[off:end]), "application/octet-stream")
+		got, cerr := c.patchChunk(mk.UploadID, off, data[off:end])
+		for try := 0; cerr != nil && retryable(cerr) && try < uploadRetries; try++ {
+			time.Sleep(backoff(try))
+			// The chunk may have landed even though its reply was lost: ask
+			// the server how much it holds and resume from there.
+			if n, serr := c.uploadStatus(mk.UploadID); serr == nil && n > off {
+				got, cerr = n, nil
+				break
+			}
+			got, cerr = c.patchChunk(mk.UploadID, off, data[off:end])
+		}
 		if cerr != nil {
 			return "", cerr
 		}
-		var pr struct {
-			Received int64 `json:"received"`
-		}
-		_ = json.Unmarshal(resp, &pr)
-		if pr.Received <= off {
+		if got <= off {
 			return "", fmt.Errorf("unggah macet di offset %d", off)
 		}
-		off = pr.Received
+		off = got
+		if c.Progress != nil {
+			c.Progress(off, int64(len(data)))
+		}
 	}
 	return mk.UploadID, nil
 }
+
+// patchChunk sends one chunk at offset and returns the server's new size. A
+// 409 (offset mismatch) is not an error: its body says where to resume.
+func (c *Client) patchChunk(uploadID string, offset int64, chunk []byte) (int64, error) {
+	resp, status, err := c.do(http.MethodPatch,
+		"/api/v1/uploads/"+uploadID+"?offset="+strconv.FormatInt(offset, 10),
+		bytes.NewReader(chunk), "application/octet-stream")
+	var pr struct {
+		Received int64 `json:"received"`
+	}
+	if err != nil && status != http.StatusConflict {
+		return 0, err
+	}
+	_ = json.Unmarshal(resp, &pr)
+	return pr.Received, nil
+}
+
+// uploadStatus returns how many bytes the server holds for uploadID.
+func (c *Client) uploadStatus(uploadID string) (int64, error) {
+	resp, _, err := c.do(http.MethodGet, "/api/v1/uploads/"+uploadID, nil, "")
+	if err != nil {
+		return 0, err
+	}
+	var pr struct {
+		Received int64 `json:"received"`
+	}
+	if err := json.Unmarshal(resp, &pr); err != nil {
+		return 0, err
+	}
+	return pr.Received, nil
+}
+
+// retryable reports whether err is worth retrying: a network failure or a
+// server-side 5xx, never a 4xx the server meant.
+func retryable(err error) bool {
+	var e *apiError
+	if errors.As(err, &e) {
+		return e.Status >= 500
+	}
+	return err != nil
+}
+
+// backoff is the pause before retry number try (0-based); a var so tests can
+// drop it to zero.
+var backoff = func(try int) time.Duration { return time.Duration(try+1) * 3 * time.Second }
 
 func (c *Client) MySignatures() ([]map[string]any, error) {
 	raw, _, err := c.do(http.MethodGet, "/api/v1/me/signatures", nil, "")

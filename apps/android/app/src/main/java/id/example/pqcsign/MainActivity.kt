@@ -18,12 +18,15 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import id.example.pqcsign.net.ApiClient
 import kotlin.math.roundToInt
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.view.ContextThemeWrapper
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
@@ -87,7 +90,13 @@ class MainActivity : AppCompatActivity() {
     private var verifyResult: LinearLayout? = null
 
     private val pickToSign = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) startPlacement(uri)
+        if (uri == null) return@registerForActivityResult
+        val size = core.fileSize(uri)
+        if (size > AppCore.MAX_SIGN_BYTES) {
+            snack("Berkas ${mbText(size)} MB melebihi batas ${AppCore.MAX_SIGN_MB} MB. Kompres atau pecah PDF-nya dulu.")
+            return@registerForActivityResult
+        }
+        startPlacement(uri)
     }
     private val pickToVerify = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) runVerify(uri)
@@ -147,7 +156,19 @@ class MainActivity : AppCompatActivity() {
         val scroll = NestedScrollView(this).apply { isFillViewport = true; addView(container) }
         root.addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
 
+        // Android 15+ always draws the app behind the system bars, and the
+        // keyboard then no longer shrinks the window on its own. Opt in on
+        // every version and pad the root by the bars and the keyboard, so the
+        // scroll area ends at the top of the keyboard: everything below can
+        // still be scrolled to, and the focused field is kept in view.
+        enableEdgeToEdge()
         setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            insets
+        }
 
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) = render(tab.position)
@@ -293,6 +314,7 @@ class MainActivity : AppCompatActivity() {
                 if (lastSigned == null) snack("Belum ada hasil") else saveSigned.launch("dokumen-bertandatangan.pdf")
             })
             addView(hint("QR “TTD Elektronik” ditempel di titik yang Anda pilih pada dokumen."))
+            addView(hint("Ukuran maksimal ${AppCore.MAX_SIGN_MB} MB per dokumen."))
         })
         placementHost = LinearLayout(themed()).apply { orientation = LinearLayout.VERTICAL }
         addView(placementHost)
@@ -621,24 +643,134 @@ class MainActivity : AppCompatActivity() {
         val places = savedStamps.toMutableList().apply {
             add(ApiClient.StampPlacement(signPageIndex + 1, boxXFrac, boxYFrac, boxWFrac))
         }
+        val prog = progressCard("Memulai…")
+        sink.removeAllViews()
+        sink.addView(prog.view)
         task {
-            val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", places, signIssuedPlace)
-            lastSigned = r.signedPdf
-            runOnUiThread {
-                sink.removeAllViews()
-                sink.addView(
-                    verdictCard(
-                        true, "Dokumen ditandatangani",
-                        listOf(
-                            "Status server" to r.serverStatus,
-                            "ID verifikasi" to r.publicId,
-                            "Tautan / QR" to r.verificationUrl,
-                        ),
-                        "Tap “Simpan PDF hasil” untuk mengunduh berkasnya.",
-                    ),
-                )
+            try {
+                val r = core.signPdf(uri, signReason, core.state.accountEmail ?: "", places, signIssuedPlace) { step, label, pct ->
+                    runOnUiThread { prog.update(step, AppCore.SIGN_STEPS, label, pct) }
+                }
+                lastSigned = r.signedPdf
+                runOnUiThread {
+                    prog.stop()
+                    sink.removeAllViews()
+                    sink.addView(signResultView(r))
+                    snack(if (r.submitted) "Berhasil ditandatangani & tercatat di server." else "Tersimpan di perangkat, tapi pengiriman ke server GAGAL.")
+                }
+            } catch (t: Throwable) {
+                runOnUiThread {
+                    prog.stop()
+                    sink.removeAllViews()
+                    sink.addView(verdictCard(false, "Gagal menandatangani", emptyList(),
+                        errText(t) + "\n\nDokumen belum ditandatangani. Anda bisa langsung mencoba lagi."))
+                }
             }
         }
+    }
+
+    /** The outcome of a signature. A PDF that was signed but never reached the
+     *  server gets a warning and a resend button — its QR points at nothing yet. */
+    private fun signResultView(r: AppCore.SignResult): View {
+        if (r.submitted) {
+            return verdictCard(
+                true, "Berhasil — ditandatangani & tercatat di server",
+                listOf(
+                    "Status" to serverStatusText(r.serverStatus),
+                    "ID verifikasi" to r.publicId,
+                    "Tautan / QR" to r.verificationUrl,
+                ),
+                "Tap “Simpan PDF hasil” untuk mengunduh berkasnya.",
+            )
+        }
+        return LinearLayout(themed()).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(verdictCard(
+                false, "Ditandatangani, tapi BELUM tercatat di server",
+                listOf("Penyebab" to errText(Exception(r.submitError)), "ID verifikasi" to r.publicId),
+                "PDF sudah ditandatangani, tetapi pengiriman ke server gagal sehingga QR-nya belum bisa diverifikasi. " +
+                    "Tap “Kirim ulang ke server” (paling lambat 2 jam setelah penandatanganan).\n\nDetail teknis: ${r.submitError}",
+                warn = true,
+            ))
+            addView(primary("Kirim ulang ke server") { retrySubmit(r) })
+        }
+    }
+
+    private fun retrySubmit(r: AppCore.SignResult) {
+        val sink = signResult ?: return
+        val prog = progressCard("Mengirim ulang ke server…")
+        sink.removeAllViews()
+        sink.addView(prog.view)
+        task {
+            try {
+                val status = core.retrySubmit(r.publicId, r.signedPdf) { step, label, pct ->
+                    runOnUiThread { prog.update(step, AppCore.SIGN_STEPS, label, pct) }
+                }
+                runOnUiThread {
+                    prog.stop()
+                    sink.removeAllViews()
+                    sink.addView(signResultView(r.copy(submitted = true, serverStatus = status, submitError = "")))
+                    snack("Berhasil tercatat di server.")
+                }
+            } catch (t: Throwable) {
+                runOnUiThread {
+                    prog.stop()
+                    sink.removeAllViews()
+                    sink.addView(signResultView(r.copy(submitError = t.message ?: t.javaClass.simpleName)))
+                    snack("Masih gagal: " + errText(t))
+                }
+            }
+        }
+    }
+
+    private fun serverStatusText(s: String): String = when (s) {
+        "accepted" -> "Tercatat & diverifikasi server"
+        "", "submitted" -> "Tercatat di server"
+        else -> s
+    }
+
+    private fun mbText(bytes: Long): String = String.format(java.util.Locale("id"), "%.1f", bytes / 1048576.0)
+
+    /** Step, percentage and elapsed time of a running signature — a long
+     *  upload on a slow link looks frozen without it. */
+    private class SignProgress(val view: View, val step: TextView, val meta: TextView, val bar: LinearProgressIndicator) {
+        val started = System.currentTimeMillis()
+        var ticker: Runnable? = null
+    }
+
+    private fun progressCard(title: String): SignProgress {
+        val step = TextView(themed()).apply {
+            text = title; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(onSurface())
+        }
+        val meta = TextView(themed()).apply { textSize = 12.5f; setTextColor(muted()); setPadding(0, dp(4), 0, 0) }
+        val bar = LinearProgressIndicator(themed()).apply {
+            max = 100
+            setProgressCompat(2, false)
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(10) }
+        }
+        val p = SignProgress(card { addView(step); addView(meta); addView(bar) }, step, meta, bar)
+        val tick = object : Runnable {
+            override fun run() {
+                val s = (System.currentTimeMillis() - p.started) / 1000
+                val elapsed = if (s < 60) "$s detik" else "${s / 60} menit ${s % 60} detik"
+                meta.text = "Sudah berjalan $elapsed. Jangan tutup aplikasi." +
+                    if (s > 60) " Koneksi tampaknya lambat — proses tetap berjalan." else ""
+                meta.postDelayed(this, 1000)
+            }
+        }
+        p.ticker = tick
+        tick.run()
+        return p
+    }
+
+    private fun SignProgress.update(n: Int, total: Int, label: String, pct: Int) {
+        step.text = "Langkah $n dari $total: $label" + if (pct >= 0) " — $pct%" else "…"
+        val within = if (pct >= 0) pct else 50
+        bar.setProgressCompat(maxOf(2, ((n - 1) * 100 + within) / total), true)
+    }
+
+    private fun SignProgress.stop() {
+        ticker?.let { meta.removeCallbacks(it) }
     }
 
     private fun runVerify(uri: Uri) {
@@ -798,12 +930,20 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun verdictCard(ok: Boolean, title: String, rows: List<Pair<String, String>>, note: String? = null): View =
+    private fun verdictCard(ok: Boolean, title: String, rows: List<Pair<String, String>>, note: String? = null, warn: Boolean = false): View =
         card {
-            val color = if (ok) 0xFF15803D.toInt() else 0xFFB91C1C.toInt()
+            val color = when {
+                ok -> 0xFF15803D.toInt()
+                warn -> 0xFFB45309.toInt()
+                else -> 0xFFB91C1C.toInt()
+            }
             val head = LinearLayout(themed()).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             head.addView(TextView(themed()).apply {
-                text = if (ok) "✓" else "✕"
+                text = when {
+                    ok -> "✓"
+                    warn -> "!"
+                    else -> "✕"
+                }
                 setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER
                 val sz = dp(32)
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
@@ -861,6 +1001,11 @@ class MainActivity : AppCompatActivity() {
                 m.contains("exactly one signature", true) -> "Dokumen ini sudah ditandatangani. Sistem hanya mendukung satu tanda tangan per dokumen."
             m.contains("device not found", true) || m.contains("no active certificate", true) ->
                 "Perangkat belum dikenali server. Tab Akun → “Reset perangkat ini”, lalu masuk lagi."
+            m.contains("timeout", true) || m.contains("timed out", true) || m.contains("Connection reset", true) ||
+                m.contains("Broken pipe", true) || m.contains("unexpected end of stream", true) ||
+                m.contains("connection abort", true) ->
+                "Koneksi ke server terputus atau terlalu lambat. Periksa internet Anda, lalu coba lagi."
+            m.contains("melebihi batas", true) -> "$m. Kompres atau pecah PDF-nya dulu."
             else -> m
         }
     }
@@ -908,9 +1053,14 @@ class MainActivity : AppCompatActivity() {
         }
         val et = TextInputEditText(til.context).apply {
             setText(text)
-            if (password) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            if (password) {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                typeface = Typeface.DEFAULT // setInputType switches password boxes to monospace
+            }
         }
         til.addView(et)
+        // hidden by default; the eye icon at the end shows / hides the text
+        if (password) til.endIconMode = TextInputLayout.END_ICON_PASSWORD_TOGGLE
         parent.addView(til)
         return et
     }

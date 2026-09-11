@@ -5,6 +5,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
 
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -35,6 +38,8 @@ type signView struct {
 	OriginalSHA512  string `json:"original_sha512"`
 	SignedSHA512    string `json:"signed_pdf_sha512"`
 	ServerStatus    string `json:"server_status"`
+	Submitted       bool   `json:"submitted"`
+	SubmitError     string `json:"submit_error"`
 }
 
 // App is the Wails-bound facade. Every method here is one call into appcore
@@ -49,10 +54,30 @@ func NewApp() *App { return &App{} }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// A GUI app has no console: keep a log beside the vault so a failed
+	// upload can be diagnosed after the fact.
+	if dir, err := os.UserCacheDir(); err == nil { // %LOCALAPPDATA%
+		dir = filepath.Join(dir, "PQC-PDF-Sign")
+		_ = os.MkdirAll(dir, 0o700)
+		if f, err := os.OpenFile(filepath.Join(dir, "pqcsign.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+			log.SetOutput(f)
+		}
+	}
 	core, err := appcore.New(appcore.Config{}) // vault: %LOCALAPPDATA%\PQC-PDF-Sign
 	if err == nil {
 		a.core = core
+		a.hookProgress()
 	}
+}
+
+// hookProgress forwards signing steps to the frontend as "sign-progress"
+// events ({step,total,label,pct}).
+func (a *App) hookProgress() {
+	a.core.SetProgress(func(step, total int, label string, pct int) {
+		wails.EventsEmit(a.ctx, "sign-progress", map[string]any{
+			"step": step, "total": total, "label": label, "pct": pct,
+		})
+	})
 }
 
 // Connect (re)points the client at a server URL. insecureTLS is lab-only.
@@ -63,6 +88,7 @@ func (a *App) Connect(serverURL string, insecureTLS bool) error {
 			return err
 		}
 		a.core = c
+		a.hookProgress()
 		return nil
 	}
 	return a.core.SetServerURL(serverURL, insecureTLS)
@@ -113,8 +139,20 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, 
 	return signView{
 		OutputPath: r.OutputPath, PublicID: r.PublicID, VerificationURL: r.VerificationURL,
 		OriginalSHA512: r.OriginalSHA512, SignedSHA512: r.SignedSHA512, ServerStatus: r.ServerStatus,
+		Submitted: r.Submitted, SubmitError: r.SubmitError,
 	}, err
 }
+
+// RetrySubmit re-sends a locally saved signed PDF whose submit failed.
+func (a *App) RetrySubmit(publicID, signedPath string) (string, error) {
+	return a.core.RetrySubmit(publicID, signedPath)
+}
+
+// FileSize returns the size in bytes of the file at path.
+func (a *App) FileSize(path string) (int64, error) { return a.core.FileSize(path) }
+
+// MaxSignMB is the largest PDF (in MB) the app will sign.
+func (a *App) MaxSignMB() int { return appcore.MaxSignBytes >> 20 }
 
 // LoadPdfB64 returns the PDF at path as base64 for the placement preview.
 func (a *App) LoadPdfB64(path string) (string, error) { return a.core.PdfBytesB64(path) }

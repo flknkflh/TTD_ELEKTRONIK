@@ -143,6 +143,10 @@ class AppCore(private val context: Context, val state: AppState) {
         val signedSha512: String,
         val serverStatus: String,
         val signedPdf: ByteArray,
+        // false when the PDF was signed but never reached the server; its QR
+        // then points at nothing until retrySubmit succeeds.
+        val submitted: Boolean = true,
+        val submitError: String = "",
     )
 
     /**
@@ -152,8 +156,14 @@ class AppCore(private val context: Context, val state: AppState) {
      * cryptographically. The signed bytes are returned for the caller to write
      * via SAF.
      */
-    fun signPdf(inUri: Uri, reason: String, signerName: String, places: List<ApiClient.StampPlacement>, issuedPlace: String = ""): SignResult {
+    fun signPdf(
+        inUri: Uri, reason: String, signerName: String, places: List<ApiClient.StampPlacement>, issuedPlace: String = "",
+        onStep: (step: Int, label: String, pct: Int) -> Unit = { _, _, _ -> },
+    ): SignResult {
+        onStep(1, "Menyiapkan dokumen", -1)
+        requireSignable(fileSize(inUri))
         val pdf = context.contentResolver.openInputStream(inUri)!!.use { it.readBytes() }
+        requireSignable(pdf.size.toLong())
         require(!looksSigned(pdf)) {
             "Dokumen ini sudah memiliki tanda tangan digital — satu dokumen hanya boleh ditandatangani sekali; pilih PDF yang belum ditandatangani."
         }
@@ -169,16 +179,19 @@ class AppCore(private val context: Context, val state: AppState) {
         // The QR stamps are drawn server-side BEFORE signing so they are
         // inside the signed byte range (Rencana RB-2c). A PDF the server
         // cannot process fails here with a clear message.
-        val toSign = try {
-            api.stamp(res.publicId, pdf, places.ifEmpty {
-                listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
-            }, reason, issuedPlace)
-        } catch (e: ApiClient.ApiException) {
-            // 413: too big for a server-drawn QR stamp (docs/large-files.md).
-            // Sign the original as-is; the QR link still comes from the record.
-            if (e.status == 413) pdf else throw e
+        val toSign = withUploadProgress(2, "Mengunggah dokumen & menempelkan QR", onStep) {
+            try {
+                api.stamp(res.publicId, pdf, places.ifEmpty {
+                    listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
+                }, reason, issuedPlace)
+            } catch (e: ApiClient.ApiException) {
+                // 413: too big for a server-drawn QR stamp (docs/large-files.md).
+                // Sign the original as-is; the QR link still comes from the record.
+                if (e.status == 413) pdf else throw e
+            }
         }
 
+        onStep(3, "Menandatangani di perangkat", -1)
         var keyPem = vault.load()
         val signed: ByteArray
         try {
@@ -196,26 +209,59 @@ class AppCore(private val context: Context, val state: AppState) {
         // Local verification before upload (§15.2 step 10). Skipped for very
         // large documents — verifyPdf is not streaming; the server records
         // those store-only anyway.
+        onStep(4, "Memeriksa hasil tanda tangan", -1)
         if (signed.size <= LOCAL_VERIFY_MAX_BYTES) {
             val local = SigningEngine.verifyPdf(signed, root, null)
             require(local.valid) { "local verification failed; not uploading" }
         }
 
+        var submitError = ""
         val serverStatus = try {
-            when (val st = api.submitDocument(res.publicId, signed).optString("status", "submitted")) {
-                "stored_unverified" ->
-                    "tersimpan — TIDAK diverifikasi server (berkas besar); verifikasi manual lewat halaman verifikasi"
-                else -> st
-            }
+            statusText(withUploadProgress(5, "Mengirim ke server", onStep) { api.submitDocument(res.publicId, signed) })
         } catch (e: Exception) {
-            "local-only (upload failed: ${e.message})"
+            submitError = e.message ?: e.javaClass.simpleName
+            "local-only (upload failed: $submitError)"
         }
 
         return SignResult(
             res.publicId, res.verificationUrl,
             origSha, sha512Hex(signed), serverStatus, signed,
+            submitted = submitError.isEmpty(), submitError = submitError,
         )
     }
+
+    /** Re-sends a signed PDF whose submit failed. The reservation stays open
+     *  for 2 hours after signing. Returns the server status. */
+    fun retrySubmit(publicId: String, signedPdf: ByteArray, onStep: (Int, String, Int) -> Unit = { _, _, _ -> }): String =
+        statusText(withUploadProgress(5, "Mengirim ulang ke server", onStep) { api.submitDocument(publicId, signedPdf) })
+
+    /** Size of the document at [uri] in bytes, or -1 if the provider won't say. */
+    fun fileSize(uri: Uri): Long =
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
+        } ?: -1L
+
+    private fun requireSignable(size: Long) = require(size <= MAX_SIGN_BYTES) {
+        "Berkas ${"%.1f".format(size / 1048576.0)} MB melebihi batas $MAX_SIGN_MB MB untuk ditandatangani"
+    }
+
+    /** Runs [block] reporting the client's chunked uploads as [step]. */
+    private fun <T> withUploadProgress(step: Int, label: String, onStep: (Int, String, Int) -> Unit, block: () -> T): T {
+        onStep(step, label, -1)
+        api.progress = { sent, total -> onStep(step, label, (sent * 100 / total).toInt()) }
+        try {
+            return block()
+        } finally {
+            api.progress = null
+        }
+    }
+
+    private fun statusText(o: org.json.JSONObject): String =
+        when (val st = o.optString("status", "submitted")) {
+            "stored_unverified" ->
+                "tersimpan — TIDAK diverifikasi server (berkas besar); verifikasi manual lewat halaman verifikasi"
+            else -> st
+        }
 
     // ---- 4b. PDF preview for QR placement ----
 
@@ -355,6 +401,15 @@ class AppCore(private val context: Context, val state: AppState) {
     }
 
     companion object {
+        // Largest PDF the phone signs. The whole document sits in memory
+        // several times over (original, stamped, signed, JNI copies), so this
+        // is well under the server's 150 MB stamp limit.
+        const val MAX_SIGN_MB = 50
+        const val MAX_SIGN_BYTES = MAX_SIGN_MB * 1024L * 1024L
+
+        // Steps signPdf reports through onStep.
+        const val SIGN_STEPS = 5
+
         private const val CERT_FILE = "device.crt.pem"
         private const val CHAIN_FILE = "ca-chain.pem"
         private const val ROOT_FILE = "root-ca.crt.pem"

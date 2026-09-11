@@ -65,8 +65,7 @@
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
   .brand .ver { font-weight: 500; font-size: 11px; color: var(--fg-faint);
     border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
-  .brand .dot { width: 22px; height: 22px; border-radius: 7px;
-    background: linear-gradient(135deg, var(--accent), #9333ea); }
+  .brand .logo { height: 28px; width: auto; display: block; }
   .acct { position: relative; }
   .acct-btn {
     display: flex; align-items: center; gap: 8px;
@@ -112,6 +111,22 @@
   }
   input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   input::placeholder { color: var(--fg-faint); }
+
+  /* password box with a show/hide (eye) button inside it — added from JS */
+  .pw-wrap { position: relative; }
+  .pw-wrap input { padding-right: 44px; }
+  .pw-eye {
+    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px; display: grid; place-items: center;
+    border: 0; border-radius: 7px; background: transparent; color: var(--fg-faint); cursor: pointer;
+  }
+  .pw-eye:hover { color: var(--fg); background: var(--bg-elev); }
+  .pw-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .pw-eye svg { width: 18px; height: 18px; }
+  .pw-eye .i-hide, .pw-eye[aria-pressed="true"] .i-show { display: none; }
+  .pw-eye[aria-pressed="true"] .i-hide { display: block; }
+  /* WebView2 draws its own reveal button on password boxes; keep only ours */
+  input::-ms-reveal, input::-ms-clear { display: none; }
 
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -174,6 +189,13 @@
   .verdict .mark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 18px; }
   .verdict.ok .mark { background: var(--ok); }
   .verdict.bad .mark { background: var(--bad); }
+  .verdict.warn .mark { background: var(--warn); }
+  .progress-box { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--bg); }
+  .progress-box .step { font-weight: 600; }
+  .progress-box .meta { color: var(--fg-soft); font-size: 12.5px; margin-top: 2px; }
+  .bar { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 2%; background: var(--accent); transition: width .3s; }
   dl.kv { margin: 0; display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; font-size: 13px; }
   dl.kv dt { color: var(--fg-soft); }
   dl.kv dd { margin: 0; word-break: break-word; }
@@ -227,7 +249,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span> PQC PDF Sign <span class="ver" id="verTag"></span></div>
+  <div class="brand"><img class="logo" src="logo.png" alt=""> PQC PDF Sign <span class="ver" id="verTag"></span></div>
   <div class="acct" id="acct" hidden>
     <button class="acct-btn" id="acctBtn"><span id="acctEmail"></span> ▾</button>
     <div class="acct-menu" id="acctMenu" hidden>
@@ -315,6 +337,7 @@
       <div class="filepick" id="pickIn">
         <span>📄</span><span id="inName">Pilih berkas PDF…</span>
       </div>
+      <p class="hint" style="margin-top:8px">Ukuran maksimal <b><span id="maxMb">150</span> MB</b> per dokumen.</p>
       <label>Alasan penandatanganan</label>
       <input type="text" id="sreason" value="Persetujuan" />
       <label>Dikeluarkan di (kota)</label>
@@ -353,6 +376,11 @@
         <button class="btn secondary" id="placeBack">← Ganti berkas</button>
       </div>
       <div class="msg" id="placeMsg"></div>
+      <div class="progress-box" id="signProgress" hidden>
+        <div class="step" id="spStep"></div>
+        <div class="meta" id="spMeta"></div>
+        <div class="bar" id="spBar"><i></i></div>
+      </div>
       <div class="result" id="signResult" hidden></div>
     </div>
   </section>
@@ -394,7 +422,7 @@
   if (pdfjs) pdfjs.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
   const STAMP_ASPECT = 0.42; // caption+QR block, height/width — must match the server
 
-  const APP_VERSION = "v0.5.0";
+  const APP_VERSION = "v0.6.0";
   const DEFAULT_SRV = "http://136.244.116.132:8099";
 
   let currentScreen = "scAuth";
@@ -445,6 +473,8 @@
     try { return await fn(); }
     finally { btn.classList.remove("loading"); btn.disabled = false; }
   }
+  let maxSignMB = 150; // replaced by the app's own limit once bindings are up
+  const mb = (n) => (n / 1048576).toFixed(1).replace(".", ",");
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
   // ---------- auth ----------
@@ -513,6 +543,9 @@
     if (/disabled|dinonaktifkan/i.test(m)) return "Akun dinonaktifkan. Hubungi admin.";
     if (/invalid credentials/i.test(m)) return "Email atau kata sandi salah.";
     if (/connection refused|dial tcp|no such host/i.test(m)) return "Tidak bisa terhubung ke server. Cek alamat server.";
+    if (/timeout|deadline exceeded|connection reset|broken pipe|forcibly closed|wsarecv|wsasend|\bEOF\b/i.test(m))
+      return "Koneksi ke server terputus atau terlalu lambat. Periksa internet Anda, lalu coba lagi.";
+    if (/melebihi batas/i.test(m)) return m.charAt(0).toUpperCase() + m.slice(1) + ". Kompres atau pecah PDF-nya dulu.";
     if (/sudah memiliki tanda tangan|message digest mismatch|exactly one signature|already been completed/i.test(m))
       return "Dokumen ini sudah ditandatangani. Sistem hanya mendukung satu tanda tangan per dokumen — pilih PDF yang belum ditandatangani.";
     if (/device not found|different device|no active certificate/i.test(m))
@@ -548,7 +581,7 @@
   $("acctMenu").addEventListener("click", async (e) => {
     const act = e.target.dataset.act; if (!act) return;
     $("acctMenu").hidden = true;
-    if (act === "logout") { $("acct").hidden = true; $("lpw").value = ""; screen("scAuth"); tab(true); return; }
+    if (act === "logout") { $("acct").hidden = true; $("lpw").value = ""; setPwVisible($("lpw"), false); screen("scAuth"); tab(true); return; }
     if (act === "report") {
       try { await call("ReportLost"); toast("Perangkat dilaporkan hilang.", "ok"); }
       catch (err) { toast(friendly(err), "bad"); }
@@ -668,9 +701,17 @@
   $("pickIn").addEventListener("click", async () => {
     try {
       const p = await call("PickPDF"); if (!p) return;
+      $("signMsg").textContent = "";
+      const size = await call("FileSize", p);
+      if (size > maxSignMB * 1048576) {
+        signIn = ""; $("btnPlace").disabled = true;
+        $("inName").textContent = "Pilih berkas PDF…"; $("inName").classList.remove("fn");
+        $("signMsg").textContent = "Berkas ini " + mb(size) + " MB — melebihi batas " + maxSignMB + " MB. Kompres atau pecah PDF-nya dulu.";
+        return;
+      }
       signIn = p;
       const base = p.split(/[\\/]/).pop();
-      $("inName").textContent = base; $("inName").classList.add("fn");
+      $("inName").textContent = base + " (" + mb(size) + " MB)"; $("inName").classList.add("fn");
       const save = await call("SaveSignedPDF", base.replace(/\.pdf$/i, "") + "-bertandatangan.pdf");
       signOut = save || "";
       $("btnPlace").disabled = !(signIn && signOut);
@@ -734,21 +775,88 @@
 
   $("btnSign").addEventListener("click", () => withBtn($("btnSign"), async () => {
     $("placeMsg").textContent = ""; $("signResult").hidden = true;
+    progressStart("Memulai…");
     try {
       const placements = savedStamps.concat([qrPlacement()]);
       const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", JSON.stringify(placements), $("splace").value.trim());
-      $("signResult").innerHTML =
-        '<div class="verdict ok"><span class="mark">✓</span> Dokumen ditandatangani</div>' +
-        '<dl class="kv">' +
-        row("Status server", r.server_status) +
-        row("ID verifikasi", r.public_id, true) +
-        row("Tautan / QR", r.verification_url, true) +
-        row("Tersimpan di", r.output_path) +
-        "</dl>";
+      progressStop();
+      renderSignResult(r);
+      if (r.submitted) toast("Berhasil ditandatangani & tercatat di server.", "ok");
+      else toast("Tersimpan di perangkat, tapi pengiriman ke server GAGAL.", "bad");
+    } catch (e) {
+      progressStop();
+      $("signResult").innerHTML = '<div class="verdict bad"><span class="mark">✕</span> Gagal menandatangani</div>' +
+        '<div class="hint">' + esc(friendly(e)) + "</div>" +
+        '<p class="note">Dokumen belum ditandatangani. Anda bisa langsung mencoba lagi.</p>';
       $("signResult").hidden = false;
-      toast("Berhasil ditandatangani & disimpan.", "ok");
-    } catch (e) { $("placeMsg").textContent = friendly(e); }
+      toast("Gagal menandatangani.", "bad");
+    }
   }));
+
+  // ---- signing progress: the steps arrive from Go as "sign-progress" events
+  let spStart = 0, spTick = null;
+  function fmtElapsed(ms) {
+    const s = Math.floor(ms / 1000);
+    return s < 60 ? s + " detik" : Math.floor(s / 60) + " menit " + (s % 60) + " detik";
+  }
+  function progressStart(label) {
+    spStart = Date.now();
+    $("spStep").textContent = label;
+    $("spBar").firstElementChild.style.width = "2%";
+    $("signProgress").hidden = false;
+    clearInterval(spTick);
+    const tick = () => {
+      const ms = Date.now() - spStart;
+      $("spMeta").textContent = "Sudah berjalan " + fmtElapsed(ms) + ". Jangan tutup aplikasi." +
+        (ms > 60000 ? " Koneksi tampaknya lambat — proses tetap berjalan." : "");
+    };
+    tick(); spTick = setInterval(tick, 1000);
+  }
+  function progressStop() { clearInterval(spTick); spTick = null; $("signProgress").hidden = true; }
+  function onSignProgress(d) {
+    if (!d || $("signProgress").hidden) return;
+    const pct = d.pct >= 0 ? d.pct : 50;
+    $("spStep").textContent = "Langkah " + d.step + " dari " + d.total + ": " + d.label + (d.pct >= 0 ? " — " + d.pct + "%" : "…");
+    $("spBar").firstElementChild.style.width = Math.max(2, Math.round(((d.step - 1) + pct / 100) / d.total * 100)) + "%";
+  }
+  function serverStatusText(s) {
+    if (s === "accepted") return "Tercatat & diverifikasi server";
+    if (!s || s === "submitted") return "Tercatat di server";
+    return s;
+  }
+
+  // A signed PDF whose submit failed is saved locally, but its QR points at a
+  // record the server does not have yet — say so, and offer to resend.
+  function renderSignResult(r) {
+    const ok = r.submitted;
+    $("signResult").innerHTML =
+      (ok
+        ? '<div class="verdict ok"><span class="mark">✓</span> Berhasil — dokumen ditandatangani &amp; tercatat di server</div>'
+        : '<div class="verdict warn"><span class="mark">!</span> Ditandatangani, tapi BELUM tercatat di server</div>' +
+          '<div class="hint">PDF sudah tersimpan di perangkat ini, tetapi pengiriman ke server gagal sehingga QR-nya belum bisa diverifikasi. ' +
+          'Klik “Kirim ulang ke server” (paling lambat 2 jam setelah penandatanganan).</div>') +
+      '<dl class="kv">' +
+      (ok ? row("Status", serverStatusText(r.server_status))
+          : row("Penyebab", friendly({ message: r.submit_error || "tidak diketahui" }))) +
+      row("ID verifikasi", r.public_id, true) +
+      row("Tautan / QR", r.verification_url, true) +
+      row("Tersimpan di", r.output_path) +
+      "</dl>" +
+      (ok ? "" :
+        '<div style="margin-top:14px"><button class="btn" id="btnRetrySubmit"><span class="spin"></span><span class="txt">Kirim ulang ke server</span></button></div>' +
+        '<p class="note">Detail teknis: ' + esc(r.submit_error || "-") + "</p>");
+    $("signResult").hidden = false;
+    if (ok) return;
+    $("btnRetrySubmit").addEventListener("click", () => withBtn($("btnRetrySubmit"), async () => {
+      progressStart("Mengirim ulang ke server…");
+      try {
+        const status = await call("RetrySubmit", r.public_id, r.output_path);
+        progressStop();
+        renderSignResult(Object.assign({}, r, { submitted: true, server_status: status, submit_error: "" }));
+        toast("Berhasil tercatat di server.", "ok");
+      } catch (e) { progressStop(); toast("Masih gagal: " + friendly(e), "bad"); }
+    }));
+  }
 
   // ---------- verify ----------
   function resetVerify() {
@@ -905,11 +1013,73 @@
     return "<dt>" + esc(k) + "</dt><dd" + (mono ? ' class="mono"' : "") + ">" + esc(v) + "</dd>";
   }
 
+  // ---------- password show/hide ----------
+  // Every password box gets an eye button inside it; the text stays hidden
+  // until the user asks to see it.
+  const EYE_ICONS =
+    '<svg class="i-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>' +
+    '<svg class="i-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.16 3.19M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6M14.1 14.1a3 3 0 1 1-4.2-4.2M2 2l20 20"/></svg>';
+  function setPwVisible(input, show) {
+    input.type = show ? "text" : "password";
+    const b = input.parentNode.querySelector(".pw-eye");
+    const label = show ? "Sembunyikan kata sandi" : "Tampilkan kata sandi";
+    b.setAttribute("aria-pressed", String(show));
+    b.setAttribute("aria-label", label);
+    b.title = label;
+  }
+  document.querySelectorAll('input[type="password"]').forEach((input) => {
+    const wrap = document.createElement("div");
+    wrap.className = "pw-wrap";
+    input.replaceWith(wrap);
+    wrap.appendChild(input);
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "pw-eye"; b.innerHTML = EYE_ICONS;
+    wrap.appendChild(b);
+    setPwVisible(input, false);
+    b.addEventListener("mousedown", (e) => e.preventDefault()); // keep the caret in the field
+    b.addEventListener("click", () => { setPwVisible(input, input.type === "password"); input.focus(); });
+  });
+
+  // ---------- on-screen keyboard ----------
+  // The Windows touch keyboard is drawn over the window instead of shrinking
+  // it, so the lower part of a form ends up underneath. Reserve its height as
+  // extra scroll room below the content and scroll the focused field above it.
+  const mainEl = document.querySelector("main");
+  const mainPadBottom = parseFloat(getComputedStyle(mainEl).paddingBottom) || 0;
+  const vk = navigator.virtualKeyboard;
+  if (vk) vk.overlaysContent = true;
+  function keyboardInset() {
+    if (vk) return vk.boundingRect.height;
+    const vv = window.visualViewport;
+    if (!vv || vv.scale > 1.01) return 0; // pinch-zoom also shrinks the visual viewport
+    return Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+  }
+  function revealFocused() {
+    const el = document.activeElement;
+    if (!el || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    const r = el.getBoundingClientRect();
+    const visibleBottom = window.innerHeight - keyboardInset() - 16;
+    if (r.bottom > visibleBottom) window.scrollBy({ top: r.bottom - visibleBottom, behavior: "smooth" });
+  }
+  function onKeyboardChange() {
+    const h = keyboardInset();
+    mainEl.style.paddingBottom = h ? mainPadBottom + h + "px" : "";
+    revealFocused();
+  }
+  if (vk) vk.addEventListener("geometrychange", onKeyboardChange);
+  else if (window.visualViewport) window.visualViewport.addEventListener("resize", onKeyboardChange);
+  document.addEventListener("focusin", () => requestAnimationFrame(revealFocused));
+
   // ---------- init ----------
   $("verTag").textContent = APP_VERSION;
   $("srv").value = state.srv;
   $("rsrv").value = state.srv;
   $("lemail").value = state.email;
+  bindingsReady().then((ready) => {
+    if (!ready) return;
+    if (window.runtime && window.runtime.EventsOn) window.runtime.EventsOn("sign-progress", onSignProgress);
+    call("MaxSignMB").then((n) => { if (n > 0) { maxSignMB = n; $("maxMb").textContent = n; } }).catch(() => {});
+  });
 })();
 </script>
 </body>

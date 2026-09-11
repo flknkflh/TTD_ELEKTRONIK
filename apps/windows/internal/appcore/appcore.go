@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +28,9 @@ import (
 
 // App bundles the vault + server client. One instance per running client.
 type App struct {
-	store *keystore.Store
-	api   *apiclient.Client
+	store    *keystore.Store
+	api      *apiclient.Client
+	progress ProgressFunc
 }
 
 // Config wires an App. VaultDir "" -> %LOCALAPPDATA%\PQC-PDF-Sign.
@@ -266,6 +268,44 @@ func (a *App) CertificateStatus(pin string) (CertStatus, error) {
 
 // ---- 4. Sign PDF ----
 
+// MaxSignBytes is the largest PDF the client signs. The server draws the QR
+// stamp only up to PQC_MAX_STAMP_MB (default 150 MB) — keep the two in step.
+const MaxSignBytes = 150 << 20
+
+// signSteps is how many steps SignPDF reports through ProgressFunc.
+const signSteps = 5
+
+// ProgressFunc receives signing progress: step is 1..total, label is shown to
+// the user as-is, pct is 0..100 within the step or -1 when unknown.
+type ProgressFunc func(step, total int, label string, pct int)
+
+// SetProgress registers the UI's progress listener (nil to stop).
+func (a *App) SetProgress(f ProgressFunc) { a.progress = f }
+
+func (a *App) step(n int, label string, pct int) {
+	if a.progress != nil {
+		a.progress(n, signSteps, label, pct)
+	}
+}
+
+// uploadProgress reports the client's chunked uploads as step n until the
+// returned func is called.
+func (a *App) uploadProgress(n int, label string) func() {
+	a.step(n, label, -1)
+	a.api.Progress = func(sent, total int64) { a.step(n, label, int(sent*100/total)) }
+	return func() { a.api.Progress = nil }
+}
+
+// FileSize returns the size of the file at path, for the size check right
+// after the user picks a PDF.
+func (a *App) FileSize(path string) (int64, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return st.Size(), nil
+}
+
 type SignResult struct {
 	OutputPath      string `json:"output_path"`
 	PublicID        string `json:"public_id"`
@@ -273,6 +313,10 @@ type SignResult struct {
 	OriginalSHA512  string `json:"original_sha512"`
 	SignedSHA512    string `json:"signed_pdf_sha512"`
 	ServerStatus    string `json:"server_status"`
+	// Submitted is false when the PDF was signed and saved locally but never
+	// reached the server; its QR then points at nothing until RetrySubmit.
+	Submitted   bool   `json:"submitted"`
+	SubmitError string `json:"submit_error"`
 }
 
 // QRPlacement is where the user dropped the QR box in the preview: a
@@ -313,9 +357,14 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, 
 }
 
 func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []QRPlacement, issuedPlace string) (SignResult, error) {
+	a.step(1, "Menyiapkan dokumen", -1)
 	pdf, err := os.ReadFile(inPath)
 	if err != nil {
 		return SignResult{}, err
+	}
+	if len(pdf) > MaxSignBytes {
+		return SignResult{}, fmt.Errorf("berkas %.1f MB melebihi batas %d MB untuk ditandatangani",
+			float64(len(pdf))/(1<<20), MaxSignBytes>>20)
 	}
 	// One document, one signature (Rencana V1 §15.3). Re-signing an already
 	// signed PDF would break the first signature and the server rejects
@@ -351,7 +400,9 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 	for i, p := range places {
 		sp[i] = apiclient.StampPlacement{Page: p.Page, X: p.X, Y: p.Y, W: p.W}
 	}
+	done := a.uploadProgress(2, "Mengunggah dokumen & menempelkan QR")
 	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason, issuedPlace)
+	done()
 	if err != nil {
 		if apiclient.IsTooLarge(err) {
 			// Too big for a server-drawn QR stamp (docs/large-files.md) — sign
@@ -362,6 +413,7 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 		}
 	}
 
+	a.step(3, "Menandatangani di perangkat", -1)
 	keyPEM, err := a.store.LoadKey(keystore.Options{PIN: pin})
 	if err != nil {
 		return SignResult{}, err
@@ -382,6 +434,7 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 	// Local verification before upload (§15.2 step 10). Skipped for very large
 	// documents — verification.VerifyPDF is not streaming and would take
 	// minutes / a lot of RAM; the server records those store-only anyway.
+	a.step(4, "Memeriksa hasil tanda tangan", -1)
 	if len(signed.SignedPDF) <= localVerifyMaxBytes {
 		vr, verr := verification.VerifyPDF(signed.SignedPDF, verification.Options{
 			RootPEM: rootPEM, IntermediatePEM: chainPEM, RequireMLDSAOnly: true, Timeout: 20 * time.Second,
@@ -398,20 +451,53 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 		return SignResult{}, err
 	}
 
+	done = a.uploadProgress(5, "Mengirim ke server")
 	sub, err := a.api.SubmitDocument(res.PublicID, signed.SignedPDF)
-	status := "submitted"
+	done()
+	status, submitErr := submitStatus(sub), ""
 	if err != nil {
-		status = "local-only (upload failed: " + err.Error() + ")"
-	} else if v, ok := sub["status"].(string); ok {
-		status = v
-		if v == "stored_unverified" {
-			status = "tersimpan — TIDAK diverifikasi server (berkas besar); verifikasi manual lewat halaman verifikasi"
-		}
+		submitErr = err.Error()
+		status = "local-only (upload failed: " + submitErr + ")"
+		log.Printf("sign %s: submit failed, signed PDF kept at %s: %v", res.PublicID, outPath, err)
+	} else {
+		log.Printf("sign %s: submitted (%s)", res.PublicID, status)
 	}
 	return SignResult{
 		OutputPath: outPath, PublicID: res.PublicID, VerificationURL: res.VerificationURL,
 		OriginalSHA512: origHash, SignedSHA512: signed.SignedSHA512, ServerStatus: status,
+		Submitted: err == nil, SubmitError: submitErr,
 	}, nil
+}
+
+// RetrySubmit re-sends a signed PDF that was saved locally but never reached
+// the server (e.g. the link dropped after signing). The reservation it belongs
+// to stays open for 2 hours after signing.
+func (a *App) RetrySubmit(publicID, signedPath string) (string, error) {
+	pdf, err := os.ReadFile(signedPath)
+	if err != nil {
+		return "", err
+	}
+	done := a.uploadProgress(5, "Mengirim ulang ke server")
+	sub, err := a.api.SubmitDocument(publicID, pdf)
+	done()
+	if err != nil {
+		log.Printf("retry %s: submit failed: %v", publicID, err)
+		return "", err
+	}
+	status := submitStatus(sub)
+	log.Printf("retry %s: submitted (%s)", publicID, status)
+	return status, nil
+}
+
+func submitStatus(sub map[string]any) string {
+	v, _ := sub["status"].(string)
+	switch v {
+	case "":
+		return "submitted"
+	case "stored_unverified":
+		return "tersimpan — TIDAK diverifikasi server (berkas besar); verifikasi manual lewat halaman verifikasi"
+	}
+	return v
 }
 
 // ---- 5. Verify PDF (local) ----
