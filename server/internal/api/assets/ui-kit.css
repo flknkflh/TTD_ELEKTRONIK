@@ -510,9 +510,10 @@ tbody tr:nth-child(n+9){animation-delay:.26s}
 /* ---------- brand mark (logo PNG from Assets/) -------- */
 .brand { display:inline-flex; align-items:center; gap:11px; font-weight:800; letter-spacing:-.01em;
          color:var(--text-primary); text-decoration:none; font-size:19px; }
-/* the logo art already contains the "PQC PDF Sign" wordmark */
-.brand .mark { height:48px; width:auto; flex:0 0 auto;
+/* the logo art is the shield only; the wordmark is text next to it */
+.brand .mark { height:44px; width:auto; flex:0 0 auto;
                filter:drop-shadow(0 6px 18px var(--glow-blue)); }
+.brand .wordmark { white-space:nowrap; }
 .brand b { color:var(--blue-500); }
 
 /* ---------- entrance animations ----------------------- */

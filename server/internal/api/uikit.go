@@ -59,6 +59,8 @@ func uiKitImage(w http.ResponseWriter, r *http.Request) {
 // lgHead is the <link>/<script> pair plus the inline theme-preboot that
 // stops a light/dark flash. Placed in every page <head>.
 const lgHead = `<link rel="stylesheet" href="/ui-kit.css">
+<link rel="icon" type="image/png" href="/assets/img/app-icon.png">
+<link rel="apple-touch-icon" href="/assets/img/app-icon.png">
 <script>(function(){try{var t=localStorage.getItem("pqc_theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>`
 
 // lgScripts is placed at the end of <body>.
@@ -76,9 +78,10 @@ const lgBackground = `<div class="lg-mesh" aria-hidden="true"></div>
 <img class="lg-orb lg-orb-b float-2 lt" data-parallax="0.16" src="/assets/img/ca-light.png" alt="" aria-hidden="true">
 <img class="lg-orb lg-orb-b float-2 dk" data-parallax="0.16" src="/assets/img/ca-dark.png" alt="" aria-hidden="true">`
 
-// lgMark is the brand logo (PNG from Assets/, one per theme; CSS shows one).
-const lgMark = `<img class="mark lt" src="/assets/img/logo-light.png" alt="PQC PDF Sign">` +
-	`<img class="mark dk" src="/assets/img/logo-dark.png" alt="PQC PDF Sign">`
+// lgMark is the brand logo (transparent PNG from Assets/, works on both
+// themes) plus the wordmark, which the logo art does not contain.
+const lgMark = `<img class="mark" src="/assets/img/logo.png" alt="">` +
+	`<span class="wordmark">PQC PDF <b>Sign</b></span>`
 
 // lgThemeToggle is the round sun/moon switch. It needs no wiring — ui-kit.js
 // binds every [data-theme-toggle].
