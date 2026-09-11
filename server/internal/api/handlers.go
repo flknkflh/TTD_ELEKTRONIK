@@ -34,11 +34,20 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		Position     string `json:"position"`
 		NIP          string `json:"nip"`
 	}
-	if err := decode(r, &in); err != nil || in.Email == "" || len(in.Password) < 8 {
-		writeErr(w, http.StatusBadRequest, "email and an 8+ char password are required")
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
-	hash, err := auth.HashPassword(in.Password)
+	p := accountProfile{
+		Email: in.Email, Password: in.Password, DisplayName: in.DisplayName, FullName: in.FullName,
+		Organization: in.Organization, Position: in.Position, NIP: in.NIP,
+	}
+	p.normalize()
+	if msg := validateRegistration(p); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	hash, err := auth.HashPassword(p.Password)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "hash")
 		return
@@ -46,13 +55,13 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 	// Self-registration only ever creates a pending end user. Admin accounts
 	// are created by the super admin (POST /api/v1/admin/admins) — nobody can
 	// mint themselves an operator account.
-	displayName := in.DisplayName
+	displayName := p.DisplayName
 	if displayName == "" {
-		displayName = in.FullName
+		displayName = p.FullName
 	}
 	a, err := s.st.CreateAccount(store.Account{
-		Email: in.Email, DisplayName: displayName, FullName: in.FullName, Organization: in.Organization,
-		Position: in.Position, NIP: in.NIP,
+		Email: p.Email, DisplayName: displayName, FullName: p.FullName, Organization: p.Organization,
+		Position: p.Position, NIP: p.NIP,
 		PasswordHash: hash, Role: store.RoleUser, Status: store.AccountPending,
 	})
 	if err != nil {
@@ -567,46 +576,78 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"verification": res, "registered": false}
+	// reject turns a cryptographically sound signature into an invalid
+	// verdict for a server-side reason, visible to every verifier UI.
+	reject := func(reason string) {
+		res.Valid = false
+		res.Errors = append(res.Errors, reason)
+		if len(res.Signatures) > 0 {
+			res.Signatures[0].Valid = false
+			res.Signatures[0].Errors = append(res.Signatures[0].Errors, reason)
+		}
+	}
 	if len(res.Signatures) > 0 {
-		if pid := res.Signatures[0].PublicID(); pid != "" {
-			if sig, err := s.st.Signature(pid); err == nil {
-				a, _ := s.st.Account(sig.AccountID)
-				d, _ := s.st.Device(sig.DeviceID)
-				out["registered"] = true
-				out["record"] = s.publicRecord(sig, a, d)
+		// A signature is only complete once the server holds a record of the
+		// exact bytes it accepted. Without that record there is nothing to
+		// compare the upload with, so the crypto alone does not make it valid
+		// — e.g. a PDF signed on-device whose submit never reached the server.
+		pid := res.Signatures[0].PublicID()
+		sig, serr := s.st.Signature(pid)
+		switch {
+		case pid == "":
+			out["server_check"] = "no_public_id"
+			if res.Valid {
+				reject("dokumen tidak memuat ID verifikasi PQSign, jadi tidak bisa dibandingkan dengan catatan server")
+			}
+		case serr != nil:
+			out["server_check"] = "no_record"
+			reason := "ID verifikasi " + pid + " tidak dikenal server, jadi tidak bisa dibandingkan dengan catatan server"
+			if _, rerr := s.st.Reservation(pid); rerr == nil {
+				out["server_check"] = "not_submitted"
+				reason = "penandatanganan tidak selesai: dokumen untuk ID " + pid +
+					" tidak pernah diserahkan ke server, jadi tidak bisa dibandingkan dengan catatan server"
+			}
+			if res.Valid {
+				reject(reason)
+			}
+		default:
+			a, _ := s.st.Account(sig.AccountID)
+			d, _ := s.st.Device(sig.DeviceID)
+			out["registered"] = true
+			out["record"] = s.publicRecord(sig, a, d)
 
-				// Second layer, independent of any PDF parsing: the server
-				// issued one exact byte sequence for this public_id. Compare
-				// it with what was uploaded. VerifyPDF already hashed the
-				// input, so reuse that rather than hashing up to 350 MB twice.
-				uploadHash := res.DocumentSHA512
-				out["uploaded_sha512"] = uploadHash
+			// Second layer, independent of any PDF parsing: the server
+			// issued one exact byte sequence for this public_id. Compare
+			// it with what was uploaded. VerifyPDF already hashed the
+			// input, so reuse that rather than hashing up to 350 MB twice.
+			uploadHash := res.DocumentSHA512
+			out["uploaded_sha512"] = uploadHash
 
-				// No recorded digest means "unknown", not "mismatch" -- leave
-				// hash_match absent rather than reporting a difference we
-				// cannot actually establish.
-				known := sig.SignedSHA512 != ""
-				match := known && strings.EqualFold(uploadHash, sig.SignedSHA512)
-				if known {
-					out["hash_match"] = match
+			// No recorded digest means "unknown", not "mismatch" -- leave
+			// hash_match absent rather than reporting a difference we
+			// cannot actually establish.
+			known := sig.SignedSHA512 != ""
+			match := known && strings.EqualFold(uploadHash, sig.SignedSHA512)
+			out["server_check"] = "unknown"
+			if known {
+				out["hash_match"] = match
+				out["server_check"] = "match"
+			}
+
+			if known && !match {
+				// The server recorded the bytes it was given for this ID —
+				// verified at submission, or stored-only for a very large
+				// file. This upload is not those bytes, so reject it
+				// whatever the crypto over /ByteRange says.
+				out["server_check"] = "mismatch"
+				res.Valid = false
+				res.Errors = append(res.Errors,
+					"berkas berbeda dari yang diterbitkan server untuk ID ini (sidik jari SHA-512 tidak cocok)")
+				if len(res.Signatures) > 0 {
+					res.Signatures[0].Valid = false
+					res.Signatures[0].Errors = append(res.Signatures[0].Errors,
+						"sidik jari SHA-512 tidak cocok dengan catatan server")
 				}
-
-				if known && !match && sig.VerificationStatus == store.VerificationAccepted {
-					// The server re-verified this document at submission and
-					// recorded its bytes; this upload is not those bytes, so
-					// reject it whatever the crypto over /ByteRange says.
-					res.Valid = false
-					res.Errors = append(res.Errors,
-						"berkas berbeda dari yang diterbitkan server untuk ID ini (sidik jari SHA-512 tidak cocok)")
-					if len(res.Signatures) > 0 {
-						res.Signatures[0].Valid = false
-						res.Signatures[0].Errors = append(res.Signatures[0].Errors,
-							"sidik jari SHA-512 tidak cocok dengan catatan server")
-					}
-				}
-				// For the stored_unverified tier the server never verified the
-				// file cryptographically, so a mismatch is reported (hash_match
-				// false) but does not by itself flip the crypto verdict.
 			}
 		}
 	}
@@ -674,21 +715,20 @@ func isLoopbackBase(b string) bool {
 
 // qrTarget builds what the QR code encodes for one signature.
 //
-// The signer is already logged into a server at some address; the QR should
-// just point there. In order: an explicit ?base= from the client, then the
-// address the /stamp request actually came in on (i.e. the client's own
-// server URL, from the Host header), then the configured PublicBaseURL. The
-// first of those that is NOT loopback wins and the QR becomes
-// <that>/v/{id} — one scan on any device on the same network opens the
-// result. If every candidate is localhost/127.0.0.1 (e.g. the signer runs on
-// the same box as the server) a link would be useless from a phone, so the
-// QR carries the bare verification ID as plain text instead.
+// With a real PublicBaseURL (PQC_PUBLIC_BASE_URL) the QR always points there.
+// The Host header and ?base= come from the signer's request, so honouring
+// them would let a signer mint QR codes that open some other site while the
+// document itself still verifies. Only a deployment without a real base (dev,
+// or a LAN box left on localhost) falls back to the request: an explicit
+// ?base=, then the address the /stamp request came in on. The QR becomes
+// <that>/v/{id}; if every candidate is localhost/127.0.0.1 a link would be
+// useless from a phone, so the QR carries the bare verification ID instead.
 func (s *Server) qrTarget(r *http.Request, publicID string) string {
-	for _, cand := range []string{
-		strings.TrimSpace(r.URL.Query().Get("base")),
-		reqBase(r),
-		strings.TrimRight(s.cfg.PublicBaseURL, "/"),
-	} {
+	cands := []string{strings.TrimRight(s.cfg.PublicBaseURL, "/")}
+	if isLoopbackBase(cands[0]) {
+		cands = []string{strings.TrimSpace(r.URL.Query().Get("base")), reqBase(r)}
+	}
+	for _, cand := range cands {
 		cand = strings.TrimRight(cand, "/")
 		if isLoopbackBase(cand) {
 			continue

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Local prototype entrypoint: create the lab CA once (into the mounted /ca
-# volume), then run the receiver API with the online CA issuer and
-# rate limiting off — the simple single-box configuration.
+# volume), then run the receiver API with the online CA issuer — the simple
+# single-box configuration. Rate limiting stays on (login 10/min per IP); set
+# PQC_TRUST_PROXY=1 only when a proxy such as Caddy sits in front.
 set -e
 
 # /ca is a mounted volume (always exists), and `ca-admin init` refuses a
@@ -17,7 +18,6 @@ export PQC_ROOT_CA_PEM="$CA_DIR/public/root-ca.crt.pem"
 export PQC_CA_CHAIN_PEM="$CA_DIR/public/ca-chain.pem"
 export PQC_DEV_LAB_CA_ADMIN="/usr/local/bin/ca-admin"
 export PQC_DEV_LAB_CA_DIR="$CA_DIR"
-export PQC_RATE_LIMIT_DISABLED=1
 
 # QR codes encode <public-base-url>/s/<id>. For phones, set PQC_PUBLIC_BASE_URL
 # to this machine's LAN IP on the verify port, e.g.

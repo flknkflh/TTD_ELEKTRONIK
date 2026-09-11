@@ -61,12 +61,16 @@ func (ls *limiterSet) sweep() {
 	}
 }
 
-// clientIP is the best-effort remote address. Behind Caddy the first
-// X-Forwarded-For hop is the real client; direct connections use RemoteAddr.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		first, _, _ := strings.Cut(xff, ",")
-		return strings.TrimSpace(first)
+// clientIP is the best-effort remote address. X-Forwarded-For is honoured
+// only when trustProxy is set (the API sits behind Caddy, which overwrites
+// it): on a directly exposed port anyone can send that header, and a spoofed
+// value would hand every request a fresh rate-limit bucket.
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			first, _, _ := strings.Cut(xff, ",")
+			return strings.TrimSpace(first)
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -76,8 +80,8 @@ func clientIP(r *http.Request) string {
 }
 
 // byIP / byAccount are the two key functions used with limit().
-func byIP(r *http.Request) string      { return clientIP(r) }
-func byAccount(r *http.Request) string { return claims(r).Sub }
+func (s *Server) byIP(r *http.Request) string { return clientIP(r, s.cfg.TrustProxyHeaders) }
+func byAccount(r *http.Request) string        { return claims(r).Sub }
 
 // limit wraps h, rejecting requests over the set's rate with 429.
 func (s *Server) limit(ls *limiterSet, key func(*http.Request) string, h http.HandlerFunc) http.HandlerFunc {

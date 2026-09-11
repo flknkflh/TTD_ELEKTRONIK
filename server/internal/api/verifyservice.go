@@ -19,8 +19,8 @@ func (s *Server) VerifyRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", s.hVerifyHome)
-	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
-	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, byIP, s.hVerifyHash))
+	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, s.byIP, s.hPublicVerify))
+	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, s.byIP, s.hVerifyHash))
 	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)
 	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
@@ -33,7 +33,7 @@ func (s *Server) VerifyRoutes() http.Handler {
 	// The verify page may be opened at one address (localhost) while pointed
 	// at the server on another (the LAN IP typed into the "Alamat server"
 	// box). This service is public and read-only, so allow any origin.
-	return corsAny(mux)
+	return securityHeaders(corsAny(mux))
 }
 
 func corsAny(next http.Handler) http.Handler {
@@ -299,13 +299,6 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
     var storedNote = storedOnly
       ? '<p class="muted">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis oleh server saat diunggah — server hanya menyimpan salinan &amp; mencatat SHA-512-nya. Kecocokan kriptografis di atas dihitung sekarang dari berkas yang Anda unggah.</p>'
       : '';
-    // A stored-only record was never verified server-side, so a hash mismatch
-    // does not flip the crypto verdict -- say plainly that the bytes differ
-    // from the copy the server holds.
-    if (storedOnly && top.hash_match === false) {
-      storedNote += '<p class="bad"><b>⚠ Berkas ini BERBEDA dari salinan yang tersimpan di server untuk ID tersebut.</b> ' +
-        'Sidik jari SHA-512-nya tidak cocok, jadi isinya sudah tidak sama dengan yang diserahkan penanda tangan.</p>';
-    }
     if (o.valid && sigs.length){
       var s = sigs[0];
       var subj = s.subject || '';

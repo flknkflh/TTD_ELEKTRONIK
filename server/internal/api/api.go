@@ -55,6 +55,10 @@ type Config struct {
 	// &RateLimits{} to disable every bucket (tests do this).
 	RateLimits *RateLimits
 
+	// TrustProxyHeaders keys the per-IP rate limits on X-Forwarded-For. Set
+	// it only behind a reverse proxy that overwrites that header (Caddy).
+	TrustProxyHeaders bool
+
 	// LabIssuer, when non-nil, mounts a DEV-ONLY endpoint
 	// (POST /api/v1/admin/enrollments/{id}/issue-lab) that drives the bundled
 	// offline ca-admin binary to issue a device certificate straight from an
@@ -242,7 +246,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/v1/auth/register", s.hRegister)
-	mux.HandleFunc("POST /api/v1/auth/login", s.limit(s.rlLogin, byIP, s.hLogin))
+	mux.HandleFunc("POST /api/v1/auth/login", s.limit(s.rlLogin, s.byIP, s.hLogin))
 	mux.HandleFunc("POST /api/v1/devices", s.user(s.hCreateDevice))
 	mux.HandleFunc("GET /api/v1/devices", s.user(s.hListDevices))
 	mux.HandleFunc("POST /api/v1/devices/{device_id}/csr", s.user(s.hSubmitCSR))
@@ -260,11 +264,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/signatures/{public_id}/download", s.user(s.hDownload))
 	mux.HandleFunc("GET /api/v1/me/signatures", s.user(s.hMySignatures))
 
-	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, byIP, s.hPublicVerify))
-	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, byIP, s.hVerifyHash))
+	mux.HandleFunc("POST /api/v1/verify", s.limit(s.rlVerify, s.byIP, s.hPublicVerify))
+	mux.HandleFunc("POST /api/v1/public/verify-hash", s.limit(s.rlVerify, s.byIP, s.hVerifyHash))
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
-	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver)            // QR target: confirm server address, then -> /v/{id}
-	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage) // human landing page
+	mux.HandleFunc("GET /s/{public_id}", s.hScanResolver) // QR target: confirm server address, then -> /v/{id}
+	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)   // human landing page
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
@@ -301,7 +305,7 @@ func (s *Server) Routes() http.Handler {
 	// Shared Liquid Glass stylesheet + runtime (also mounted on VerifyRoutes).
 	s.mountUIKit(mux)
 
-	return mux
+	return securityHeaders(mux)
 }
 
 // hCapabilities lets the /admin console feature-detect optional endpoints and

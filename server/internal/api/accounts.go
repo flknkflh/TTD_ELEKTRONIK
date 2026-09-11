@@ -237,6 +237,14 @@ func (s *Server) hUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
+	in.FullName, in.Organization = strings.TrimSpace(in.FullName), strings.TrimSpace(in.Organization)
+	if msg := firstProblem(
+		validateText("Nama lengkap", in.FullName, maxNameLen),
+		validateText("Instansi", in.Organization, maxOrgLen),
+	); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	if err := s.st.UpdateAccountProfile(a.ID, in.FullName, in.Organization); err != nil {
 		writeErr(w, http.StatusInternalServerError, "update")
 		return

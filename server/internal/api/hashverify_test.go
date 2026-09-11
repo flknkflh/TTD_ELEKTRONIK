@@ -91,6 +91,33 @@ func TestPublicVerify_HashMismatchRejected(t *testing.T) {
 	}
 }
 
+// TestPublicVerify_UnsubmittedSignatureRejected: a PDF signed on-device whose
+// submit never reached the server carries a sound signature and a real public
+// id, but the server holds no record to compare it with -- so it is not valid.
+func TestPublicVerify_UnsubmittedSignatureRejected(t *testing.T) {
+	e := newEnv(t)
+	user := e.account("user@test", store.RoleUser)
+	admin := e.account("admin@test", store.RoleAdmin)
+	d := e.enrolledDevice(user, admin, "Laptop")
+	pid := e.reserve(user, d.id)
+	signed := e.stampAndSign(user, d, pid) // never PUT to /document
+
+	body := jbody(t, e.verifyMultipart(signed))
+	if body["registered"] != false {
+		t.Fatalf("registered = %v, want false", body["registered"])
+	}
+	if body["server_check"] != "not_submitted" {
+		t.Fatalf("server_check = %v, want not_submitted", body["server_check"])
+	}
+	v := verifyTop(t, body)
+	if v["valid"] != false {
+		t.Fatal("a signature the server has no record of must be reported invalid")
+	}
+	if !contains(errText(v), "tidak bisa dibandingkan dengan catatan server") {
+		t.Fatalf("expected a no-record reason, got %v", v["errors"])
+	}
+}
+
 // TestVerifyHashEndpoint covers the hash-only contract end to end.
 func TestVerifyHashEndpoint(t *testing.T) {
 	e := newEnv(t)

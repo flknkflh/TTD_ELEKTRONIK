@@ -53,6 +53,7 @@ func main() {
 	if boolEnv("PQC_RATE_LIMIT_DISABLED") {
 		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
 	}
+	cfg.TrustProxyHeaders = boolEnv("PQC_TRUST_PROXY") // only behind Caddy / a proxy that sets X-Forwarded-For
 	if bin := os.Getenv("PQC_DEV_LAB_CA_ADMIN"); bin != "" {
 		cfg.LabIssuer = &api.LabIssuer{
 			Bin:        bin,
