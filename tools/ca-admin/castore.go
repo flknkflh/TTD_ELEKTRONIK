@@ -89,11 +89,11 @@ func (s Store) Init(rootCN, interCN string) error {
 	if _, err := os.Stat(s.Dir); err == nil {
 		return fmt.Errorf("ca-admin: %s already exists; refusing to overwrite", s.Dir)
 	}
-	root, err := labpki.NewRootCA(rootCN, 10*365*24*time.Hour)
+	root, err := labpki.NewRootCA(rootCN, 20*365*24*time.Hour)
 	if err != nil {
 		return err
 	}
-	inter, err := labpki.NewIntermediateCA(root, interCN, 5*365*24*time.Hour)
+	inter, err := labpki.NewIntermediateCA(root, interCN, 10*365*24*time.Hour)
 	if err != nil {
 		return err
 	}

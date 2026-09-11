@@ -204,7 +204,7 @@ func cmdIssue(args []string) error {
 	device := fs.String("device", "", "device label (required)")
 	cn := fs.String("cn", "", "certificate common name to ASSIGN (required)")
 	org := fs.String("org", "PQC PDF Sign", "certificate organization")
-	days := fs.Int("days", 365, "validity in days")
+	days := fs.Int("days", 1825, "validity in days")
 	crlURL := fs.String("crl-url", "", "CRL distribution point URL (optional)")
 	out := fs.String("out", "device.crt.pem", "output certificate PEM")
 	_ = fs.Parse(args)
@@ -243,7 +243,7 @@ func cmdBatchIssue(args []string) error {
 	outDir := fs.String("out", "issued", "output directory for certificates")
 	account := fs.String("account", "batch", "default account id")
 	org := fs.String("org", "PQC PDF Sign", "certificate organization")
-	days := fs.Int("days", 365, "validity in days")
+	days := fs.Int("days", 1825, "validity in days")
 	crlURL := fs.String("crl-url", "", "CRL distribution point URL")
 	_ = fs.Parse(args)
 	if *in == "" {
