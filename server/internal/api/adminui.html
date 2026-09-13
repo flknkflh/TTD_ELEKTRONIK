@@ -456,6 +456,16 @@
           </div>
         </div>
         <div class="glass card spotlight" style="margin-top:16px">
+          <h2>Ganti kata sandi saya</h2>
+          <p class="csub">Kata sandi akun super admin yang sedang masuk. Wajib memasukkan kata sandi saat ini.</p>
+          <div class="row">
+            <input type="password" id="cpCurrent" autocomplete="current-password" placeholder="kata sandi saat ini" style="flex:1">
+            <input type="password" id="cpNew" autocomplete="new-password" placeholder="kata sandi baru (min. 8)" style="flex:1">
+            <input type="password" id="cpConfirm" autocomplete="new-password" placeholder="ulangi kata sandi baru" style="flex:1">
+            <button class="btn btn-primary" id="btnChangePw">Ganti kata sandi</button>
+          </div>
+        </div>
+        <div class="glass card spotlight" style="margin-top:16px">
           <div class="row" style="justify-content:space-between">
             <h2 style="margin:0">Admin terdaftar</h2>
             <button class="btn btn-sm" id="btnAdminsRefresh">Muat ulang</button>
@@ -627,6 +637,19 @@ async function addAdmin() {
     $("naUser").value = ""; $("naPass").value = "";
     toast("Admin dibuat — sudah bisa masuk", "ok");
     refreshAdmins();
+  } catch (e) { toast("Gagal: " + e.message, "err"); }
+}
+
+async function changeMyPassword() {
+  const current_password = $("cpCurrent").value;
+  const new_password = $("cpNew").value;
+  if (!current_password) { toast("Isi kata sandi saat ini", "err"); return; }
+  if (new_password.length < 8) { toast("Kata sandi baru minimal 8 karakter", "err"); return; }
+  if (new_password !== $("cpConfirm").value) { toast("Ulangan kata sandi baru tidak sama", "err"); return; }
+  try {
+    await api("POST", "/api/v1/admin/me/password", { current_password, new_password });
+    $("cpCurrent").value = ""; $("cpNew").value = ""; $("cpConfirm").value = "";
+    toast("Kata sandi super admin diganti — pakai yang baru saat masuk berikutnya", "ok");
   } catch (e) { toast("Gagal: " + e.message, "err"); }
 }
 
@@ -951,6 +974,7 @@ $("btnVpOpen").onclick = () => {
 $("btnLogin").onclick = doLogin;
 $("btnLogout").onclick = doLogout;
 $("btnAddAdmin").onclick = addAdmin;
+$("btnChangePw").onclick = changeMyPassword;
 $("btnAdminsRefresh").onclick = () => refreshAdmins().catch(() => {});
 $("btnLogout2").onclick = doLogout;
 $("btnRefresh").onclick = refresh;

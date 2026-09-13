@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"example.internal/pqc-pdf-sign/server/internal/auth"
 	"example.internal/pqc-pdf-sign/server/internal/store"
@@ -71,6 +73,50 @@ func (s *Server) hCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.st.Append(store.AuditEvent{Type: "admin.create", AccountID: a.ID, Result: "ok", Detail: claims(r).Sub})
 	writeJSON(w, http.StatusCreated, s.accountView(a))
+}
+
+// hChangeOwnPassword (super admin only): POST /api/v1/admin/me/password with
+// {"current_password","new_password"}. The super-admin row is locked in
+// /admin/admins, so this is the only way to replace the bootstrap password.
+// The current password is required even with a valid token.
+func (s *Server) hChangeOwnPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad body")
+		return
+	}
+	a, err := s.st.Account(claims(r).Sub)
+	if err != nil || a.Role != store.RoleSuperAdmin {
+		writeErr(w, http.StatusForbidden, "super admin only")
+		return
+	}
+	if !auth.VerifyPassword(in.CurrentPassword, a.PasswordHash) {
+		s.st.Append(store.AuditEvent{Type: "superadmin.password", AccountID: a.ID, Result: "fail", Detail: "wrong current password"})
+		writeErr(w, http.StatusUnauthorized, "kata sandi saat ini salah")
+		return
+	}
+	if n := utf8.RuneCountInString(in.NewPassword); n < minPasswordLen || n > maxPasswordLen {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("kata sandi baru harus %d–%d karakter", minPasswordLen, maxPasswordLen))
+		return
+	}
+	if in.NewPassword == in.CurrentPassword {
+		writeErr(w, http.StatusBadRequest, "kata sandi baru harus berbeda dari yang lama")
+		return
+	}
+	hash, err := auth.HashPassword(in.NewPassword)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "hash")
+		return
+	}
+	if err := s.st.SetAccountPassword(a.ID, hash); err != nil {
+		writeErr(w, http.StatusInternalServerError, "update")
+		return
+	}
+	s.st.Append(store.AuditEvent{Type: "superadmin.password", AccountID: a.ID, Result: "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // hListAdmins (super admin only): the admin roster for the SU console.

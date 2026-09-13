@@ -113,6 +113,7 @@ type Store interface {
 	CreateReservation(store.Reservation) (store.Reservation, error)
 	Reservation(string) (store.Reservation, error)
 	SetReservationStatus(publicID, status string) error
+	SetReservationLetter(publicID, letterNo, letterSubject string) error
 
 	CreateSignature(store.Signature) (store.Signature, error)
 	Signature(string) (store.Signature, error)
@@ -279,6 +280,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/admins", s.superadmin(s.hCreateAdmin))
 	mux.HandleFunc("PATCH /api/v1/admin/admins/{id}", s.superadmin(s.hUpdateAdmin))
 	mux.HandleFunc("DELETE /api/v1/admin/admins/{id}", s.superadmin(s.hDeleteAdmin))
+	// Rate-limited like login: the current password is checked, so a stolen
+	// session token must not become a way to guess it.
+	mux.HandleFunc("POST /api/v1/admin/me/password", s.superadmin(s.limit(s.rlLogin, byAccount, s.hChangeOwnPassword)))
 
 	mux.HandleFunc("GET /api/v1/admin/accounts", s.admin(s.hListAccounts))
 	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/approve", s.admin(s.hApproveAccount))

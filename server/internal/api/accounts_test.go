@@ -131,6 +131,40 @@ func TestAdminManagedBySuperAdmin(t *testing.T) {
 	mustCode(t, e.do("POST", "/api/v1/admin/accounts/"+su+"/disable", e.su, nil), http.StatusForbidden)
 }
 
+// The super admin replaces its own (bootstrap) password; nobody else can use
+// the route, and the current password is always required.
+func TestSuperAdminChangesOwnPassword(t *testing.T) {
+	e := newEnv(t)
+	admin := e.account("admin@test", store.RoleAdmin)
+	user := e.account("user@test", store.RoleUser)
+	const path = "/api/v1/admin/me/password"
+	login := func(pw string) int {
+		return e.do("POST", "/api/v1/auth/login", "", map[string]string{"email": "_su@test", "password": pw}).Code
+	}
+
+	// only the super admin
+	body := map[string]string{"current_password": "password123", "new_password": "brand-new-pass"}
+	mustCode(t, e.do("POST", path, admin, body), http.StatusForbidden)
+	mustCode(t, e.do("POST", path, user, body), http.StatusForbidden)
+	mustCode(t, e.do("POST", path, "", body), http.StatusUnauthorized)
+
+	// rejected: wrong current, too short, unchanged
+	mustCode(t, e.do("POST", path, e.su, map[string]string{"current_password": "wrong-pass", "new_password": "brand-new-pass"}), http.StatusUnauthorized)
+	mustCode(t, e.do("POST", path, e.su, map[string]string{"current_password": "password123", "new_password": "short"}), http.StatusBadRequest)
+	mustCode(t, e.do("POST", path, e.su, map[string]string{"current_password": "password123", "new_password": "password123"}), http.StatusBadRequest)
+	if login("password123") != http.StatusOK {
+		t.Fatal("rejected attempts changed the password")
+	}
+
+	mustCode(t, e.do("POST", path, e.su, body), http.StatusOK)
+	if login("password123") != http.StatusUnauthorized {
+		t.Fatal("old super-admin password still works")
+	}
+	if login("brand-new-pass") != http.StatusOK {
+		t.Fatal("new super-admin password does not work")
+	}
+}
+
 // adminID resolves an account id by username from the super-admin roster.
 func adminID(t *testing.T, e *env, username string) string {
 	t.Helper()
