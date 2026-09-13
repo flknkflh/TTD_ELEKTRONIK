@@ -132,6 +132,8 @@ func (s *Server) hVerifyPage(w http.ResponseWriter, r *http.Request) {
 		}
 		rows += "<tr><th>" + html.EscapeString(k) + "</th><td>" + html.EscapeString(v) + "</td></tr>"
 	}
+	add("Nomor surat", str(rec["letter_no"]))
+	add("Perihal surat", str(rec["letter_subject"]))
 	add("Penanda tangan", str(rec["signer_name"]))
 	add("Jabatan", str(rec["position"]))
 	add("NIP", str(rec["nip"]))

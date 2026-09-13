@@ -361,14 +361,20 @@ func (p *Postgres) CreateReservation(r Reservation) (Reservation, error) {
 func (p *Postgres) Reservation(publicID string) (Reservation, error) {
 	var r Reservation
 	err := p.db.QueryRow(
-		`SELECT public_id,account_id,device_id,original_sha512,file_name,status,created_at,expires_at
+		`SELECT public_id,account_id,device_id,original_sha512,file_name,status,created_at,expires_at,letter_no,letter_subject
 		 FROM reservations WHERE public_id=$1`, publicID).
-		Scan(&r.PublicID, &r.AccountID, &r.DeviceID, &r.OriginalSHA512, &r.FileName, &r.Status, &r.CreatedAt, &r.ExpiresAt)
+		Scan(&r.PublicID, &r.AccountID, &r.DeviceID, &r.OriginalSHA512, &r.FileName, &r.Status, &r.CreatedAt, &r.ExpiresAt,
+			&r.LetterNo, &r.LetterSubject)
 	return r, norm(err)
 }
 
 func (p *Postgres) SetReservationStatus(publicID, status string) error {
 	return affected(p.db.Exec(`UPDATE reservations SET status=$1 WHERE public_id=$2`, status, publicID))
+}
+
+func (p *Postgres) SetReservationLetter(publicID, letterNo, letterSubject string) error {
+	return affected(p.db.Exec(`UPDATE reservations SET letter_no=$1, letter_subject=$2 WHERE public_id=$3`,
+		letterNo, letterSubject, publicID))
 }
 
 func (p *Postgres) CreateSignature(s Signature) (Signature, error) {

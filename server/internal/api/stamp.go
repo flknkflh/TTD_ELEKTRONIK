@@ -108,6 +108,13 @@ func (s *Server) hStamp(w http.ResponseWriter, r *http.Request) {
 	issuedPlace := strings.TrimSpace(q.Get("issued_place"))
 	letterNo := strings.TrimSpace(q.Get("letter_no"))
 	letterSubject := strings.TrimSpace(q.Get("letter_subject"))
+	if msg := firstProblem(
+		validateText("Nomor surat", letterNo, maxLetterNoLen),
+		validateText("Perihal surat", letterSubject, maxLetterSubjectLen),
+	); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
 
 	stamped, err := stampQR(body, places, coverData{
 		PublicID:  res.PublicID,
@@ -129,6 +136,8 @@ func (s *Server) hStamp(w http.ResponseWriter, r *http.Request) {
 				"Cetak ulang ke PDF (Print → Simpan sebagai PDF) lalu coba lagi.")
 		return
 	}
+	// Keep what the caption says so the verification pages can show it too.
+	_ = s.st.SetReservationLetter(res.PublicID, letterNo, letterSubject)
 	s.audit("stamp.apply", c, res.DeviceID, "ok", res.PublicID)
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("X-QR-Stamp", "applied")

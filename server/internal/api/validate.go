@@ -18,6 +18,9 @@ const (
 	maxOrgLen      = 150
 	maxPositionLen = 200
 	maxNIPLen      = 18
+
+	maxLetterNoLen      = 100
+	maxLetterSubjectLen = 200
 )
 
 // accountProfile is the user-supplied part of a self-registration.

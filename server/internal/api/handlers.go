@@ -682,8 +682,11 @@ func (s *Server) publicRecord(sig store.Signature, a store.Account, d store.Devi
 	} else if d.Status == store.DeviceLost {
 		certStatus = "device_reported_lost"
 	}
+	rsv, _ := s.st.Reservation(sig.PublicID) // letter number + subject from the stamp
 	return map[string]any{
 		"public_id":                   sig.PublicID,
+		"letter_no":                   rsv.LetterNo,
+		"letter_subject":              rsv.LetterSubject,
 		"signer_name":                 a.DisplayName,
 		"position":                    a.Position,
 		"nip":                         a.NIP,

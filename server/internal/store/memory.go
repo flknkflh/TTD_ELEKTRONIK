@@ -380,6 +380,18 @@ func (m *Memory) SetReservationStatus(publicID, status string) error {
 	return nil
 }
 
+func (m *Memory) SetReservationLetter(publicID, letterNo, letterSubject string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.reservations[publicID]
+	if !ok {
+		return ErrNotFound
+	}
+	r.LetterNo, r.LetterSubject = letterNo, letterSubject
+	m.reservations[publicID] = r
+	return nil
+}
+
 func (m *Memory) CreateSignature(s Signature) (Signature, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

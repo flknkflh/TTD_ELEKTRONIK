@@ -108,6 +108,9 @@ type Reservation struct {
 	Status         string
 	CreatedAt      time.Time
 	ExpiresAt      time.Time
+	// The letter number and subject typed for this signature at stamp time.
+	LetterNo      string
+	LetterSubject string
 }
 
 type Signature struct {

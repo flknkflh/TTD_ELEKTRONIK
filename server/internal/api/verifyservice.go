@@ -320,6 +320,8 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
         '<table>' +
           row('Penanda tangan', name) +
           row('Instansi', org) +
+          row('Nomor surat', rec.letter_no) +
+          row('Perihal surat', rec.letter_subject) +
           row('Algoritma', s.algorithm) +
           row('Alasan', s.reason) +
           row('Waktu (klaim perangkat)', s.client_claimed_signing_time) +
