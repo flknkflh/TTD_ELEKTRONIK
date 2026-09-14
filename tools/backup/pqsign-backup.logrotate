@@ -1,0 +1,8 @@
+# /etc/logrotate.d/pqsign-backup
+/var/log/pqsign-backup.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+}

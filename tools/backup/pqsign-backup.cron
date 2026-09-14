@@ -1,0 +1,4 @@
+# /etc/cron.d/pqsign-backup — daily local backup of PQ PDF Sign (RUNBOOK §8.1)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 2 * * * root /usr/local/sbin/pqsign-backup >> /var/log/pqsign-backup.log 2>&1

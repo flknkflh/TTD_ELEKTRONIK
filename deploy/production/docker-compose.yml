@@ -72,12 +72,16 @@ services:
       PQC_CA_DEVICE_CERT_DAYS: "${PQC_CA_DEVICE_CERT_DAYS:-365}"
       PQC_CA_RENEW_DAYS: "${PQC_CA_RENEW_DAYS:-30}"
       PQC_CA_ROTATE_DAYS: "${PQC_CA_ROTATE_DAYS:-730}"
+      # Host backup report (tools/backup/pqsign-backup.sh, RUNBOOK 8.1), shown
+      # to the super admin. Read-only: the API never touches the backups.
+      PQC_BACKUP_STATUS_FILE: /backup-status/status.json
     secrets:
       - ca_intermediate_passphrase
     volumes:
       - ./pki:/pki:ro
       - objdata:/objects
       - cadata:/ca
+      - /var/backups/pqsign/status:/backup-status:ro
     depends_on:
       postgres:
         condition: service_healthy

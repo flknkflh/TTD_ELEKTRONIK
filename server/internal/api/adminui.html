@@ -24,6 +24,12 @@
   .a-top .who { font-size:12px; color:var(--text-secondary); text-align:right; }
   .ca-notices { max-width:1320px; margin:12px auto 0; padding:0 22px; display:grid; gap:8px; }
   .ca-notices:empty { display:none; }
+  .backup-guide { margin-top:14px; font-size:13px; line-height:1.6; }
+  .backup-guide ol { padding-left:20px; margin:8px 0; }
+  .backup-guide li { margin-bottom:12px; }
+  .backup-guide pre { position:relative; margin:6px 0 0; padding:10px 12px; border-radius:10px; background:rgba(127,127,127,.12); font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; white-space:pre-wrap; word-break:break-all; }
+  .backup-guide pre button { position:absolute; top:6px; right:6px; }
+  .backup-guide .warnbox { padding:10px 12px; border-radius:10px; border:1px solid rgba(239,68,68,.6); background:rgba(239,68,68,.1); margin:8px 0; }
   .ca-notice { padding:10px 14px; border-radius:12px; font-size:13px; line-height:1.5; border:1px solid rgba(127,127,127,.28); background:rgba(127,127,127,.08); }
   .ca-notice.warn { border-color:rgba(234,179,8,.6); background:rgba(234,179,8,.13); }
   .ca-notice.critical { border-color:rgba(239,68,68,.65); background:rgba(239,68,68,.13); font-weight:600; }
@@ -521,6 +527,18 @@
           </div>
         </div>
         <div class="glass card spotlight" style="margin-top:16px">
+          <div class="row" style="justify-content:space-between">
+            <h2 style="margin:0">Backup data</h2>
+            <button class="btn btn-sm" id="btnBackupRefresh">Muat ulang</button>
+          </div>
+          <p class="csub" id="backupSummary" style="margin-top:8px">—</p>
+          <div class="tbl-wrap"><table><tbody id="backupRows"></tbody></table></div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn" id="btnBackupGuide">Petunjuk tarik database</button>
+          </div>
+          <div id="backupGuide" class="hidden backup-guide"></div>
+        </div>
+        <div class="glass card spotlight" style="margin-top:16px">
           <h2>Ganti kata sandi saya</h2>
           <p class="csub">Kata sandi akun super admin yang sedang masuk. Wajib memasukkan kata sandi saat ini.</p>
           <div class="row">
@@ -727,6 +745,7 @@ async function afterLogin() {
     showView("admins");
     await refreshAdmins().catch(() => {});
     await refreshIssuer().catch(() => {});
+    await refreshBackup().catch(() => {});
     return;   // no client-account / device polling for the super admin
   }
 
@@ -786,6 +805,95 @@ async function refreshIssuer() {
   });
   el.innerHTML = html;
 }
+
+// ---- backup report + restore guide (super admin) -------------------
+let lastBackup = null;
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : n) + " " + u[i];
+}
+function fmtTime(s) { return s ? new Date(s).toLocaleString("id-ID") : "—"; }
+
+async function refreshBackup() {
+  let r;
+  try { r = await api("GET", "/api/v1/admin/backup"); }
+  catch (e) { if (e.status === 403) return; throw e; }
+  lastBackup = r;
+  const sum = $("backupSummary"), rows = $("backupRows");
+  if (!r.configured) {
+    sum.textContent = "Laporan backup belum diaktifkan di server ini (PQC_BACKUP_STATUS_FILE).";
+    rows.innerHTML = ""; return;
+  }
+  if (!r.available) {
+    sum.innerHTML = '<span class="pill pending">Belum ada laporan</span> Backup belum pernah berjalan, atau file laporan tidak terbaca.';
+    rows.innerHTML = ""; return;
+  }
+  const st = r.status || {};
+  const pill = r.failed ? '<span class="pill pending">Gagal</span>'
+    : r.stale ? '<span class="pill pending">Terlambat</span>' : '<span class="pill approved">Normal</span>';
+  sum.innerHTML = `${pill} Backup terakhir berhasil: <b>${esc(fmtTime(st.last_success_at))}</b>` +
+    (r.age_hours != null ? ` (${esc(String(r.age_hours))} jam lalu)` : "");
+  const keep = st.keep || {};
+  const data = st.data_bytes || {};
+  const vols = Object.entries(data.volumes || {}).map(([k, v]) => `${k}: ${fmtBytes(v)}`).join(", ");
+  const snaps = (st.snapshots || []).slice(0, 5).map((s) => `${esc(fmtTime(s.time))} <code>${esc(s.id)}</code>`).join("<br>");
+  const tr = (k, v) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`;
+  rows.innerHTML =
+    tr("Hasil terakhir", `${esc(st.last_result === "ok" ? "berhasil" : "gagal")} · ${esc(fmtTime(st.last_run_at))} · ${esc(String(st.last_duration_seconds ?? "—"))} dtk` +
+      (st.last_error ? `<br><span class="bad">${esc(st.last_error)}</span>` : "")) +
+    tr("Jadwal", esc(st.schedule || "—")) +
+    tr("Masa simpan", esc(`${keep.daily ?? "?"} harian, ${keep.weekly ?? "?"} mingguan, ${keep.monthly ?? "?"} bulanan`)) +
+    tr("Jumlah backup tersimpan", esc(String(st.snapshot_count ?? 0))) +
+    tr("Ukuran repositori backup", esc(fmtBytes(st.repository_bytes))) +
+    tr("Data yang di-backup", esc(`database ${fmtBytes(data.database_dump)}` + (vols ? `, ${vols}` : ""))) +
+    tr("Lokasi (di server ini)", `<code>${esc(st.repository || "—")}</code>`) +
+    tr("Backup terbaru", snaps || "—");
+  if (!$("backupGuide").classList.contains("hidden")) renderBackupGuide();
+}
+
+function renderBackupGuide() {
+  const st = (lastBackup && lastBackup.status) || {};
+  const repo = st.repository || "/var/backups/pqsign/repo";
+  const pw = st.password_file || "/root/.config/pqsign-backup/restic-password";
+  const dump = st.db_dump_path || "/var/backups/pqsign/staging/pqsign-db.dump";
+  const pg = st.database_container || "pqsign-postgres-1";
+  const dbu = st.database_user || "pqc", dbn = st.database_name || "pqc";
+  const host = location.hostname;
+  const R = `sudo restic -r ${repo} --password-file ${pw}`;
+  const block = (cmd) => `<pre><button class="btn btn-sm" type="button" data-copy>Salin</button>${esc(cmd)}</pre>`;
+  $("backupGuide").innerHTML = `
+    <p><b>Backup hanya bisa diambil lewat server (SSH), bukan dari konsol ini.</b> Semua backup terenkripsi; tanpa file kata sandi
+      <code>${esc(pw)}</code> (salinannya wajib disimpan di luar server) backup tidak bisa dibuka.</p>
+    <ol>
+      <li><b>Masuk ke server</b> sebagai admin yang punya sudo.
+        ${block(`ssh <user>@${host}`)}</li>
+      <li><b>Lihat daftar backup</b> — catat ID atau pakai <code>latest</code> untuk yang terbaru.
+        ${block(`${R} snapshots`)}</li>
+      <li><b>Ambil file database</b> dari backup (ganti <code>latest</code> dengan ID bila perlu). Hasilnya:
+        <code>/tmp/pqsign-restore${esc(dump)}</code>
+        ${block(`${R} restore latest --target /tmp/pqsign-restore --include ${dump}\nsudo chown $USER /tmp/pqsign-restore${dump}`)}</li>
+      <li><b>Salin ke komputer Anda</b> (jalankan di komputer Anda, bukan di server).
+        ${block(`scp <user>@${host}:/tmp/pqsign-restore${dump} ./pqsign-db.dump`)}</li>
+      <li><b>Buka isinya dengan aman</b> di PostgreSQL sementara — tidak menyentuh server berjalan.
+        ${block(`docker run -d --name pqsign-cek -e POSTGRES_PASSWORD=cek postgres:17-alpine\ndocker cp pqsign-db.dump pqsign-cek:/db.dump\ndocker exec pqsign-cek sh -c 'until pg_isready -U postgres; do sleep 1; done; createdb -U postgres ${dbn} && pg_restore -U postgres -d ${dbn} --no-owner /db.dump'\ndocker exec -it pqsign-cek psql -U postgres -d ${dbn} -c "select count(*) from signatures"`)}
+        Selesai: <code>docker rm -f pqsign-cek</code></li>
+      <li><b>Hapus salinan sementara di server.</b>
+        ${block(`sudo rm -rf /tmp/pqsign-restore`)}</li>
+    </ol>
+    <p><b>File PDF dan data CA</b> ada di backup yang sama (volume <code>${esc((st.volumes || []).join(", ") || "objdata, cadata")}</code>);
+      ambil dengan perintah langkah 3 tanpa <code>--include</code>, lalu salin foldernya.</p>
+    <div class="warnbox"><b>Memulihkan database ke server yang berjalan (darurat saja).</b> Ini <b>menimpa semua data saat ini</b>
+      (akun, tanda tangan, audit). Lakukan hanya dengan persetujuan penanggung jawab dan ikuti RUNBOOK §8.1; buat backup baru dulu.
+      ${block(`sudo /usr/local/sbin/pqsign-backup\ndocker stop <nama-container-api>\ndocker exec -i ${pg} pg_restore -U ${dbu} -d ${dbn} --clean --if-exists --no-owner < /tmp/pqsign-restore${dump}\ndocker start <nama-container-api>`)}</div>`;
+}
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-copy]");
+  if (!b) return;
+  const text = b.parentElement.textContent.replace(/^Salin/, "");
+  navigator.clipboard.writeText(text).then(() => toast("Perintah disalin", "ok"), () => toast("Blok teksnya lalu salin manual", "err"));
+});
 
 // ---- CA notices (admin + super admin) -----------------------------
 function renderNotices() {
@@ -1195,6 +1303,14 @@ $("btnIssuerInstall").onclick = async () => {
       : "Intermediate terpasang" + (r.crl_published ? " — CRL pertama diterbitkan" : ""), "ok");
     refreshIssuer(); refreshCrlStatus();
   } catch (e) { toast("Ditolak: " + e.message, "err"); }
+};
+$("btnBackupRefresh").onclick = () => refreshBackup().catch((e) => toast("Gagal: " + e.message, "err"));
+$("btnBackupGuide").onclick = () => {
+  const g = $("backupGuide");
+  const show = g.classList.contains("hidden");
+  if (show) renderBackupGuide();
+  g.classList.toggle("hidden", !show);
+  $("btnBackupGuide").textContent = show ? "Tutup petunjuk" : "Petunjuk tarik database";
 };
 $("btnIssuerRotate").onclick = async () => {
   if (!confirm("Mulai rotasi Intermediate sekarang? Server membuat kunci + CSR Intermediate berikutnya; Intermediate aktif tetap dipakai sampai sertifikat barunya dipasang.")) return;

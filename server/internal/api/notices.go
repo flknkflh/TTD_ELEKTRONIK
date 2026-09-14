@@ -63,6 +63,21 @@ func (s *Server) caNotices() []caNotice {
 		}
 	}
 
+	if s.cfg.BackupStatusFile != "" {
+		b := s.backupReport()
+		switch {
+		case b["available"] != true:
+			out = append(out, caNotice{"warn", "backup_missing",
+				"Belum ada laporan backup: pastikan jadwal backup berjalan (super admin → Admin → Backup data)."})
+		case b["failed"] == true:
+			out = append(out, caNotice{"warn", "backup_failed",
+				"Backup terakhir gagal. Lihat penyebabnya di menu Admin → Backup data (super admin)."})
+		case b["stale"] == true:
+			out = append(out, caNotice{"warn", "backup_stale", fmt.Sprintf(
+				"Backup terakhir yang berhasil sudah lebih dari %v jam lalu. Periksa jadwal backup (super admin → Admin → Backup data).", b["max_age_hours"])})
+		}
+	}
+
 	if st := s.crlStatus(); st != nil && st["stale"] == true {
 		out = append(out, caNotice{"critical", "crl_stale",
 			"CRL sudah basi: aplikasi dan verifikator luar tidak mendapat daftar pencabutan terbaru."})

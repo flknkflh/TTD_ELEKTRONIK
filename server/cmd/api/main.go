@@ -54,8 +54,10 @@ func main() {
 	if boolEnv("PQC_RATE_LIMIT_DISABLED") {
 		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
 	}
-	cfg.TrustProxyHeaders = boolEnv("PQC_TRUST_PROXY") // only behind Caddy / a proxy that sets X-Forwarded-For
-	cfg.AdminMFA = !boolEnv("PQC_ADMIN_MFA_DISABLED")  // admin console TOTP (Google Authenticator)
+	cfg.TrustProxyHeaders = boolEnv("PQC_TRUST_PROXY")                                   // only behind Caddy / a proxy that sets X-Forwarded-For
+	cfg.BackupStatusFile = os.Getenv("PQC_BACKUP_STATUS_FILE")                           // host backup report (tools/backup)
+	cfg.BackupMaxAge = time.Duration(intEnv("PQC_BACKUP_MAX_AGE_HOURS", 72)) * time.Hour // reminder threshold
+	cfg.AdminMFA = !boolEnv("PQC_ADMIN_MFA_DISABLED")                                    // admin console TOTP (Google Authenticator)
 	if !cfg.AdminMFA {
 		log.Printf("api: admin MFA DISABLED (PQC_ADMIN_MFA_DISABLED) — lab / scripted runs only")
 	}

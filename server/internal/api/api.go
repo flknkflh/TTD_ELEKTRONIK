@@ -45,6 +45,12 @@ type Config struct {
 	AccessTTL      time.Duration
 	Issuer         string // TOTP issuer label; "" -> "PQC PDF Sign"
 
+	// BackupStatusFile is the report written by tools/backup/pqsign-backup.sh
+	// (mounted read-only); "" disables the backup report and its reminders.
+	// BackupMaxAge is how old the last successful backup may be; 0 -> 72 h.
+	BackupStatusFile string
+	BackupMaxAge     time.Duration
+
 	// AdminMFA requires a TOTP second factor (Google Authenticator & co.) on
 	// the admin console: an admin or super admin without a confirmed
 	// authenticator gets a setup-only session. End users are never asked.
@@ -310,6 +316,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/admin/ca/intermediate.csr", s.superadmin(s.hIntermediateCSR))
 	mux.HandleFunc("POST /api/v1/admin/ca/intermediate", s.superadmin(s.hInstallIntermediate))
 	mux.HandleFunc("POST /api/v1/admin/ca/rotate", s.superadmin(s.hStartRotation))
+
+	// Backup report (backup.go): read-only, super admin only. No download.
+	mux.HandleFunc("GET /api/v1/admin/backup", s.superadmin(s.hBackupReport))
 
 	mux.HandleFunc("GET /api/v1/admin/admins", s.superadmin(s.hListAdmins))
 	mux.HandleFunc("POST /api/v1/admin/admins", s.superadmin(s.hCreateAdmin))

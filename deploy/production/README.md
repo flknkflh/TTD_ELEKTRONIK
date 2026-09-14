@@ -2,7 +2,7 @@
 
 Lab → production server move (§28). **Follow [RUNBOOK.md](RUNBOOK.md)** step
 by step; it uses the files in this folder (`docker-compose.yml`, `Dockerfile`,
-`Caddyfile`, `.env.example`, `backup.sh`).
+`Caddyfile`, `.env.example`) and the local backup in `tools/backup/`.
 
 **Moved:** source/build recipe, API image, Caddy config, DB migrations, Root +
 Intermediate **public** certs, public CRL, production config (no secrets in Git).

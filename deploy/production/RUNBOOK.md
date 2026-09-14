@@ -9,7 +9,7 @@ berurutan dari 0 sampai 9. File pendukung ada di folder ini:
 | `Dockerfile` | Image API non-root, berisi `ca-admin` (tanpa kunci CA apa pun) |
 | `Caddyfile` | HTTPS domain, TLS 1.3 hybrid ML-KEM, HSTS, batas body |
 | `.env.example` | Semua variabel yang wajib diisi |
-| `backup.sh` | Backup harian terenkripsi (database, PDF, volume CA) |
+| `../../tools/backup/` | Backup harian lokal terenkripsi (restic) + laporan untuk super admin (§8.1) |
 
 **Model CA: split CA.** Kunci **Root** hanya pernah ada di container sementara
 tanpa jaringan di RAM, lalu disimpan terenkripsi di USB — **tidak pernah** di
@@ -119,7 +119,7 @@ keduanya `no`.
 
 ```sh
 apt-get update && apt-get -y upgrade
-apt-get install -y ca-certificates curl git ufw chrony unattended-upgrades age dnsutils
+apt-get install -y ca-certificates curl git ufw chrony unattended-upgrades restic python3 dnsutils
 dpkg-reconfigure -f noninteractive unattended-upgrades
 systemctl enable --now chrony
 ```
@@ -465,20 +465,28 @@ for i in $(seq 1 12); do curl -s -o /dev/null -w "%{http_code} " -X POST https:/
 
 ### 7.4 Backup dan restore drill
 
-Jalankan §8.1 sekali, lalu restore ke **VM terpisah** (bukan produksi):
+Setelah §8.1 terpasang, uji restore ke PostgreSQL sementara — data yang
+berjalan tidak disentuh:
 
 ```sh
-age -d -i key.txt db-*.dump.age > db.dump
-docker run -d --name pgdrill -e POSTGRES_PASSWORD=x postgres:17-alpine
-docker cp db.dump pgdrill:/db.dump
-docker exec pgdrill sh -c 'until pg_isready -U postgres; do sleep 1; done; createdb -U postgres pqc && pg_restore -U postgres -d pqc --no-owner /db.dump'
-docker exec pgdrill psql -U postgres -d pqc -Atc "select count(*) from accounts"
-age -d -i key.txt ca-*.tar.age | tar -tf - | grep -E 'intermediate/(key.pem.enc|cert.pem)|ledger.json'
+R="restic -r /var/backups/pqsign/repo --password-file /root/.config/pqsign-backup/restic-password"
+DUMP=/var/backups/pqsign/staging/pqsign-db.dump
+$R snapshots
+$R restore latest --target /tmp/pqsign-restore --include $DUMP
+docker run -d --name pqsign-cek -e POSTGRES_PASSWORD=cek postgres:17-alpine
+docker cp /tmp/pqsign-restore$DUMP pqsign-cek:/db.dump
+docker exec pqsign-cek sh -c 'until pg_isready -U postgres; do sleep 1; done; sleep 2; createdb -U postgres pqc && pg_restore -U postgres -d pqc --no-owner /db.dump'
+docker exec pqsign-cek psql -U postgres -d pqc -Atc "select count(*) from accounts" -c "select count(*) from signatures"
+docker compose exec -T postgres psql -U pqc -d pqc -Atc "select count(*) from accounts" -c "select count(*) from signatures"
+$R restore latest --target /tmp/pqsign-restore --include /var/lib/docker/volumes/pqsign_cadata/_data
+find /tmp/pqsign-restore -name 'key.pem*'
+docker rm -f pqsign-cek && rm -rf /tmp/pqsign-restore
 ```
 
-**Cek:** jumlah akun sesuai; arsip CA berisi kunci Intermediate terenkripsi,
-sertifikat, ledger — dan **tidak** berisi `root/key.pem*`. Hapus `db.dump`,
-`key.txt`, container drill.
+**Cek:** jumlah akun dan tanda tangan hasil restore sama dengan yang berjalan;
+arsip CA hanya berisi `intermediate/key.pem.enc` (dan `retired/*/key.pem.enc`
+setelah rotasi) — **tidak** ada `root/key.pem*`. Ulangi uji ini **sebulan
+sekali** dan catat hasilnya.
 
 ---
 
@@ -486,19 +494,47 @@ sertifikat, ledger — dan **tidak** berisi `root/key.pem*`. Hapus `db.dump`,
 
 ### 8.1 Backup harian
 
-Private key age dibuat **di luar server** (`age-keygen -o key.txt`); hanya
-public key `age1...` di server.
+**Model:** backup **lokal** di server ini, sekali sehari 02:30 UTC, dengan
+restic (terenkripsi, inkremental): dump database, volume PDF (`objdata`) dan
+volume CA (`cadata`). Masa simpan **7 harian + 4 mingguan + 6 bulanan** (satu
+snapshot terakhir per hari/minggu/bulan). Laporan tampil untuk super admin di
+**Admin → Backup data**; banner muncul bila backup gagal atau lebih dari 72
+jam tidak berhasil (`PQC_BACKUP_MAX_AGE_HOURS`). Backup **tidak** bisa diunduh
+dari konsol: pengambilan lewat SSH, dan tombol **Petunjuk tarik database**
+menampilkan perintahnya dengan path server ini.
+
+Pasang (sekali, sebelum atau sesudah §5):
 
 ```sh
-chmod 700 backup.sh
-echo '15 2 * * * root AGE_RECIPIENT=age1PUBLICKEY /opt/pqsign/deploy/production/backup.sh >> /var/log/pqsign-backup.log 2>&1' > /etc/cron.d/pqsign-backup
+apt-get install -y restic python3
+install -d -m 700 /root/.config/pqsign-backup
+(umask 077; openssl rand -base64 33 > /root/.config/pqsign-backup/restic-password)
+install -m 600 /opt/pqsign/tools/backup/pqsign-backup.env.example /etc/pqsign-backup.env   # cek nama container/volume
+install -m 755 /opt/pqsign/tools/backup/pqsign-backup.sh /usr/local/sbin/pqsign-backup
+install -m 644 /opt/pqsign/tools/backup/pqsign-backup.cron /etc/cron.d/pqsign-backup
+install -m 644 /opt/pqsign/tools/backup/pqsign-backup.logrotate /etc/logrotate.d/pqsign-backup
+install -d -m 755 /var/backups/pqsign/status
+/usr/local/sbin/pqsign-backup
+docker compose up -d api        # memuat laporan backup (mount read-only)
 ```
 
-Salin `/var/backups/pqsign` ke lokasi di luar server setiap hari. Backup
-berisi hash password, secret TOTP admin, riwayat CRL, dan **kunci Intermediate
-terenkripsi**. Simpan juga salinan `secrets/ca_intermediate_passphrase` di
-lokasi terpisah dari backup (mis. brankas digital instansi) — tanpa itu
-backup volume CA tidak bisa dipakai.
+⛔ STOP — **salin `/root/.config/pqsign-backup/restic-password` ke lokasi
+aman di luar server** (mis. brankas digital instansi), terpisah dari salinan
+`secrets/ca_intermediate_passphrase`. Tanpa file ini backup tidak bisa dibuka.
+Backup berisi hash password, secret TOTP admin, riwayat CRL, dan kunci
+Intermediate terenkripsi.
+
+**Cek:** `tail -3 /var/log/pqsign-backup.log` → `backup ok`; konsol super admin
+→ Backup data → **Normal**. Lalu uji restore §7.4.
+
+**Batasan yang diterima untuk tahap ini:** backup berada di disk yang sama
+dengan data. Ia melindungi dari salah hapus, update gagal, dan data rusak —
+**tidak** dari disk rusak, server disusupi, atau server hilang. Tahap
+berikutnya (§9): salinan di luar server.
+
+**Mengambil database:** ikuti **Petunjuk tarik database** di konsol. Memulihkan
+ke server yang berjalan **menimpa semua data** (akun, tanda tangan, audit):
+hanya dengan persetujuan penanggung jawab, dan buat backup baru dulu.
 
 ### 8.2 Sertifikat perangkat
 
@@ -538,12 +574,13 @@ Otomatis (setiap pencabutan + setiap 24 jam, berlaku 7 hari). Konsol
 - Audit log: lonjakan login/MFA gagal, `certificate.issue` di luar kebiasaan,
   `certificate.renew` gagal, `ca.rotation.start`, `ca.intermediate.install`,
   `ca.intermediate.rotate`.
-- Log backup harian.
+- Laporan backup di konsol super admin (**Admin → Backup data**) dan
+  `/var/log/pqsign-backup.log`.
 
 ### 8.5 Update aplikasi
 
 ```sh
-AGE_RECIPIENT=age1... ./backup.sh
+sudo /usr/local/sbin/pqsign-backup          # backup dulu
 cd /opt/pqsign && git fetch --tags && git checkout <tag-baru>
 cd deploy/production && docker compose build api && docker compose up -d api
 docker compose logs --tail=50 api
@@ -683,6 +720,7 @@ rilis aplikasi, jadi dimulai **±tahun ke-15**:
 | Pencabutan token sesi | Disarankan | Token berlaku 15 menit |
 | Reset / ganti password user biasa | Disarankan | Belum ada |
 | SF-1 parser PDF (loop CPU) | Diterima dengan mitigasi | Batas memori/CPU + timeout |
+| Salinan backup di luar server | Disarankan secepatnya | Backup §8.1 masih lokal (disk yang sama); tambah pull dari kantor atau fitur backup penyedia server |
 
 ## Dilarang di produksi
 
@@ -698,4 +736,7 @@ rilis aplikasi, jadi dimulai **±tahun ke-15**:
 - Menambahkan `ports:` ke `api` atau `postgres`.
 - Memakai CA, database, secret, atau password dari server lab.
 - `docker compose down -v` (menghapus database, PDF, **dan kunci Intermediate**).
+- Menyimpan file kata sandi backup (`/root/.config/pqsign-backup/restic-password`)
+  **hanya** di server.
+- Menambahkan endpoint atau cara untuk mengunduh backup lewat konsol web.
 - Mengganti `PQC_DOMAIN` setelah dokumen pertama ditandatangani.
