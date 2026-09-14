@@ -133,6 +133,7 @@ func (s *Server) hListAdmins(w http.ResponseWriter, r *http.Request) {
 			"role":       a.Role,
 			"status":     a.Status,
 			"self":       a.ID == me,
+			"mfa":        s.mfaEnabled(a.ID),
 			"created_at": fmtTime(a.CreatedAt),
 		})
 	}

@@ -138,6 +138,13 @@
   .lv-card .btn { width:100%; }
   .lv-card .btn-row { display:flex; gap:10px; margin-top:12px; }
   .lv-card .btn-row .btn { flex:1; }
+  #mfaSetupView { min-height:100vh; display:grid; place-items:center; padding:32px 16px; }
+  #mfaSetupView .lv-card { max-width:460px; }
+  .mfa-steps { margin:0 0 14px; padding-left:20px; font-size:13px; line-height:1.6; text-align:left; }
+  .mfa-qr { display:block; margin:0 auto 12px; width:220px; max-width:100%; height:auto; background:#fff; padding:10px; border-radius:14px; }
+  .mfa-note { font-size:12px; margin:12px 0 14px; }
+  .mfa-secret { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; word-break:break-all; user-select:all; }
+  .mfa-codes { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:15px; line-height:1.9; text-align:center; columns:2; margin:0; padding:14px; border-radius:12px; background:rgba(127,127,127,.12); user-select:all; }
 
   /* ---------------- toast (legacy #msg, restyled) ---------------- */
   #msg { position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); max-width:90%;
@@ -192,6 +199,11 @@
     <input type="text" id="email" autocomplete="username" placeholder="admin@local">
     <label for="password">Password</label>
     <input type="password" id="password" autocomplete="current-password" placeholder="••••••••••">
+    <div id="mfaCodeRow" class="hidden">
+      <label for="mfaCode">Kode verifikasi</label>
+      <input type="text" id="mfaCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digit dari Google Authenticator">
+      <p class="muted" style="margin:6px 0 0;font-size:12px">HP hilang? Ketik salah satu kode pemulihan.</p>
+    </div>
     <button class="btn btn-primary" id="btnLogin" style="margin-top:16px">
       <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
       Masuk
@@ -203,6 +215,36 @@
       Akun admin dibuat oleh <b>super admin</b> (menu “Admin” setelah masuk sebagai super admin).
       Kredensial super admin pertama dicetak di log server saat pertama kali dijalankan.
     </p>
+  </section>
+</div>
+
+<!-- =================== ADMIN MFA SETUP (Google Authenticator) =================== -->
+<div id="mfaSetupView" class="hidden">
+  <section class="glass glass-card glow-border lv-card">
+    <div id="mfaStepScan">
+      <h2 style="margin:0 0 6px">Aktifkan verifikasi 2 langkah</h2>
+      <p class="muted" style="margin:0 0 14px">Wajib untuk akun admin <b id="mfaAccount"></b>. Cukup sekali — setelah ini setiap masuk meminta kode 6 digit dari HP.</p>
+      <ol class="mfa-steps">
+        <li>Pasang <b>Google Authenticator</b> di HP (Play Store / App Store).</li>
+        <li>Di aplikasi, ketuk <b>+</b> → <b>Pindai kode QR</b>, arahkan ke QR ini.</li>
+        <li>Ketik kode 6 digit yang muncul, lalu tekan <b>Aktifkan</b>.</li>
+      </ol>
+      <img id="mfaQr" class="mfa-qr" alt="Kode QR untuk Google Authenticator" width="220" height="220">
+      <a class="btn btn-sm" id="mfaOpenApp" href="#">Buka di Authenticator (bila halaman ini dibuka di HP)</a>
+      <p class="muted mfa-note">Tidak bisa memindai? Pilih <b>Masukkan kunci penyiapan</b> di aplikasi dan ketik: <code id="mfaSecret" class="mfa-secret"></code><br>
+        QR berganti bila halaman dimuat ulang — hapus entri lama di aplikasi bila sempat terpindai.</p>
+      <label for="mfaConfirmCode">Kode dari aplikasi</label>
+      <input type="text" id="mfaConfirmCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+      <button class="btn btn-primary" id="btnMfaConfirm" style="margin-top:14px">Aktifkan</button>
+      <div class="btn-row"><button class="btn" id="btnMfaCancel">Keluar</button></div>
+    </div>
+    <div id="mfaStepRecovery" class="hidden">
+      <h2 style="margin:0 0 6px">Simpan kode pemulihan</h2>
+      <p class="muted" style="margin:0 0 14px">Dipakai bila HP hilang atau aplikasi terhapus: ketik salah satunya di kolom kode saat masuk. Setiap kode <b>hanya sekali pakai</b> dan <b>tidak akan ditampilkan lagi</b>. Cetak atau simpan di tempat aman, terpisah dari HP.</p>
+      <pre id="mfaRecoveryCodes" class="mfa-codes"></pre>
+      <div class="btn-row"><button class="btn" id="btnMfaCopy">Salin</button></div>
+      <button class="btn btn-primary" id="btnMfaDone" style="margin-top:12px">Sudah saya simpan — lanjut</button>
+    </div>
   </section>
 </div>
 
@@ -553,19 +595,80 @@ document.addEventListener("click", (ev) => {
 async function doLogin() {
   const email = $("email").value.trim();
   const password = $("password").value;
+  const code = $("mfaCode").value.trim();
   store.email = email;
   try {
-    const r = await api("POST", "/api/v1/auth/login", { email, password });
+    const body = { email, password };
+    if (code) body.code = code;
+    const r = await api("POST", "/api/v1/auth/login", body);
     store.token = r.access_token;
-    toast("Berhasil masuk", "ok");
+    $("mfaCode").value = "";
+    if (r.mfa_setup_required) { await startMfaSetup(); return; }
+    $("mfaCodeRow").classList.add("hidden");
+    if (typeof r.recovery_codes_left === "number") {
+      toast("Masuk dengan kode pemulihan — sisa " + r.recovery_codes_left + " kode. Bila HP hilang, minta super admin me-reset MFA.", "ok");
+    } else {
+      toast("Berhasil masuk", "ok");
+    }
     await afterLogin();
   } catch (e) {
+    if (e.payload && e.payload.mfa_required) {
+      const first = $("mfaCodeRow").classList.contains("hidden");
+      $("mfaCodeRow").classList.remove("hidden");
+      $("mfaCode").focus();
+      if (first) toast("Masukkan kode 6 digit dari Google Authenticator");
+      else toast("Gagal masuk: " + e.message, "err");
+      return;
+    }
     toast("Gagal masuk: " + e.message, "err");
   }
 }
 
+// ---- admin MFA setup (Google Authenticator) ------------------------
+async function startMfaSetup() {
+  $("loginView").classList.add("hidden");
+  $("appShell").classList.add("hidden");
+  $("mfaSetupView").classList.remove("hidden");
+  $("mfaStepScan").classList.remove("hidden");
+  $("mfaStepRecovery").classList.add("hidden");
+  $("mfaConfirmCode").value = "";
+  try {
+    const r = await api("POST", "/api/v1/admin/mfa/setup", {});
+    $("mfaQr").src = r.qr_png;
+    $("mfaSecret").textContent = r.secret.replace(/(.{4})/g, "$1 ").trim();
+    $("mfaOpenApp").href = r.otpauth_url;
+    $("mfaAccount").textContent = r.account;
+  } catch (e) {
+    toast("Gagal menyiapkan verifikasi 2 langkah: " + e.message, "err");
+    if (e.status === 401) doLogout();
+  }
+}
+
+async function confirmMfa() {
+  const code = $("mfaConfirmCode").value.replace(/\s/g, "");
+  if (!/^\d{6}$/.test(code)) { toast("Kode harus 6 digit", "err"); return; }
+  try {
+    const r = await api("POST", "/api/v1/admin/mfa/confirm", { code });
+    store.token = r.access_token;
+    $("mfaRecoveryCodes").textContent = r.recovery_codes.join("\n");
+    $("mfaStepScan").classList.add("hidden");
+    $("mfaStepRecovery").classList.remove("hidden");
+    toast("Verifikasi 2 langkah aktif", "ok");
+  } catch (e) { toast("Gagal: " + e.message, "err"); }
+}
+
+async function finishMfaSetup() {
+  $("mfaRecoveryCodes").textContent = "";
+  $("mfaSetupView").classList.add("hidden");
+  await afterLogin();
+}
+
 function doLogout() {
   store.token = "";
+  $("mfaSetupView").classList.add("hidden");
+  $("mfaCodeRow").classList.add("hidden");
+  $("mfaCode").value = "";
+  $("mfaRecoveryCodes").textContent = "";
   $("whoami").textContent = "belum masuk";
   $("appShell").classList.add("hidden");
   $("loginView").classList.remove("hidden");
@@ -582,7 +685,11 @@ async function afterLogin() {
   $("whoami").textContent = store.email;
   $("loginView").classList.add("hidden");
   $("appShell").classList.remove("hidden");
-  try { caps = await api("GET", "/api/v1/admin/capabilities"); } catch (_) { caps = { lab_issuer: false }; }
+  try { caps = await api("GET", "/api/v1/admin/capabilities"); }
+  catch (e) {
+    if (e.payload && e.payload.mfa_setup_required) { await startMfaSetup(); return; }
+    caps = { lab_issuer: false };
+  }
 
   // The super admin console does ONE job: manage admin accounts. Hide every
   // client-facing view for it; regular admins never see the "Admin" view.
@@ -619,11 +726,13 @@ async function refreshAdmins() {
         ? `<button class="btn btn-sm btn-danger" data-act="admin-disable" data-id="${esc(id)}">Nonaktifkan</button>`
         : `<button class="btn btn-sm btn-ghost" data-act="admin-enable" data-id="${esc(id)}">Aktifkan</button>`;
       act = `<button class="btn btn-sm btn-ghost" data-act="admin-reset" data-id="${esc(id)}" data-user="${esc(a.username)}">Reset sandi</button> ` +
+            (a.mfa ? `<button class="btn btn-sm btn-ghost" data-act="admin-mfa-reset" data-id="${esc(id)}" data-user="${esc(a.username)}">Reset MFA</button> ` : "") +
             toggle +
             ` <button class="btn btn-sm btn-danger" data-act="admin-delete" data-id="${esc(id)}" data-user="${esc(a.username)}">Hapus</button>`;
     }
+    const mfaPill = a.mfa ? '<span class="pill approved">MFA aktif</span>' : '<span class="pill pending">MFA belum</span>';
     return `<tr><td class="mono">${esc(a.username)}</td><td>${esc(a.role)}</td>` +
-           `<td><span class="pill ${a.status === "active" ? "approved" : "pending"}">${esc(a.status)}</span></td><td>${act}</td></tr>`;
+           `<td><span class="pill ${a.status === "active" ? "approved" : "pending"}">${esc(a.status)}</span> ${mfaPill}</td><td>${act}</td></tr>`;
   }).join("");
   $("adminRows").innerHTML = rows || '<tr><td colspan="4" class="muted">belum ada admin</td></tr>';
 }
@@ -878,6 +987,11 @@ document.addEventListener("click", async (ev) => {
       if (pw.length < 8) { toast("Minimal 8 karakter", "err"); btn.disabled = false; return; }
       await api("PATCH", `/api/v1/admin/admins/${id}`, { password: pw });
       toast("Kata sandi " + u + " diganti", "ok"); refreshAdmins();
+    } else if (act === "admin-mfa-reset") {
+      const u = btn.dataset.user || "admin";
+      if (!confirm("Reset verifikasi 2 langkah " + u + "? Admin tersebut harus memindai QR baru saat masuk berikutnya.")) { btn.disabled = false; return; }
+      await api("POST", `/api/v1/admin/admins/${id}/mfa/reset`, {});
+      toast("MFA " + u + " di-reset", "ok"); refreshAdmins();
     } else if (act === "admin-disable") {
       await api("PATCH", `/api/v1/admin/admins/${id}`, { status: "disabled" });
       toast("Admin dinonaktifkan", "ok"); refreshAdmins();
@@ -975,6 +1089,13 @@ $("btnLogin").onclick = doLogin;
 $("btnLogout").onclick = doLogout;
 $("btnAddAdmin").onclick = addAdmin;
 $("btnChangePw").onclick = changeMyPassword;
+$("btnMfaConfirm").onclick = confirmMfa;
+$("btnMfaCancel").onclick = doLogout;
+$("btnMfaDone").onclick = finishMfaSetup;
+$("btnMfaCopy").onclick = () => navigator.clipboard.writeText($("mfaRecoveryCodes").textContent)
+  .then(() => toast("Kode pemulihan disalin", "ok"), () => toast("Tidak bisa menyalin otomatis — blok teksnya lalu salin", "err"));
+$("mfaCode").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+$("mfaConfirmCode").addEventListener("keydown", (e) => { if (e.key === "Enter") confirmMfa(); });
 $("btnAdminsRefresh").onclick = () => refreshAdmins().catch(() => {});
 $("btnLogout2").onclick = doLogout;
 $("btnRefresh").onclick = refresh;

@@ -41,9 +41,11 @@ Covered by `server/internal/api/api_test.go`: submit of a tampered PDF, a
 different device's certificate, a revoked certificate, or a mismatched
 public-id all rejected (422); a revoked device cert blocks new reservations;
 another account cannot read a signature record; `POST /api/v1/sign` and
-`/users/{id}/sign` do not exist; enrollment / device-loss / admin routes are
-403 without a TOTP-authorized session, and a plain login is refused once MFA
-is confirmed; the login endpoint returns 429 under a burst.
+`/users/{id}/sign` do not exist; the login endpoint returns 429 under a burst.
+Covered by `server/internal/api/mfa_test.go`: every route is 403 for an admin
+session that has not passed TOTP, a plain admin login is refused once an
+authenticator is confirmed, a TOTP code cannot be replayed, and a recovery code
+works once.
 
 Covered by M3 fuzzing (`core/**/fuzz_test.go`): `keys.ParsePKCS8`,
 `enrollment.ParseAndValidateCSR`, `certutil.ParseCertificatePEM` /

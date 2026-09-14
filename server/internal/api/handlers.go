@@ -79,6 +79,7 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		Code     string `json:"code"` // admin console second factor: TOTP or recovery code
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -105,6 +106,11 @@ func (s *Server) hLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{
 			"error": "akun dinonaktifkan, hubungi admin", "account_status": store.AccountDisabled,
 		})
+		return
+	}
+
+	if s.cfg.AdminMFA && isAdminRole(a.Role) {
+		s.loginAdminMFA(w, a, in.Code)
 		return
 	}
 

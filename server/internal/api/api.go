@@ -44,6 +44,12 @@ type Config struct {
 	AccessTTL      time.Duration
 	Issuer         string // TOTP issuer label; "" -> "PQC PDF Sign"
 
+	// AdminMFA requires a TOTP second factor (Google Authenticator & co.) on
+	// the admin console: an admin or super admin without a confirmed
+	// authenticator gets a setup-only session. End users are never asked.
+	// cmd/api turns it on unless PQC_ADMIN_MFA_DISABLED is set.
+	AdminMFA bool
+
 	// SuperAdminUsername, when non-empty, bootstraps a single super-admin
 	// account on startup if none exists (first generate). SuperAdminPassword
 	// is used verbatim when set; otherwise a random one is generated and
@@ -92,6 +98,14 @@ type Store interface {
 	UpdateAccountProfile(id, fullName, org string) error
 	SetAccountPassword(id, passwordHash string) error
 	DeleteAccount(id string) error
+
+	UpsertMFA(accountID, secret string) error
+	MFA(accountID string) (store.MFACredential, error)
+	ConfirmMFA(accountID string, step int64, recoveryHashes []string) error
+	AdvanceMFAStep(accountID string, step int64) error
+	UseRecoveryCode(accountID, codeHash string) error
+	RecoveryCodesLeft(accountID string) int
+	DeleteMFA(accountID string) error
 
 	CreateDevice(store.Device) (store.Device, error)
 	Device(string) (store.Device, error)
@@ -284,6 +298,12 @@ func (s *Server) Routes() http.Handler {
 	// session token must not become a way to guess it.
 	mux.HandleFunc("POST /api/v1/admin/me/password", s.superadmin(s.limit(s.rlLogin, byAccount, s.hChangeOwnPassword)))
 
+	// Admin-console second factor (mfa.go). setup/confirm accept a setup-only
+	// session — that is how an admin without an authenticator gets one.
+	mux.HandleFunc("POST /api/v1/admin/mfa/setup", s.adminPreMFA(s.hMFASetup))
+	mux.HandleFunc("POST /api/v1/admin/mfa/confirm", s.adminPreMFA(s.limit(s.rlLogin, byAccount, s.hMFAConfirm)))
+	mux.HandleFunc("POST /api/v1/admin/admins/{id}/mfa/reset", s.superadmin(s.hMFAReset))
+
 	mux.HandleFunc("GET /api/v1/admin/accounts", s.admin(s.hListAccounts))
 	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/approve", s.admin(s.hApproveAccount))
 	mux.HandleFunc("POST /api/v1/admin/accounts/{id}/disable", s.admin(s.hDisableAccount))
@@ -327,13 +347,21 @@ type ctxKey int
 
 const claimsKey ctxKey = 0
 
-func (s *Server) user(h http.HandlerFunc) http.HandlerFunc  { return s.authed(store.RoleUser, h) }
-func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc { return s.authed(store.RoleAdmin, h) }
+func (s *Server) user(h http.HandlerFunc) http.HandlerFunc { return s.authed(store.RoleUser, true, h) }
+func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc {
+	return s.authed(store.RoleAdmin, true, h)
+}
 func (s *Server) superadmin(h http.HandlerFunc) http.HandlerFunc {
-	return s.authed(store.RoleSuperAdmin, h)
+	return s.authed(store.RoleSuperAdmin, true, h)
 }
 
-func (s *Server) authed(minRole string, h http.HandlerFunc) http.HandlerFunc {
+// adminPreMFA is admin() without the second-factor gate, for the routes an
+// admin uses to set that factor up.
+func (s *Server) adminPreMFA(h http.HandlerFunc) http.HandlerFunc {
+	return s.authed(store.RoleAdmin, false, h)
+}
+
+func (s *Server) authed(minRole string, requireMFA bool, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if tok == "" || tok == r.Header.Get("Authorization") {
@@ -357,6 +385,13 @@ func (s *Server) authed(minRole string, h http.HandlerFunc) http.HandlerFunc {
 				writeErr(w, http.StatusForbidden, "super admin only")
 				return
 			}
+		}
+		if requireMFA && s.mfaPending(c) {
+			writeJSON(w, http.StatusForbidden, map[string]any{
+				"error":              "verifikasi 2 langkah wajib untuk akun admin — aktifkan dulu",
+				"mfa_setup_required": true,
+			})
+			return
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), claimsKey, c)))
 	}

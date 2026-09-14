@@ -45,9 +45,9 @@ rest of the document. Public verification needs no account.
   `schema_migrations`-guarded migrations; the full `api_test.go` suite passes
   against real PG16). `store.NewS3Objects` puts signed blobs in MinIO/S3, else
   an `objects` table. `internal/auth`: Argon2id + HS256 JWT + RFC 6238 TOTP.
-  `internal/api`: all §17 core routes; TOTP MFA enforced on enrollment,
-  device-loss, and all admin routes (or disabled with `PQC_MFA_NOT_REQUIRED=1`
-  on a dev receiver); per-route rate limits. Receiver-only: no endpoint signs a
+  `internal/api`: all §17 core routes; TOTP second factor on the admin console
+  for admin/superadmin only (`mfa.go`; off with `PQC_ADMIN_MFA_DISABLED=1` on a
+  lab receiver); per-route rate limits. Receiver-only: no endpoint signs a
   PDF. Submit runs `core/verification` strictly + DB checks (cert registered to
   this account+device, active, not revoked, public-id in the PDF matches the
   reservation). RB additions: account lifecycle (`pending`/`active`/`disabled`)

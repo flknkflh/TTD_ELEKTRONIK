@@ -65,6 +65,16 @@ type Account struct {
 	CreatedAt    time.Time
 }
 
+// MFACredential is an admin's TOTP authenticator for the admin console. It is
+// unconfirmed until the first code from the app checks out.
+type MFACredential struct {
+	AccountID string
+	Secret    string // base32, as given to the authenticator app
+	Confirmed bool
+	LastStep  int64 // newest accepted TOTP time step; equal or older steps are replays
+	CreatedAt time.Time
+}
+
 type Device struct {
 	ID        string
 	AccountID string

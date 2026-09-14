@@ -23,6 +23,8 @@ type Memory struct {
 	signatures   map[string]Signature
 	audit        []AuditEvent
 	objects      map[string][]byte
+	mfa          map[string]MFACredential
+	recovery     map[string]map[string]bool // account id -> recovery code hash -> used
 }
 
 func NewMemory() *Memory {
@@ -35,6 +37,8 @@ func NewMemory() *Memory {
 		reservations: map[string]Reservation{},
 		signatures:   map[string]Signature{},
 		objects:      map[string][]byte{},
+		mfa:          map[string]MFACredential{},
+		recovery:     map[string]map[string]bool{},
 	}
 }
 
@@ -124,6 +128,97 @@ func (m *Memory) DeleteAccount(id string) error {
 	}
 	delete(m.accounts, id)
 	delete(m.byEmail, a.Email)
+	delete(m.mfa, id)
+	delete(m.recovery, id)
+	return nil
+}
+
+// --- admin MFA ---
+
+func (m *Memory) UpsertMFA(accountID, secret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.accounts[accountID]; !ok {
+		return ErrNotFound
+	}
+	m.mfa[accountID] = MFACredential{AccountID: accountID, Secret: secret, CreatedAt: time.Now().UTC()}
+	delete(m.recovery, accountID)
+	return nil
+}
+
+func (m *Memory) MFA(accountID string) (MFACredential, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.mfa[accountID]
+	if !ok {
+		return MFACredential{}, ErrNotFound
+	}
+	return c, nil
+}
+
+func (m *Memory) ConfirmMFA(accountID string, step int64, recoveryHashes []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.mfa[accountID]
+	if !ok {
+		return ErrNotFound
+	}
+	c.Confirmed, c.LastStep = true, step
+	m.mfa[accountID] = c
+	codes := make(map[string]bool, len(recoveryHashes))
+	for _, h := range recoveryHashes {
+		codes[h] = false
+	}
+	m.recovery[accountID] = codes
+	return nil
+}
+
+// AdvanceMFAStep records step as the newest accepted TOTP step. ErrNotFound
+// means the step is not newer than the last one (a replay) or no confirmed
+// authenticator exists.
+func (m *Memory) AdvanceMFAStep(accountID string, step int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.mfa[accountID]
+	if !ok || !c.Confirmed || step <= c.LastStep {
+		return ErrNotFound
+	}
+	c.LastStep = step
+	m.mfa[accountID] = c
+	return nil
+}
+
+func (m *Memory) UseRecoveryCode(accountID, codeHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	used, ok := m.recovery[accountID][codeHash]
+	if !ok || used {
+		return ErrNotFound
+	}
+	m.recovery[accountID][codeHash] = true
+	return nil
+}
+
+func (m *Memory) RecoveryCodesLeft(accountID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, used := range m.recovery[accountID] {
+		if !used {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Memory) DeleteMFA(accountID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.mfa[accountID]; !ok {
+		return ErrNotFound
+	}
+	delete(m.mfa, accountID)
+	delete(m.recovery, accountID)
 	return nil
 }
 

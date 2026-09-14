@@ -67,9 +67,11 @@ func VerifyPassword(password, encoded string) bool {
 
 type Claims struct {
 	Sub  string `json:"sub"`  // account id
-	Role string `json:"role"` // "user" | "admin"
-	Exp  int64  `json:"exp"`
-	Iat  int64  `json:"iat"`
+	Role string `json:"role"` // "user" | "admin" | "superadmin"
+	// MFA marks a session opened with a TOTP or recovery code (admin console).
+	MFA bool  `json:"mfa,omitempty"`
+	Exp int64 `json:"exp"`
+	Iat int64 `json:"iat"`
 }
 
 var ErrInvalidToken = errors.New("auth: invalid or expired token")
@@ -89,8 +91,17 @@ func NewSigner(secret []byte, ttl time.Duration) *Signer {
 func (s *Signer) TTL() time.Duration { return s.ttl }
 
 func (s *Signer) Issue(accountID, role string) string {
+	return s.issue(Claims{Sub: accountID, Role: role})
+}
+
+// IssueMFA is Issue for a session that passed the second factor.
+func (s *Signer) IssueMFA(accountID, role string) string {
+	return s.issue(Claims{Sub: accountID, Role: role, MFA: true})
+}
+
+func (s *Signer) issue(c Claims) string {
 	now := time.Now()
-	c := Claims{Sub: accountID, Role: role, Iat: now.Unix(), Exp: now.Add(s.ttl).Unix()}
+	c.Iat, c.Exp = now.Unix(), now.Add(s.ttl).Unix()
 	header := b64json(map[string]string{"alg": "HS256", "typ": "JWT"})
 	payload := b64json(c)
 	signing := header + "." + payload

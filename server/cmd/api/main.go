@@ -54,6 +54,10 @@ func main() {
 		cfg.RateLimits = &api.RateLimits{} // dev / scripted runs only
 	}
 	cfg.TrustProxyHeaders = boolEnv("PQC_TRUST_PROXY") // only behind Caddy / a proxy that sets X-Forwarded-For
+	cfg.AdminMFA = !boolEnv("PQC_ADMIN_MFA_DISABLED")  // admin console TOTP (Google Authenticator)
+	if !cfg.AdminMFA {
+		log.Printf("api: admin MFA DISABLED (PQC_ADMIN_MFA_DISABLED) — lab / scripted runs only")
+	}
 	if bin := os.Getenv("PQC_DEV_LAB_CA_ADMIN"); bin != "" {
 		cfg.LabIssuer = &api.LabIssuer{
 			Bin:        bin,

@@ -181,6 +181,91 @@ func (p *Postgres) DeleteAccount(id string) error {
 	return affected(p.db.Exec(`DELETE FROM accounts WHERE id=$1`, id))
 }
 
+// --- admin MFA ---
+
+func (p *Postgres) UpsertMFA(accountID, secret string) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM admin_mfa_recovery WHERE account_id=$1`, accountID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO admin_mfa (account_id, secret) VALUES ($1, $2)
+		ON CONFLICT (account_id) DO UPDATE
+		SET secret=EXCLUDED.secret, confirmed=FALSE, last_step=0, created_at=now()`, accountID, secret); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (p *Postgres) MFA(accountID string) (MFACredential, error) {
+	var c MFACredential
+	err := p.db.QueryRow(
+		`SELECT account_id,secret,confirmed,last_step,created_at FROM admin_mfa WHERE account_id=$1`, accountID).
+		Scan(&c.AccountID, &c.Secret, &c.Confirmed, &c.LastStep, &c.CreatedAt)
+	return c, norm(err)
+}
+
+func (p *Postgres) ConfirmMFA(accountID string, step int64, recoveryHashes []string) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	if err := affected(tx.Exec(`UPDATE admin_mfa SET confirmed=TRUE, last_step=$2 WHERE account_id=$1`, accountID, step)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM admin_mfa_recovery WHERE account_id=$1`, accountID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	for _, h := range recoveryHashes {
+		if _, err := tx.Exec(`INSERT INTO admin_mfa_recovery (account_id, code_hash) VALUES ($1, $2)`, accountID, h); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// AdvanceMFAStep records step as the newest accepted TOTP step in one
+// conditional UPDATE, so two concurrent logins cannot both spend a code.
+func (p *Postgres) AdvanceMFAStep(accountID string, step int64) error {
+	return affected(p.db.Exec(
+		`UPDATE admin_mfa SET last_step=$2 WHERE account_id=$1 AND confirmed AND last_step < $2`, accountID, step))
+}
+
+func (p *Postgres) UseRecoveryCode(accountID, codeHash string) error {
+	return affected(p.db.Exec(
+		`UPDATE admin_mfa_recovery SET used_at=now() WHERE account_id=$1 AND code_hash=$2 AND used_at IS NULL`,
+		accountID, codeHash))
+}
+
+func (p *Postgres) RecoveryCodesLeft(accountID string) int {
+	var n int
+	_ = p.db.QueryRow(`SELECT count(*) FROM admin_mfa_recovery WHERE account_id=$1 AND used_at IS NULL`, accountID).Scan(&n)
+	return n
+}
+
+func (p *Postgres) DeleteMFA(accountID string) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM admin_mfa_recovery WHERE account_id=$1`, accountID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := affected(tx.Exec(`DELETE FROM admin_mfa WHERE account_id=$1`, accountID)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 // --- devices ---
 
 func (p *Postgres) CreateDevice(d Device) (Device, error) {

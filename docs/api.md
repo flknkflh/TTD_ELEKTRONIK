@@ -9,9 +9,7 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 
 ```
 ✔ POST /api/v1/auth/register          (pending end user only; role in body ignored)
-✔ POST /api/v1/auth/login             ({email,password,code?}; code required once MFA is confirmed)
-✔ POST /api/v1/auth/mfa/setup         (returns TOTP secret + otpauth:// URL)
-✔ POST /api/v1/auth/mfa/verify        ({code} -> confirms the secret)
+✔ POST /api/v1/auth/login             ({email,password,code?}; admin/superadmin: code = TOTP or recovery code once MFA is set up)
 ✔ POST /api/v1/devices
 ✔ GET  /api/v1/devices
 ✔ POST /api/v1/devices/{device_id}/csr
@@ -38,6 +36,10 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ POST   /api/v1/admin/admins                        (super admin only: {username,password} -> active admin)
 ✔ PATCH  /api/v1/admin/admins/{id}                   (super admin only: {password} reset and/or {status:"active"|"disabled"})
 ✔ DELETE /api/v1/admin/admins/{id}                   (super admin only: delete an admin)
+✔ POST   /api/v1/admin/me/password                   (super admin only: {current_password,new_password})
+✔ POST   /api/v1/admin/mfa/setup                     (admin console TOTP -> {secret, otpauth_url, qr_png}; setup-only session ok)
+✔ POST   /api/v1/admin/mfa/confirm                   ({code} -> {access_token (mfa), recovery_codes[10]})
+✔ POST   /api/v1/admin/admins/{id}/mfa/reset         (super admin only: remove an admin's authenticator)
 ✔ GET  /api/v1/admin/accounts                       (RB-1; client + admin rows — mutations below are client-only)
 ✔ POST /api/v1/admin/accounts/{id}/approve|disable|enable   (CLIENT accounts only — 403 for any admin/superadmin target)
 ✔ PATCH  /api/v1/admin/accounts/{id}                ({full_name,organization}; client only)
@@ -70,9 +72,18 @@ online CA (`Config.LabIssuer`) — the response carries `status:"issued"` and
 revokes every certificate it holds and republishes the CRL. Verification stays
 public and needs no account.
 
-**MFA gate (§24)**: `POST /devices/{id}/csr`, `POST /devices/{id}/report-lost`,
-and every `admin/*` route require a session that presented a valid TOTP code
-at login (`mfa` claim). Others are reachable without MFA.
+**Admin MFA (§24)**: with `Config.AdminMFA` (on unless `PQC_ADMIN_MFA_DISABLED`
+is set) every admin and super-admin login needs a TOTP second factor, Google
+Authenticator compatible (SHA-1, 6 digits, 30 s). An admin without a confirmed
+authenticator gets a setup-only session (`login` → `mfa_setup_required:true`)
+that reaches only `admin/mfa/setup` and `admin/mfa/confirm`; every other route
+answers `403 {mfa_setup_required:true}`. Once confirmed, `login` without a
+`code` answers `401 {mfa_required:true}`. Each TOTP time step is accepted once;
+the 10 recovery codes are single-use and stored as SHA-256 hashes. The super
+admin resets an admin's authenticator (`admin/admins/{id}/mfa/reset`); its own
+is recovered with a recovery code or, as a last resort, on the server:
+`DELETE FROM admin_mfa WHERE account_id=(SELECT id FROM accounts WHERE role='superadmin');`
+End users and the signing apps are never asked for MFA.
 
 **Rate limits (§24, per minute)**: `auth/login` 10/IP, `signatures/reserve`
 60/account, `signatures/{id}/document` 30/account, `verify` 30/IP. Over the
@@ -83,8 +94,6 @@ cap → `429` + `Retry-After`. Configurable via `api.Config.RateLimits`.
 POST /api/v1/auth/login
 POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
-POST /api/v1/auth/mfa/setup
-POST /api/v1/auth/mfa/verify
 ```
 
 ## Devices and enrollment
@@ -139,6 +148,10 @@ GET    /api/v1/admin/admins                       (super admin only: admin roste
 POST   /api/v1/admin/admins                       (super admin only: {username,password} -> active admin)
 PATCH  /api/v1/admin/admins/{id}                  (super admin only: {password} reset, {status:"active"|"disabled"})
 DELETE /api/v1/admin/admins/{id}                  (super admin only)
+POST   /api/v1/admin/admins/{id}/mfa/reset        (super admin only)
+POST   /api/v1/admin/me/password                  (super admin only)
+POST   /api/v1/admin/mfa/setup                    (admin / super admin; setup-only session ok)
+POST   /api/v1/admin/mfa/confirm                  (admin / super admin; setup-only session ok)
 GET    /api/v1/admin/accounts
 POST   /api/v1/admin/accounts/{id}/approve        (CLIENT accounts only)
 POST   /api/v1/admin/accounts/{id}/disable        (client only; cascade: revoke all certs + republish CRL)
