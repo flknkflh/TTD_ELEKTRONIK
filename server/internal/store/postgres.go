@@ -427,7 +427,26 @@ func (p *Postgres) Certificate(id string) (Certificate, error) {
 
 func (p *Postgres) CertificateByDevice(deviceID string) (Certificate, error) {
 	return scanCert(p.db.QueryRow(
-		`SELECT `+certCols+` FROM certificates WHERE device_id=$1 ORDER BY not_before DESC LIMIT 1`, deviceID))
+		// x509 times have one-second resolution: a renewal can share not_before
+		// with the certificate it replaces, and always ends later.
+		`SELECT `+certCols+` FROM certificates WHERE device_id=$1 ORDER BY not_before DESC, not_after DESC LIMIT 1`, deviceID))
+}
+
+// CertificatesExpiringBefore lists active certificates whose not_after is
+// before t, soonest first.
+func (p *Postgres) CertificatesExpiringBefore(t time.Time) []Certificate {
+	rows, err := p.db.Query(`SELECT `+certCols+` FROM certificates WHERE status=$1 AND not_after < $2 ORDER BY not_after`, CertActive, t)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []Certificate
+	for rows.Next() {
+		if c, err := scanCert(rows); err == nil {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (p *Postgres) CertificateBySerial(serial string) (Certificate, error) {

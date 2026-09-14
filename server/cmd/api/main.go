@@ -83,6 +83,7 @@ func main() {
 			InterCN:    envOr("PQC_CA_INTERMEDIATE_CN", "PQC Device Signing CA"),
 			CRLURL:     envOr("PQC_CA_CRL_URL", strings.TrimRight(*baseURL, "/")+"/api/v1/public/ca/crl.pem"),
 			CertDays:   intEnv("PQC_CA_DEVICE_CERT_DAYS", 365),
+			RenewDays:  intEnv("PQC_CA_RENEW_DAYS", 30),
 		}
 		log.Printf("api: online CA issuer (split CA, no Root key) in %s", issuerDir)
 	case labBin != "":
@@ -92,6 +93,7 @@ func main() {
 			Passphrase: os.Getenv("PQC_CA_PASSPHRASE"),
 			Operator:   envOr("PQC_CA_OPERATOR", "dev-admin-console"),
 			CertDays:   intEnv("PQC_CA_DEVICE_CERT_DAYS", 1825),
+			RenewDays:  intEnv("PQC_CA_RENEW_DAYS", 30),
 		}
 		log.Printf("api: DEV lab issuer ENABLED (%s, dir %s) — must never be set in production",
 			cfg.LabIssuer.Bin, cfg.LabIssuer.Dir)

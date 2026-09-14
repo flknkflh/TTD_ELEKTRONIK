@@ -126,6 +126,7 @@ type Store interface {
 	CertificateByDevice(string) (store.Certificate, error)
 	CertificateBySerial(string) (store.Certificate, error)
 	CertificatesByAccount(string) []store.Certificate
+	CertificatesExpiringBefore(time.Time) []store.Certificate
 	RevokeCertificate(id, reason string) error
 
 	CreateReservation(store.Reservation) (store.Reservation, error)

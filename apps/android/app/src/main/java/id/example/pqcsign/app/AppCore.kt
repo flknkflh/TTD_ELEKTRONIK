@@ -113,25 +113,52 @@ class AppCore(private val context: Context, val state: AppState) {
     data class CertStatus(val state: String, val serial: String? = null, val subject: String? = null, val hasDocSigningEku: Boolean = false)
 
     /** Checks the server for an issued certificate, verifies it matches the
-     *  on-device key (§14, §25.2), and caches it. */
+     *  on-device key (§14, §25.2), and caches it. A cached certificate is used
+     *  as is but re-checked with the server daily and when it has under 30
+     *  days left, so a renewed certificate or a rotated CA chain arrives
+     *  without re-enrolment; offline, the cached one keeps working. */
     fun certificateStatus(): CertStatus {
         if (!vault.hasKey()) return CertStatus("none")
         val cached = readCache(CERT_FILE)
-        if (cached != null) return describeCert(cached)?.let { CertStatus("active", it.first, it.second, it.third) } ?: CertStatus("pending")
+        if (cached != null && !certRefreshDue(cached)) return statusOf(cached)
 
-        val deviceId = state.deviceId ?: return CertStatus("pending")
-        val pem = api.deviceCertificate(deviceId) ?: return CertStatus("pending")
+        val deviceId = state.deviceId ?: return statusOf(cached)
+        val pem = try {
+            api.deviceCertificate(deviceId)
+        } catch (e: Exception) {
+            if (cached != null) return statusOf(cached) else throw e
+        } ?: return statusOf(cached)
 
         // Confirm the issued cert's public key matches the on-device key by
         // signing+verifying a probe through the engine is overkill; instead we
         // trust the server's chain check and cache. A mismatched key would
         // fail the local verify at sign time.
-        writeCache(CERT_FILE, pem)
-        runCatching { writeCache(CHAIN_FILE, api.publicChain()) }
-        runCatching { writeCache(ROOT_FILE, api.publicRootCa()) }
+        state.certCheckedAt = System.currentTimeMillis()
+        if (cached == null || !pem.contentEquals(cached)) {
+            writeCache(CERT_FILE, pem)
+            runCatching { writeCache(CHAIN_FILE, api.publicChain()) }
+            // The Root is the trust anchor: fetched once, never replaced by
+            // the server afterwards.
+            if (readCache(ROOT_FILE) == null) runCatching { writeCache(ROOT_FILE, api.publicRootCa()) }
+        }
         val d = describeCert(pem)
         state.certificateSerial = d?.first
         return d?.let { CertStatus("active", it.first, it.second, it.third) } ?: CertStatus("pending")
+    }
+
+    private fun statusOf(pem: ByteArray?): CertStatus =
+        pem?.let { describeCert(it) }?.let { CertStatus("active", it.first, it.second, it.third) } ?: CertStatus("pending")
+
+    /** True when a cached certificate should be re-checked with the server. */
+    private fun certRefreshDue(pem: ByteArray): Boolean {
+        val notAfter = try {
+            (java.security.cert.CertificateFactory.getInstance("X.509")
+                .generateCertificate(pem.inputStream()) as java.security.cert.X509Certificate).notAfter.time
+        } catch (_: Exception) {
+            return true
+        }
+        val now = System.currentTimeMillis()
+        return now - state.certCheckedAt > DAY_MS || notAfter - now < 30 * DAY_MS
     }
 
     // ---- 4. Sign ----
@@ -413,6 +440,7 @@ class AppCore(private val context: Context, val state: AppState) {
         private const val CERT_FILE = "device.crt.pem"
         private const val CHAIN_FILE = "ca-chain.pem"
         private const val ROOT_FILE = "root-ca.crt.pem"
+        private const val DAY_MS = 24L * 60 * 60 * 1000
 
         // Above this the client skips the pre-upload local verify pass
         // (verifyPdf is not streaming).

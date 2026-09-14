@@ -228,9 +228,10 @@ func (s *Server) hInstallIntermediate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// StartBackground runs periodic jobs until ctx ends. With a ready issuer the
-// CRL is republished when there is none or it is over a day old (checked
-// hourly), so its 7-day nextUpdate never lapses.
+// StartBackground runs periodic jobs until ctx ends. With a ready issuer,
+// checked hourly: the CRL is republished when there is none or it is over a
+// day old, so its 7-day nextUpdate never lapses; and device certificates near
+// expiry are renewed (renew.go).
 func (s *Server) StartBackground(ctx context.Context) {
 	if s.cfg.LabIssuer == nil {
 		return
@@ -244,6 +245,9 @@ func (s *Server) StartBackground(ctx context.Context) {
 					log.Printf("api: scheduled CRL publication failed: %v", err)
 					s.st.Append(store.AuditEvent{Type: "crl.publish", Result: "fail", Detail: err.Error()})
 				}
+			}
+			if n := s.RenewDueCertificates(ctx); n > 0 {
+				log.Printf("api: renewed %d device certificate(s)", n)
 			}
 			select {
 			case <-ctx.Done():

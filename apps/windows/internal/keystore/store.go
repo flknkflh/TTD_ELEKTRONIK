@@ -30,6 +30,7 @@ type State struct {
 	DeviceID      string    `json:"device_id,omitempty"`
 	EnrollmentID  string    `json:"enrollment_id,omitempty"`
 	CertificateSN string    `json:"certificate_serial,omitempty"`
+	CertCheckedAt time.Time `json:"cert_checked_at,omitempty"` // last certificate check with the server
 	HasPIN        bool      `json:"has_pin"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

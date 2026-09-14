@@ -41,6 +41,11 @@ class AppState(context: Context) {
         get() = sp.getString("cert_serial", null)
         set(v) = sp.edit().putString("cert_serial", v).apply()
 
+    // When the device certificate was last checked with the server (epoch ms).
+    var certCheckedAt: Long
+        get() = sp.getLong("cert_checked_at", 0L)
+        set(v) = sp.edit().putLong("cert_checked_at", v).apply()
+
     // Default false in the RB flow: enrolment runs silently right after login
     // (no BiometricPrompt yet), so the wrapping key must be usable without a
     // fresh auth. The app still shows a BiometricPrompt before every signature.

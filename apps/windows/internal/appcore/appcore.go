@@ -220,20 +220,44 @@ type CertStatus struct {
 
 // CertificateStatus checks locally first, then polls the server; when the CA
 // has issued a cert it is verified against the on-device key and cached.
+//
+// A valid cached certificate is used as is, but re-checked with the server
+// daily and whenever it has under 30 days left, so a renewed certificate or a
+// rotated CA chain arrives without re-enrolment. Offline — or when the key
+// cannot be opened with pin — the cached certificate keeps working.
 func (a *App) CertificateStatus(pin string) (CertStatus, error) {
 	if !a.store.HasKey() {
 		return CertStatus{State: "none"}, nil
 	}
+	s, _ := a.store.State()
 	if pem, err := a.store.DeviceCertPEM(); err == nil {
-		_, info, verr := certutil.ParseAndValidateCertificate(pem, time.Now())
+		cert, info, verr := certutil.ParseAndValidateCertificate(pem, time.Now())
 		if verr == nil {
+			if s.DeviceID == "" || !certRefreshDue(s, cert.NotAfter) {
+				return CertStatus{State: "active", Info: info}, nil
+			}
+			if st, err := a.fetchCertificate(s, pin); err == nil && st.State == "active" {
+				return st, nil
+			}
 			return CertStatus{State: "active", Info: info}, nil
 		}
 	}
-	s, _ := a.store.State()
 	if s.DeviceID == "" {
 		return CertStatus{State: "pending"}, nil
 	}
+	return a.fetchCertificate(s, pin)
+}
+
+// certRefreshDue reports a cached certificate that should be re-checked with
+// the server.
+func certRefreshDue(s keystore.State, notAfter time.Time) bool {
+	return time.Since(s.CertCheckedAt) > 24*time.Hour || time.Until(notAfter) < 30*24*time.Hour
+}
+
+// fetchCertificate downloads the device's current certificate, checks that it
+// matches the on-device key, and caches it with the current CA chain. The Root
+// is never replaced from the server: it is the trust anchor.
+func (a *App) fetchCertificate(s keystore.State, pin string) (CertStatus, error) {
 	pem, err := a.api.DeviceCertificate(s.DeviceID)
 	if errors.Is(err, apiclient.ErrNotYetIssued) {
 		return CertStatus{State: "pending"}, nil
@@ -261,7 +285,11 @@ func (a *App) CertificateStatus(pin string) (CertStatus, error) {
 	if err := a.store.SaveDeviceCertPEM(pem); err != nil {
 		return CertStatus{}, err
 	}
+	if chain, err := a.api.PublicChain(); err == nil {
+		_ = a.store.SaveChainPEM(chain)
+	}
 	s.CertificateSN = info.SerialNumber
+	s.CertCheckedAt = time.Now()
 	_ = a.store.SaveState(s)
 	return CertStatus{State: "active", Info: info}, nil
 }

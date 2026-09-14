@@ -414,7 +414,7 @@ func (m *Memory) CertificateByDevice(deviceID string) (Certificate, error) {
 	var latest Certificate
 	found := false
 	for _, c := range m.certificates {
-		if c.DeviceID == deviceID && (!found || c.NotBefore.After(latest.NotBefore)) {
+		if c.DeviceID == deviceID && (!found || newerCert(c, latest)) {
 			latest, found = c, true
 		}
 	}
@@ -446,6 +446,31 @@ func (m *Memory) CertificateBySerial(serial string) (Certificate, error) {
 		}
 	}
 	return Certificate{}, ErrNotFound
+}
+
+// newerCert orders a device's certificates: later NotBefore first, then later
+// NotAfter. x509 times have one-second resolution, so a renewal can share
+// NotBefore with the certificate it replaces; it always ends later.
+func newerCert(a, b Certificate) bool {
+	if !a.NotBefore.Equal(b.NotBefore) {
+		return a.NotBefore.After(b.NotBefore)
+	}
+	return a.NotAfter.After(b.NotAfter)
+}
+
+// CertificatesExpiringBefore lists active certificates whose NotAfter is
+// before t.
+func (m *Memory) CertificatesExpiringBefore(t time.Time) []Certificate {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Certificate
+	for _, c := range m.certificates {
+		if c.Status == CertActive && c.NotAfter.Before(t) {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NotAfter.Before(out[j].NotAfter) })
+	return out
 }
 
 func (m *Memory) RevokeCertificate(id, reason string) error {

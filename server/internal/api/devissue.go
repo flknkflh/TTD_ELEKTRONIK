@@ -38,6 +38,7 @@ type LabIssuer struct {
 	InterCN    string // Intermediate common name for the CSR the server creates (Online)
 	CRLURL     string // CRL distribution point written into device certificates
 	CertDays   int    // device certificate validity in days; 0 -> 365
+	RenewDays  int    // re-issue device certificates this many days before expiry; 0 -> 30
 }
 
 // run executes ca-admin. The child gets no PQC_CA_* variable from this
