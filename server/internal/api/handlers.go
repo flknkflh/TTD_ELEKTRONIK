@@ -589,15 +589,31 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "file too large")
 		return
 	}
-	res, err := verification.VerifyPDF(pdf, verification.Options{
+	opts := verification.Options{
 		RootPEM: s.cfg.RootCAPEM, IntermediatePEM: s.caChain(), CRLPEM: s.currentCRL(),
 		RequireMLDSAOnly: true, Timeout: 15 * time.Second,
-	})
+	}
+	res, err := verification.VerifyPDF(pdf, opts)
 	if err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	out := map[string]any{"verification": res, "registered": false}
+	// Certificates expire; a signed document does not stop being signed. The
+	// PDF carries no trusted timestamp, so for a signature this server accepted
+	// the chain is checked at the time the server received it — when it
+	// verified that chain — instead of today. The SHA-512 comparison and the
+	// revocation checks below still apply.
+	timeSource := "now"
+	if !res.Valid && len(res.Signatures) > 0 {
+		if rec, rerr := s.st.Signature(res.Signatures[0].PublicID()); rerr == nil &&
+			rec.VerificationStatus == store.VerificationAccepted && !rec.ServerReceivedAt.IsZero() {
+			opts.At = rec.ServerReceivedAt
+			if again, aerr := verification.VerifyPDF(pdf, opts); aerr == nil && again.Valid {
+				res, timeSource = again, "server_received_at"
+			}
+		}
+	}
+	out := map[string]any{"verification": res, "registered": false, "validation_time_source": timeSource}
 	// reject turns a cryptographically sound signature into an invalid
 	// verdict for a server-side reason, visible to every verifier UI.
 	reject := func(reason string) {

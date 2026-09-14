@@ -325,6 +325,8 @@ keutuhannya. Tidak perlu akun. Berkas Anda diperiksa di server lalu dibuang — 
           row('Algoritma', s.algorithm) +
           row('Alasan', s.reason) +
           row('Waktu (klaim perangkat)', s.client_claimed_signing_time) +
+          row('Waktu validasi sertifikat', top.validation_time_source === 'server_received_at'
+              ? 'saat server menerima dokumen (sertifikat penanda tangan kini sudah kedaluwarsa)' : '') +
           row('No. sertifikat', s.certificate_serial) +
           row('Sidik jari sertifikat', rec.certificate_fingerprint) +
           row('Perangkat', rec.device_label) +

@@ -20,7 +20,7 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ GET  /api/v1/signatures/{public_id}
 ✔ GET  /api/v1/signatures/{public_id}/download
 ✔ GET  /api/v1/me/signatures
-✔ POST /api/v1/verify                               (public, multipart)
+✔ POST /api/v1/verify                               (public, multipart; a signature the server accepted is re-checked at its server_received_at when it fails today, e.g. an expired certificate -> validation_time_source)
 ✔ POST /api/v1/public/verify-hash                   (public: match a SHA-512, no upload)
 ✔ GET  /api/v1/public/signatures/{public_id}
 ✔ GET  /api/v1/public/ca/root.crt | chain.pem | crl.pem

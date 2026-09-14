@@ -149,11 +149,17 @@ func (ca *CA) IssueDeviceCert(csr *x509.CertificateRequest, opts DeviceCertOptio
 	if err != nil {
 		return nil, err
 	}
+	// A device certificate never outlives the CA that issues it: past the
+	// Intermediate's NotAfter its chain no longer validates.
+	notAfter := nb.Add(opts.Validity)
+	if notAfter.After(ca.Cert.NotAfter) {
+		notAfter = ca.Cert.NotAfter
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               opts.Subject,
 		NotBefore:             nb,
-		NotAfter:              nb.Add(opts.Validity),
+		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		UnknownExtKeyUsage:    []asn1.ObjectIdentifier{certutil.OIDDocumentSigningEKU},
 		BasicConstraintsValid: true,

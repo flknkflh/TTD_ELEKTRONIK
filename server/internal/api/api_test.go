@@ -187,6 +187,13 @@ type device struct {
 
 func (e *env) enrolledDevice(userTok, adminTok, label string) device {
 	e.t.Helper()
+	return e.enrolledDeviceFor(userTok, adminTok, label, time.Time{}, 365*24*time.Hour)
+}
+
+// enrolledDeviceFor is enrolledDevice with an explicit certificate lifetime
+// (zero notBefore = an hour ago).
+func (e *env) enrolledDeviceFor(userTok, adminTok, label string, notBefore time.Time, validity time.Duration) device {
+	e.t.Helper()
 	w := e.do("POST", "/api/v1/devices", userTok, map[string]string{"label": label, "platform": "windows"})
 	mustCode(e.t, w, http.StatusCreated)
 	deviceID := jbody(e.t, w)["device_id"].(string)
@@ -203,7 +210,7 @@ func (e *env) enrolledDevice(userTok, adminTok, label string) device {
 
 	csr, _, _ := enrollment.ParseAndValidateCSR(csrPEM)
 	cert, err := e.inter.IssueDeviceCert(csr, labpki.DeviceCertOptions{
-		Subject: pkix.Name{CommonName: label, Organization: []string{"Test"}}, Validity: 365 * 24 * time.Hour,
+		Subject: pkix.Name{CommonName: label, Organization: []string{"Test"}}, NotBefore: notBefore, Validity: validity,
 	})
 	if err != nil {
 		e.t.Fatal(err)
