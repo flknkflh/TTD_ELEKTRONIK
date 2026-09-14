@@ -321,7 +321,7 @@ func (s *Server) disableCascade(r *http.Request, accountID, reason string) int {
 		n++
 	}
 	if n > 0 {
-		if err := s.refreshCRLFromCA(r, accountID); err != nil {
+		if err := s.refreshCRL(r.Context(), claims(r).Sub, accountID); err != nil {
 			s.st.Append(store.AuditEvent{Type: "crl.publish", AccountID: accountID, Result: "fail", Detail: err.Error()})
 		}
 	}

@@ -186,7 +186,7 @@ func (s *Server) hSubmitCSR(w http.ResponseWriter, r *http.Request) {
 	// certificate right now so the app is ready in a single round-trip. If
 	// issuance fails the enrollment stays "submitted" for an admin to retry.
 	resp := map[string]any{"enrollment_id": e.ID, "status": e.Status}
-	if acc, _ := s.st.Account(c.Sub); s.cfg.LabIssuer != nil && acc.Status == store.AccountActive {
+	if acc, _ := s.st.Account(c.Sub); s.issuerReady() && acc.Status == store.AccountActive {
 		if leaf, err := s.issueViaCA(r.Context(), e); err != nil {
 			s.audit("certificate.issue", c, d.ID, "fail", err.Error())
 			resp["note"] = "penerbitan sertifikat tertunda, hubungi admin"
@@ -300,7 +300,7 @@ func (s *Server) bindIssuedCert(e store.Enrollment, leafPEM []byte) (store.Certi
 	if err != nil {
 		return store.Certificate{}, errors.New("certificate rejected: " + err.Error())
 	}
-	inter, _ := certutil.ParseChainPEM(s.cfg.CAChainPEM) // Root+Intermediate
+	inter, _ := certutil.ParseChainPEM(s.caChain()) // Root+Intermediate
 	chain := certutil.ValidateCertificateChain(cert, inter, s.cfg.RootCAPEM, time.Now())
 	if chain.Error != nil || !chain.TrustedChain {
 		return store.Certificate{}, errors.New("certificate does not chain to the configured Root CA")
@@ -337,10 +337,10 @@ func (s *Server) hRevoke(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"certificate_id": id, "status": store.CertRevoked, "crl_published": false}
 	// Keep the CRL in step with the database. With the lab issuer the server
 	// publishes it; with an offline CA the operator issues one and imports it.
-	if s.cfg.LabIssuer != nil {
+	if s.issuerReady() {
 		err := s.revokeViaCA(r.Context(), cert.Serial, caReason(in.Reason))
 		if err == nil {
-			err = s.refreshCRLFromCA(r, cert.AccountID)
+			err = s.refreshCRL(r.Context(), claims(r).Sub, cert.AccountID)
 		}
 		if err != nil {
 			out["crl_error"] = err.Error()
@@ -590,7 +590,7 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := verification.VerifyPDF(pdf, verification.Options{
-		RootPEM: s.cfg.RootCAPEM, IntermediatePEM: s.cfg.CAChainPEM, CRLPEM: s.currentCRL(),
+		RootPEM: s.cfg.RootCAPEM, IntermediatePEM: s.caChain(), CRLPEM: s.currentCRL(),
 		RequireMLDSAOnly: true, Timeout: 15 * time.Second,
 	})
 	if err != nil {

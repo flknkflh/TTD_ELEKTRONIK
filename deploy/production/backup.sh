@@ -24,7 +24,12 @@ docker compose exec -T postgres pg_dump -U pqc -d pqc --format=custom \
 docker run --rm -v pqsign_objdata:/objects:ro alpine:3.20 tar -C /objects -cf - . \
   | age -r "$AGE_RECIPIENT" > "$BACKUP_DIR/objects-$STAMP.tar.age"
 
-sha256sum "$BACKUP_DIR/db-$STAMP.dump.age" "$BACKUP_DIR/objects-$STAMP.tar.age" > "$BACKUP_DIR/SHA256SUMS-$STAMP"
+# Online issuer: sealed Intermediate key, ledger (CRL number, revocations),
+# issued.jsonl. Losing it means a new Intermediate ceremony.
+docker run --rm -v pqsign_cadata:/ca:ro alpine:3.20 tar -C /ca -cf - . \
+  | age -r "$AGE_RECIPIENT" > "$BACKUP_DIR/ca-$STAMP.tar.age"
+
+sha256sum "$BACKUP_DIR/db-$STAMP.dump.age" "$BACKUP_DIR/objects-$STAMP.tar.age" "$BACKUP_DIR/ca-$STAMP.tar.age" > "$BACKUP_DIR/SHA256SUMS-$STAMP"
 find "$BACKUP_DIR" -type f -mtime +"$KEEP_DAYS" -delete
 
 echo "backup $STAMP ok: $(du -ch "$BACKUP_DIR"/*-"$STAMP"* | tail -1)"

@@ -37,7 +37,7 @@ func (s *Server) strictVerify(res store.Reservation, pdf []byte) (verifiedInfo, 
 
 	vr, err := verification.VerifyPDF(pdf, verification.Options{
 		RootPEM:          s.cfg.RootCAPEM,
-		IntermediatePEM:  s.cfg.CAChainPEM,
+		IntermediatePEM:  s.caChain(),
 		CRLPEM:           s.currentCRL(),
 		RequireMLDSAOnly: true,
 		Timeout:          15 * time.Second, // bound a malformed-PDF parser loop (§26)

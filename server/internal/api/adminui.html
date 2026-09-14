@@ -499,6 +499,18 @@
           </div>
         </div>
         <div class="glass card spotlight" style="margin-top:16px">
+          <h2>CA penerbit (Intermediate)</h2>
+          <p class="csub" id="issuerStatus">—</p>
+          <div id="issuerPending" class="hidden">
+            <p class="muted" style="font-size:13px;margin:0 0 10px">1) Unduh CSR &middot; 2) tandatangani dengan Root di lingkungan offline (<code>ca-admin sign-intermediate</code>) &middot; 3) pasang sertifikatnya di sini.</p>
+            <div class="row">
+              <button class="btn" id="btnIssuerCsr">Unduh CSR Intermediate</button>
+              <input type="file" id="issuerCertFile" accept=".pem,.crt" style="flex:1">
+              <button class="btn btn-primary" id="btnIssuerInstall">Pasang sertifikat</button>
+            </div>
+          </div>
+        </div>
+        <div class="glass card spotlight" style="margin-top:16px">
           <h2>Ganti kata sandi saya</h2>
           <p class="csub">Kata sandi akun super admin yang sedang masuk. Wajib memasukkan kata sandi saat ini.</p>
           <div class="row">
@@ -703,6 +715,7 @@ async function afterLogin() {
   if (su) {
     showView("admins");
     await refreshAdmins().catch(() => {});
+    await refreshIssuer().catch(() => {});
     return;   // no client-account / device polling for the super admin
   }
 
@@ -729,6 +742,27 @@ function renderCrlStatus() {
 async function refreshCrlStatus() {
   try { caps = await api("GET", "/api/v1/admin/capabilities"); } catch (_) { return; }
   renderCrlStatus();
+}
+
+// ---- CA issuer (super admin) ----------------------------------------
+async function refreshIssuer() {
+  let st;
+  try { st = await api("GET", "/api/v1/admin/ca/issuer"); }
+  catch (e) { if (e.status === 403) return; throw e; }
+  const el = $("issuerStatus");
+  $("issuerPending").classList.toggle("hidden", !(st.mode === "online" && st.state === "pending"));
+  if (st.mode === "offline") {
+    el.textContent = "Mode CA offline: sertifikat perangkat diterbitkan manual dengan ca-admin (Unduh CSR / Unggah sertifikat di menu Perangkat).";
+    return;
+  }
+  if (st.state === "pending") {
+    el.innerHTML = '<span class="pill pending">Menunggu Root</span> Kunci Intermediate sudah dibuat di server. Sertifikat perangkat belum bisa terbit sampai sertifikat Intermediate dipasang.';
+    return;
+  }
+  const i = st.intermediate || {};
+  el.innerHTML = `<span class="pill approved">${st.mode === "online" ? "Aktif" : "CA lab (DEV)"}</span> ${esc(i.subject || "")}` +
+    (i.not_after ? ` &middot; berlaku sampai ${esc(new Date(i.not_after).toLocaleDateString("id-ID"))}` : "") +
+    (i.fingerprint ? `<br><code style="font-size:11px;word-break:break-all">${esc(i.fingerprint)}</code>` : "");
 }
 
 // ---- admin roster (super admin only) -------------------------------
@@ -944,7 +978,7 @@ async function refresh() {
     body.innerHTML = list.map((e) => {
       const id = e.enrollment_id;
       const labBtn = caps.lab_issuer && e.status !== "issued"
-        ? `<button class="btn btn-sm btn-ghost" data-act="lab" data-id="${esc(id)}">Terbitkan (lab CA)</button>` : "";
+        ? `<button class="btn btn-sm btn-ghost" data-act="lab" data-id="${esc(id)}">${caps.issuer && caps.issuer.mode === "online" ? "Terbitkan ulang" : "Terbitkan (lab CA)"}</button>` : "";
       const approveBtn = e.status === "submitted"
         ? `<button class="btn btn-sm btn-ghost" data-act="approve" data-id="${esc(id)}">Setujui</button>` : "";
       return `<tr>
@@ -1113,6 +1147,25 @@ $("btnLogin").onclick = doLogin;
 $("btnLogout").onclick = doLogout;
 $("btnAddAdmin").onclick = addAdmin;
 $("btnChangePw").onclick = changeMyPassword;
+$("btnIssuerCsr").onclick = async () => {
+  try {
+    const pem = await api("GET", "/api/v1/admin/ca/intermediate.csr");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([pem], { type: "application/pkcs10" }));
+    a.download = "intermediate.csr.pem"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) { toast("Gagal: " + e.message, "err"); }
+};
+$("btnIssuerInstall").onclick = async () => {
+  const f = $("issuerCertFile").files[0];
+  if (!f) { toast("Pilih file sertifikat Intermediate dulu", "err"); return; }
+  if (!confirm("Pasang sertifikat Intermediate ini? Setelah terpasang, sertifikat perangkat terbit otomatis.")) return;
+  try {
+    const r = await api("POST", "/api/v1/admin/ca/intermediate", await f.text(), { raw: true, contentType: "application/x-pem-file" });
+    toast("Intermediate terpasang" + (r.crl_published ? " — CRL pertama diterbitkan" : ""), "ok");
+    refreshIssuer();
+  } catch (e) { toast("Ditolak: " + e.message, "err"); }
+};
 $("btnMfaConfirm").onclick = confirmMfa;
 $("btnMfaCancel").onclick = doLogout;
 $("btnMfaDone").onclick = finishMfaSetup;

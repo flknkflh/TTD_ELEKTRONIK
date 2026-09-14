@@ -6,8 +6,9 @@
 #             CPU/memory capped, no CA private key, no lab issuer
 #   postgres  on a network with no route out of the host
 #
-# Config comes from .env next to this file (cp .env.example .env). Public CA
-# material goes in ./pki (root-ca.crt.pem, ca-chain.pem) — never a private key.
+# Config comes from .env next to this file (cp .env.example .env). ./pki holds
+# the Root certificate (root-ca.crt.pem) — never a private key. The
+# Intermediate passphrase is the Docker secret ./secrets/ca_intermediate_passphrase.
 #
 #   docker compose up -d --build     build + start, data kept
 #   docker compose down              stop, data kept
@@ -47,8 +48,9 @@ services:
       PQC_DATABASE_URL: "postgres://pqc:${PQC_DB_PASSWORD}@postgres:5432/pqc?sslmode=disable"
       PQC_JWT_SECRET: "${PQC_JWT_SECRET:?set PQC_JWT_SECRET in .env}"
       PQC_PUBLIC_BASE_URL: "https://${PQC_DOMAIN:?set PQC_DOMAIN in .env}"
+      # The Root certificate only. The Root+Intermediate chain comes from the
+      # online issuer in /ca once its Intermediate is installed.
       PQC_ROOT_CA_PEM: /pki/root-ca.crt.pem
-      PQC_CA_CHAIN_PEM: /pki/ca-chain.pem
       # Only Caddy can reach the API, and Caddy overwrites X-Forwarded-For.
       PQC_TRUST_PROXY: "1"
       PQC_SUPERADMIN_USERNAME: "${PQC_SUPERADMIN_USERNAME:-superadmin}"
@@ -59,9 +61,21 @@ services:
       PQC_MAX_UPLOAD_MB: "${PQC_MAX_UPLOAD_MB:-64}"
       PQC_MAX_STAMP_MB: "${PQC_MAX_STAMP_MB:-64}"
       PQC_MAX_VERIFY_MB: "${PQC_MAX_VERIFY_MB:-64}"
+      # Online CA issuer (split CA, RUNBOOK section 3): the Intermediate key
+      # lives in the cadata volume, sealed under the Docker secret below. The
+      # Root key never exists on this server; the API refuses to start if one
+      # appears in /ca or if a Root passphrase variable is set.
+      PQC_CA_ISSUER_DIR: /ca
+      PQC_CA_INTERMEDIATE_PASSPHRASE_FILE: /run/secrets/ca_intermediate_passphrase
+      PQC_CA_INTERMEDIATE_CN: "${PQC_CA_INTERMEDIATE_CN:-PQC Device Signing CA}"
+      PQC_CA_ORG: "${PQC_CA_ORG:-}"
+      PQC_CA_DEVICE_CERT_DAYS: "${PQC_CA_DEVICE_CERT_DAYS:-365}"
+    secrets:
+      - ca_intermediate_passphrase
     volumes:
       - ./pki:/pki:ro
       - objdata:/objects
+      - cadata:/ca
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,8 +119,14 @@ networks:
   db:
     internal: true
 
+secrets:
+  # openssl rand -base64 33 > secrets/ca_intermediate_passphrase (RUNBOOK 5.2)
+  ca_intermediate_passphrase:
+    file: ./secrets/ca_intermediate_passphrase
+
 volumes:
   pgdata:
   objdata:
+  cadata:    # Intermediate CA key (sealed) + ledger + issued.jsonl — back it up
   caddydata:
   caddyconfig:

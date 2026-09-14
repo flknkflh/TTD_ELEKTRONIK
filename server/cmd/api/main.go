@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"time"
 
 	"example.internal/pqc-pdf-sign/server/internal/api"
@@ -58,12 +59,39 @@ func main() {
 	if !cfg.AdminMFA {
 		log.Printf("api: admin MFA DISABLED (PQC_ADMIN_MFA_DISABLED) — lab / scripted runs only")
 	}
-	if bin := os.Getenv("PQC_DEV_LAB_CA_ADMIN"); bin != "" {
+	for _, k := range []string{"PQC_CA_ROOT_PASSPHRASE", "PQC_CA_ROOT_PASSPHRASE_FILE"} {
+		if os.Getenv(k) != "" {
+			log.Fatalf("api: %s is set — the Root CA passphrase must never reach the server", k)
+		}
+	}
+	issuerDir, labBin := os.Getenv("PQC_CA_ISSUER_DIR"), os.Getenv("PQC_DEV_LAB_CA_ADMIN")
+	switch {
+	case issuerDir != "" && labBin != "":
+		log.Fatal("api: set PQC_CA_ISSUER_DIR (production) or PQC_DEV_LAB_CA_ADMIN (lab), not both")
+	case issuerDir != "":
+		pass, err := secretEnv("PQC_CA_INTERMEDIATE_PASSPHRASE")
+		if err != nil {
+			log.Fatalf("api: %v", err)
+		}
 		cfg.LabIssuer = &api.LabIssuer{
-			Bin:        bin,
+			Online:     true,
+			Bin:        envOr("PQC_CA_ADMIN_BIN", "/usr/local/bin/ca-admin"),
+			Dir:        issuerDir,
+			Passphrase: pass,
+			Operator:   envOr("PQC_CA_OPERATOR", "pqc-api"),
+			Org:        os.Getenv("PQC_CA_ORG"),
+			InterCN:    envOr("PQC_CA_INTERMEDIATE_CN", "PQC Device Signing CA"),
+			CRLURL:     envOr("PQC_CA_CRL_URL", strings.TrimRight(*baseURL, "/")+"/api/v1/public/ca/crl.pem"),
+			CertDays:   intEnv("PQC_CA_DEVICE_CERT_DAYS", 365),
+		}
+		log.Printf("api: online CA issuer (split CA, no Root key) in %s", issuerDir)
+	case labBin != "":
+		cfg.LabIssuer = &api.LabIssuer{
+			Bin:        labBin,
 			Dir:        envOr("PQC_DEV_LAB_CA_DIR", "ca"),
 			Passphrase: os.Getenv("PQC_CA_PASSPHRASE"),
 			Operator:   envOr("PQC_CA_OPERATOR", "dev-admin-console"),
+			CertDays:   intEnv("PQC_CA_DEVICE_CERT_DAYS", 1825),
 		}
 		log.Printf("api: DEV lab issuer ENABLED (%s, dir %s) — must never be set in production",
 			cfg.LabIssuer.Bin, cfg.LabIssuer.Dir)
@@ -110,6 +138,7 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	srv.StartBackground(ctx) // daily CRL republication when a CA issuer is configured
 	go func() {
 		fmt.Printf("pqc-pdf-sign receiver API listening on %s (store: %s)\n", *addr, backend)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -182,6 +211,30 @@ func mbEnv(k string, def int64) int64 {
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+// secretEnv returns k, or the contents of the file named by k_FILE (a Docker
+// secret) without its trailing newline.
+func secretEnv(k string) (string, error) {
+	if v := os.Getenv(k); v != "" {
+		return v, nil
+	}
+	f := os.Getenv(k + "_FILE")
+	if f == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(f)
+	if err != nil {
+		return "", fmt.Errorf("read %s_FILE: %w", k, err)
+	}
+	return strings.TrimRight(string(b), "\r\n"), nil
+}
+
+func intEnv(k string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(k)); err == nil && n > 0 {
+		return n
 	}
 	return def
 }

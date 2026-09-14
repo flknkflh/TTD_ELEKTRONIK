@@ -1,13 +1,13 @@
 package api
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
 	"math/big"
-	"net/http"
 	"strings"
 	"time"
 
@@ -41,7 +41,7 @@ func (s *Server) checkCRL(b []byte) (*x509.RevocationList, []byte, error) {
 	if rl.Number == nil {
 		return nil, nil, errors.New("CRL tidak memiliki nomor (CRLNumber)")
 	}
-	chain, _ := certutil.ParseChainPEM(append(append([]byte{}, s.cfg.CAChainPEM...), s.cfg.RootCAPEM...))
+	chain, _ := certutil.ParseChainPEM(append(append([]byte{}, s.caChain()...), s.cfg.RootCAPEM...))
 	for _, c := range chain {
 		if rl.CheckSignatureFrom(c) == nil {
 			return rl, pem.EncodeToMemory(&pem.Block{Type: "X509 CRL", Bytes: der}), nil
@@ -150,15 +150,18 @@ func (s *Server) crlStatus() map[string]any {
 	return out
 }
 
-// refreshCRLFromCA publishes a fresh CRL through the lab issuer and makes it
-// active. Without a lab issuer it does nothing: an offline CA operator issues
-// the CRL with ca-admin and imports it.
-func (s *Server) refreshCRLFromCA(r *http.Request, accountID string) error {
-	pemBytes, err := s.publishCRLViaCA(r.Context())
+// refreshCRL publishes a fresh CRL through the issuer and makes it active.
+// Without a ready issuer it does nothing: an offline CA operator issues the
+// CRL with ca-admin and imports it.
+func (s *Server) refreshCRL(ctx context.Context, actor, accountID string) error {
+	if !s.issuerReady() {
+		return nil
+	}
+	pemBytes, err := s.publishCRLViaCA(ctx)
 	if err != nil || len(pemBytes) == 0 {
 		return err
 	}
-	rec, err := s.replaceCRL(pemBytes, "ca", claims(r).Sub)
+	rec, err := s.replaceCRL(pemBytes, "ca", actor)
 	if err != nil {
 		return err
 	}
