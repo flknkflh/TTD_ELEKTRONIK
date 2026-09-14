@@ -309,6 +309,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/admin/ca/issuer", s.superadmin(s.hIssuerStatus))
 	mux.HandleFunc("GET /api/v1/admin/ca/intermediate.csr", s.superadmin(s.hIntermediateCSR))
 	mux.HandleFunc("POST /api/v1/admin/ca/intermediate", s.superadmin(s.hInstallIntermediate))
+	mux.HandleFunc("POST /api/v1/admin/ca/rotate", s.superadmin(s.hStartRotation))
 
 	mux.HandleFunc("GET /api/v1/admin/admins", s.superadmin(s.hListAdmins))
 	mux.HandleFunc("POST /api/v1/admin/admins", s.superadmin(s.hCreateAdmin))
@@ -360,6 +361,7 @@ func (s *Server) hCapabilities(w http.ResponseWriter, r *http.Request) {
 		"issuer":     s.issuerStatus(),
 		"role":       claims(r).Role,
 		"crl":        s.crlStatus(),
+		"notices":    s.caNotices(),
 	})
 }
 

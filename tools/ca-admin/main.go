@@ -387,6 +387,29 @@ func cmdCRL(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A retired Intermediate that is still valid signs its own CRL into the
+	// bundle: certificates it issued may still be in use. Once it has expired,
+	// so has every certificate it issued, and its key is deleted.
+	for _, r := range s.retired() {
+		if !r.HasKey {
+			continue
+		}
+		if !time.Now().Before(r.Cert.NotAfter) {
+			_ = os.Remove(s.path(r.Dir, "key.pem.enc"))
+			_ = os.Remove(s.path(r.Dir, "key.pem"))
+			_ = s.logCeremony("intermediate.retire", r.Cert.Subject.String()+" serial "+certSerialHex(r.Cert)+": expired, key deleted")
+			continue
+		}
+		key, err := s.loadKey(r.Dir)
+		if err != nil {
+			return err
+		}
+		old, err := (&labpki.CA{Key: key, Cert: r.Cert}).NewCRLDetailed(rl, l.CRLNumber, time.Duration(*days)*24*time.Hour)
+		if err != nil {
+			return err
+		}
+		crlPEM = append(crlPEM, old...)
+	}
 	if err := s.publish(inter, crlPEM); err != nil {
 		return err
 	}
@@ -435,6 +458,13 @@ func cmdStatus(args []string) error {
 	fmt.Printf("root         : %s\n  fp %s  not_after %s\n", root.Subject, certutil.FingerprintSHA256(root), root.NotAfter.Format(time.RFC3339))
 	fmt.Printf("root key     : %s\n", map[bool]string{true: "PRESENT (Root CA machine)", false: "absent (issuer)"}[s.hasRootKey()])
 	fmt.Printf("intermediate : %s\n  fp %s  not_after %s\n", inter.Cert.Subject, certutil.FingerprintSHA256(inter.Cert), inter.Cert.NotAfter.Format(time.RFC3339))
+	if _, err := os.Stat(s.path(nextDir, pendingCSR)); err == nil {
+		fmt.Println("next         : rotation request pending (sign it with the Root, then install-intermediate --rotate)")
+	}
+	for _, r := range s.retired() {
+		fmt.Printf("retired      : %s\n  fp %s  not_after %s  key %s\n", r.Cert.Subject, certutil.FingerprintSHA256(r.Cert),
+			r.Cert.NotAfter.Format(time.RFC3339), map[bool]string{true: "kept for its CRL", false: "deleted"}[r.HasKey])
+	}
 	fmt.Printf("issued certs : %d\n", issued)
 	if l != nil {
 		fmt.Printf("revocations  : %d (CRL #%d)\n", len(l.Revocations), l.CRLNumber)

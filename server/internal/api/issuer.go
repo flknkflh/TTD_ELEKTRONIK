@@ -18,8 +18,14 @@ import (
 // server. On first start the server has ca-admin create the Intermediate key
 // (sealed under the Intermediate passphrase) and its CSR; a super admin carries
 // the CSR to the offline Root, which signs it, and installs the certificate
-// here. From then on device certificates are issued on enrolment and the CRL
-// is republished daily. Until then the server runs, but issues nothing.
+// here. From then on device certificates are issued on enrolment, renewed
+// before expiry, and the CRL is republished daily.
+//
+// Rotation: when the Intermediate has less than LabIssuer.RotateDays left (or
+// a super admin starts it), the server prepares the next Intermediate key +
+// CSR. After the Root signs it and it is installed, the old Intermediate
+// retires — it stays in the chain and signs its own CRL while valid — and
+// every device certificate it issued is re-issued from the new one.
 
 func (li *LabIssuer) file(parts ...string) string {
 	return filepath.Join(append([]string{li.Dir}, parts...)...)
@@ -30,8 +36,19 @@ func (li *LabIssuer) installed() bool {
 	return err == nil
 }
 
+// nextPending reports a prepared rotation waiting for the Root's signature.
+func (li *LabIssuer) nextPending() bool {
+	_, err := os.Stat(li.file("next", "request.csr.pem"))
+	return err == nil
+}
+
+// pendingCSR is the request waiting for the Root: the first Intermediate's,
+// or the next one's during a rotation.
 func (li *LabIssuer) pendingCSR() ([]byte, error) {
-	return os.ReadFile(li.file("intermediate", "request.csr.pem"))
+	if b, err := os.ReadFile(li.file("intermediate", "request.csr.pem")); err == nil {
+		return b, nil
+	}
+	return os.ReadFile(li.file("next", "request.csr.pem"))
 }
 
 func (li *LabIssuer) hasRootKey() bool {
@@ -43,14 +60,22 @@ func (li *LabIssuer) hasRootKey() bool {
 	return false
 }
 
+func (li *LabIssuer) rotateWindow() time.Duration {
+	days := li.RotateDays
+	if days <= 0 {
+		days = 730
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
 // issuerReady reports an issuer that can sign device certificates and CRLs.
 func (s *Server) issuerReady() bool {
 	li := s.cfg.LabIssuer
 	return li != nil && li.installed()
 }
 
-// caChain is the active Root+Intermediate chain: Config.CAChainPEM, or the
-// issuer's once its Intermediate is installed.
+// caChain is the active chain: the Intermediate, retired Intermediates still
+// valid, then the Root — Config.CAChainPEM, or the issuer's once installed.
 func (s *Server) caChain() []byte {
 	s.caMu.RLock()
 	defer s.caMu.RUnlock()
@@ -75,8 +100,10 @@ func (s *Server) useIssuerChain() error {
 	if !certs[len(certs)-1].Equal(root) {
 		return errors.New("the issuer's Root is not the configured Root CA")
 	}
-	if err := certs[0].CheckSignatureFrom(root); err != nil {
-		return fmt.Errorf("the Intermediate is not signed by the configured Root CA: %w", err)
+	for _, c := range certs[:len(certs)-1] {
+		if err := c.CheckSignatureFrom(root); err != nil {
+			return fmt.Errorf("Intermediate %s is not signed by the configured Root CA: %w", c.Subject.CommonName, err)
+		}
 	}
 	s.caMu.Lock()
 	s.chain = chain
@@ -123,6 +150,23 @@ func (s *Server) prepareIssuer() error {
 	return nil
 }
 
+// currentIntermediate is the active Intermediate certificate, nil when none.
+func (s *Server) currentIntermediate() []any {
+	certs, err := certutil.ParseChainPEM(s.caChain())
+	if err != nil || len(certs) < 2 {
+		return nil
+	}
+	out := make([]any, 0, len(certs)-1)
+	for _, c := range certs[:len(certs)-1] {
+		out = append(out, map[string]any{
+			"subject":     c.Subject.CommonName,
+			"fingerprint": certutil.FingerprintSHA256(c),
+			"not_after":   fmtTime(c.NotAfter),
+		})
+	}
+	return out
+}
+
 func (s *Server) issuerStatus() map[string]any {
 	li := s.cfg.LabIssuer
 	if li == nil {
@@ -139,15 +183,42 @@ func (s *Server) issuerStatus() map[string]any {
 		return out
 	}
 	out["state"] = "active"
-	if certs, err := certutil.ParseChainPEM(s.caChain()); err == nil && len(certs) > 0 {
-		c := certs[0]
-		out["intermediate"] = map[string]any{
-			"subject":     c.Subject.CommonName,
-			"fingerprint": certutil.FingerprintSHA256(c),
-			"not_after":   fmtTime(c.NotAfter),
-		}
+	out["next_pending"] = li.nextPending()
+	if inters := s.currentIntermediate(); len(inters) > 0 {
+		out["intermediate"] = inters[0]
+		out["retired"] = inters[1:]
 	}
 	return out
+}
+
+// startRotation has ca-admin prepare the next Intermediate key + CSR.
+func (s *Server) startRotation(ctx context.Context, actor, why string) error {
+	li := s.cfg.LabIssuer
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	out, err := li.run(ctx, "intermediate-csr", "--dir", li.Dir, "--next", "--inter-cn", firstNonEmpty(li.InterCN, "PQC Device Signing CA"))
+	if err != nil {
+		s.st.Append(store.AuditEvent{Type: "ca.rotation.start", AccountID: actor, Result: "fail", Detail: clip(out, 300)})
+		return fmt.Errorf("ca-admin intermediate-csr --next: %s", clip(out, 400))
+	}
+	s.st.Append(store.AuditEvent{Type: "ca.rotation.start", AccountID: actor, Result: "ok", Detail: why})
+	log.Printf("api: Intermediate rotation prepared (%s) — have the offline Root sign the CSR in %s", why, li.file("next"))
+	return nil
+}
+
+// CheckIntermediateRotation prepares the next Intermediate when the active one
+// has less than the rotation window left and no rotation is pending. It
+// reports whether it started one; StartBackground calls it hourly.
+func (s *Server) CheckIntermediateRotation(ctx context.Context) bool {
+	li := s.cfg.LabIssuer
+	if !s.issuerReady() || !li.Online || li.nextPending() {
+		return false
+	}
+	certs, err := certutil.ParseChainPEM(s.caChain())
+	if err != nil || len(certs) < 2 || time.Until(certs[0].NotAfter) > li.rotateWindow() {
+		return false
+	}
+	return s.startRotation(ctx, "system", "Intermediate expires "+fmtTime(certs[0].NotAfter)) == nil
 }
 
 // hIssuerStatus (super admin): GET /api/v1/admin/ca/issuer.
@@ -155,8 +226,31 @@ func (s *Server) hIssuerStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.issuerStatus())
 }
 
+// hStartRotation (super admin): POST /api/v1/admin/ca/rotate — prepare the
+// next Intermediate now (before the automatic window, e.g. after an incident).
+func (s *Server) hStartRotation(w http.ResponseWriter, r *http.Request) {
+	li := s.cfg.LabIssuer
+	if li == nil || !li.Online {
+		writeErr(w, http.StatusNotFound, "tidak ada CA penerbit online")
+		return
+	}
+	if !li.installed() {
+		writeErr(w, http.StatusConflict, "belum ada Intermediate terpasang")
+		return
+	}
+	if li.nextPending() {
+		writeErr(w, http.StatusConflict, "rotasi sudah menunggu tanda tangan Root")
+		return
+	}
+	if err := s.startRotation(r.Context(), claims(r).Sub, "started by the super admin"); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.issuerStatus())
+}
+
 // hIntermediateCSR (super admin): GET /api/v1/admin/ca/intermediate.csr — the
-// pending request to carry to the offline Root.
+// pending request (first Intermediate or rotation) to carry to the Root.
 func (s *Server) hIntermediateCSR(w http.ResponseWriter, r *http.Request) {
 	li := s.cfg.LabIssuer
 	if li == nil || !li.Online {
@@ -168,22 +262,29 @@ func (s *Server) hIntermediateCSR(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "tidak ada permintaan Intermediate yang menunggu")
 		return
 	}
+	name := "intermediate.csr.pem"
+	if li.installed() {
+		name = "intermediate-next.csr.pem"
+	}
 	w.Header().Set("Content-Type", "application/pkcs10")
-	w.Header().Set("Content-Disposition", `attachment; filename="intermediate.csr.pem"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	_, _ = w.Write(csr)
 }
 
 // hInstallIntermediate (super admin): POST /api/v1/admin/ca/intermediate with
 // the Root-signed certificate PEM. ca-admin checks it is a pathlen:0 CA from
-// the configured Root for the key generated here; the first CRL follows.
+// the configured Root for the key generated here. During a rotation it
+// replaces the active Intermediate and retires the old one; device
+// certificates are then re-issued by the hourly renewal. A CRL follows.
 func (s *Server) hInstallIntermediate(w http.ResponseWriter, r *http.Request) {
 	li := s.cfg.LabIssuer
 	if li == nil || !li.Online {
 		writeErr(w, http.StatusNotFound, "tidak ada CA penerbit online")
 		return
 	}
-	if li.installed() {
-		writeErr(w, http.StatusConflict, "sertifikat Intermediate sudah terpasang")
+	rotate := li.installed()
+	if rotate && !li.nextPending() {
+		writeErr(w, http.StatusConflict, "sertifikat Intermediate sudah terpasang; mulai rotasi dulu untuk menggantinya")
 		return
 	}
 	body, err := readBody(r, 64<<10)
@@ -202,11 +303,17 @@ func (s *Server) hInstallIntermediate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "tmp")
 		return
 	}
+	args := []string{"install-intermediate", "--dir", li.Dir, "--cert", certPath, "--root-cert", rootPath}
+	event := "ca.intermediate.install"
+	if rotate {
+		args = append(args, "--rotate")
+		event = "ca.intermediate.rotate"
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	c := claims(r)
-	if out, err := li.run(ctx, "install-intermediate", "--dir", li.Dir, "--cert", certPath, "--root-cert", rootPath); err != nil {
-		s.st.Append(store.AuditEvent{Type: "ca.intermediate.install", AccountID: c.Sub, Result: "fail", Detail: clip(out, 300)})
+	if out, err := li.run(ctx, args...); err != nil {
+		s.st.Append(store.AuditEvent{Type: event, AccountID: c.Sub, Result: "fail", Detail: clip(out, 300)})
 		writeErr(w, http.StatusBadRequest, "sertifikat Intermediate ditolak: "+clip(out, 400))
 		return
 	}
@@ -219,8 +326,8 @@ func (s *Server) hInstallIntermediate(w http.ResponseWriter, r *http.Request) {
 	if i, ok := st["intermediate"].(map[string]any); ok {
 		fp, _ = i["fingerprint"].(string)
 	}
-	s.st.Append(store.AuditEvent{Type: "ca.intermediate.install", AccountID: c.Sub, Result: "ok", Detail: fp})
-	out := map[string]any{"issuer": st, "crl_published": true}
+	s.st.Append(store.AuditEvent{Type: event, AccountID: c.Sub, Result: "ok", Detail: fp})
+	out := map[string]any{"issuer": st, "rotated": rotate, "crl_published": true}
 	if err := s.refreshCRL(r.Context(), c.Sub, ""); err != nil {
 		out["crl_published"] = false
 		out["crl_error"] = err.Error()
@@ -230,8 +337,9 @@ func (s *Server) hInstallIntermediate(w http.ResponseWriter, r *http.Request) {
 
 // StartBackground runs periodic jobs until ctx ends. With a ready issuer,
 // checked hourly: the CRL is republished when there is none or it is over a
-// day old, so its 7-day nextUpdate never lapses; and device certificates near
-// expiry are renewed (renew.go).
+// day old, so its 7-day nextUpdate never lapses; a rotation is prepared when
+// the Intermediate nears its end; and device certificates near expiry or from
+// a retired Intermediate are re-issued (renew.go).
 func (s *Server) StartBackground(ctx context.Context) {
 	if s.cfg.LabIssuer == nil {
 		return
@@ -246,6 +354,7 @@ func (s *Server) StartBackground(ctx context.Context) {
 					s.st.Append(store.AuditEvent{Type: "crl.publish", Result: "fail", Detail: err.Error()})
 				}
 			}
+			s.CheckIntermediateRotation(ctx)
 			if n := s.RenewDueCertificates(ctx); n > 0 {
 				log.Printf("api: renewed %d device certificate(s)", n)
 			}

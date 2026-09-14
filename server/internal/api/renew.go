@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/x509"
 	"time"
 
 	"example.internal/pqc-pdf-sign/core/certutil"
@@ -16,14 +17,14 @@ func (li *LabIssuer) renewWindow() time.Duration {
 	return time.Duration(days) * 24 * time.Hour
 }
 
-// RenewDueCertificates re-issues device certificates that expire within the
-// issuer's renewal window, from the CSR stored at enrolment: same device key,
-// identity from the account, nothing to do on the device. The old certificate
-// is not revoked — documents and apps still using it keep working until it
-// expires — and apps fetch the new one on their next certificate check. A
-// certificate is skipped when its account or device is not active, when a
-// newer certificate already exists for the device, or when a new one would
-// not last meaningfully longer (the Intermediate itself is near its end).
+// RenewDueCertificates re-issues device certificates from the CSR stored at
+// enrolment — same device key, identity from the account, nothing to do on
+// the device — when they expire within the renewal window (and a new one
+// would last meaningfully longer), or when they were issued by an Intermediate
+// that has since been rotated out. The old certificate is not revoked:
+// documents and apps still using it keep working until it expires, and apps
+// fetch the new one on their next certificate check. Inactive accounts and
+// devices are skipped, as is a certificate with a newer one for its device.
 // It returns how many certificates were renewed; StartBackground calls it
 // hourly.
 func (s *Server) RenewDueCertificates(ctx context.Context) int {
@@ -35,18 +36,20 @@ func (s *Server) RenewDueCertificates(ctx context.Context) int {
 	if err != nil || len(chain) == 0 {
 		return 0
 	}
+	current := chain[0]
 	now := time.Now()
 	nextNotAfter := now.Add(time.Duration(li.certDays()) * 24 * time.Hour)
-	if nextNotAfter.After(chain[0].NotAfter) {
-		nextNotAfter = chain[0].NotAfter
+	if nextNotAfter.After(current.NotAfter) {
+		nextNotAfter = current.NotAfter
 	}
 
 	renewed := 0
-	for _, c := range s.st.CertificatesExpiringBefore(now.Add(li.renewWindow())) {
+	for _, c := range s.st.CertificatesExpiringBefore(time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		if ctx.Err() != nil {
 			break
 		}
-		if !nextNotAfter.After(c.NotAfter.Add(24 * time.Hour)) {
+		expiring := c.NotAfter.Before(now.Add(li.renewWindow())) && nextNotAfter.After(c.NotAfter.Add(24*time.Hour))
+		if !expiring && issuedBy(c, current) {
 			continue
 		}
 		if latest, err := s.st.CertificateByDevice(c.DeviceID); err != nil || latest.ID != c.ID {
@@ -77,4 +80,14 @@ func (s *Server) RenewDueCertificates(ctx context.Context) int {
 		renewed++
 	}
 	return renewed
+}
+
+// issuedBy reports whether c was signed by ca. An unparseable certificate
+// counts as issued by it, so it is never re-issued in a loop.
+func issuedBy(c store.Certificate, ca *x509.Certificate) bool {
+	cert, err := certutil.ParseCertificatePEM(c.PEM)
+	if err != nil {
+		return true
+	}
+	return cert.CheckSignatureFrom(ca) == nil
 }

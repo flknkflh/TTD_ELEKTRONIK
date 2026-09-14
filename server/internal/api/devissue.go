@@ -39,6 +39,7 @@ type LabIssuer struct {
 	CRLURL     string // CRL distribution point written into device certificates
 	CertDays   int    // device certificate validity in days; 0 -> 365
 	RenewDays  int    // re-issue device certificates this many days before expiry; 0 -> 30
+	RotateDays int    // prepare the next Intermediate this many days before expiry; 0 -> 730 (Online)
 }
 
 // run executes ca-admin. The child gets no PQC_CA_* variable from this

@@ -236,10 +236,19 @@ func (s Store) publish(inter *labpki.CA, crlPEM []byte) error {
 	if err != nil {
 		return err
 	}
+	// The chain carries retired Intermediates while they are valid, so
+	// verifiers still find the issuer of certificates they signed (split.go).
+	chain := []*x509.Certificate{inter.Cert}
+	for _, r := range s.retired() {
+		if time.Now().Before(r.Cert.NotAfter) {
+			chain = append(chain, r.Cert)
+		}
+	}
+	chain = append(chain, root)
 	writes := map[string][]byte{
 		"root-ca.crt.pem":         labpki.CertPEM(root),
 		"intermediate-ca.crt.pem": labpki.CertPEM(inter.Cert),
-		"ca-chain.pem":            labpki.ChainPEM(inter.Cert, root),
+		"ca-chain.pem":            labpki.ChainPEM(chain...),
 	}
 	if crlPEM != nil {
 		writes["crl.pem"] = crlPEM

@@ -84,6 +84,7 @@ func main() {
 			CRLURL:     envOr("PQC_CA_CRL_URL", strings.TrimRight(*baseURL, "/")+"/api/v1/public/ca/crl.pem"),
 			CertDays:   intEnv("PQC_CA_DEVICE_CERT_DAYS", 365),
 			RenewDays:  intEnv("PQC_CA_RENEW_DAYS", 30),
+			RotateDays: intEnv("PQC_CA_ROTATE_DAYS", 730),
 		}
 		log.Printf("api: online CA issuer (split CA, no Root key) in %s", issuerDir)
 	case labBin != "":

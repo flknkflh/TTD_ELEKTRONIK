@@ -17,8 +17,9 @@ import (
 )
 
 // readyIssuer returns a config and store whose online issuer already has an
-// installed Intermediate (Root created and signing through ca-admin).
-func readyIssuer(t *testing.T, certDays int) (api.Config, api.Store) {
+// installed Intermediate (Root created and signing through ca-admin), and the
+// Root directory.
+func readyIssuer(t *testing.T, certDays int) (api.Config, api.Store, string) {
 	t.Helper()
 	bin := caAdminBin(t)
 	base := t.TempDir()
@@ -51,11 +52,11 @@ func readyIssuer(t *testing.T, certDays int) (api.Config, api.Store) {
 		"--csr", filepath.Join(issuerDir, "intermediate", "request.csr.pem"), "--inter-cn", "Issuer", "--out", crt)
 	runCAAdmin(t, bin, []string{"PQC_CA_INTERMEDIATE_PASSPHRASE=" + testInterPass},
 		"install-intermediate", "--dir", issuerDir, "--cert", crt, "--root-cert", rootCert)
-	return cfg, st
+	return cfg, st, rootDir
 }
 
 func TestDeviceCertificateRenewal(t *testing.T) {
-	cfg, st := readyIssuer(t, 10)
+	cfg, st, _ := readyIssuer(t, 10)
 	srv, err := api.New(st, cfg)
 	if err != nil {
 		t.Fatal(err)

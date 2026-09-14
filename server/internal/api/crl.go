@@ -27,27 +27,34 @@ func (s *Server) currentCRL() []byte {
 	return s.crl
 }
 
-// checkCRL parses a PEM or DER CRL and requires a CRL number and a signature
-// by a certificate of this server's CA. It returns the CRL re-encoded as PEM.
+// checkCRL parses a PEM or DER CRL — or a PEM bundle, whose first CRL is the
+// active Intermediate's and the rest are retired Intermediates' — and requires
+// a CRL number and a signature by a certificate of this server's CA on every
+// CRL. It returns the first CRL and the bundle re-encoded as PEM.
 func (s *Server) checkCRL(b []byte) (*x509.RevocationList, []byte, error) {
-	der := b
-	if blk, _ := pem.Decode(b); blk != nil {
-		der = blk.Bytes
-	}
-	rl, err := x509.ParseRevocationList(der)
+	crls, err := certutil.ParseCRLs(b)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bukan CRL yang valid: %w", err)
 	}
-	if rl.Number == nil {
-		return nil, nil, errors.New("CRL tidak memiliki nomor (CRLNumber)")
-	}
 	chain, _ := certutil.ParseChainPEM(append(append([]byte{}, s.caChain()...), s.cfg.RootCAPEM...))
-	for _, c := range chain {
-		if rl.CheckSignatureFrom(c) == nil {
-			return rl, pem.EncodeToMemory(&pem.Block{Type: "X509 CRL", Bytes: der}), nil
+	var out []byte
+	for _, rl := range crls {
+		if rl.Number == nil {
+			return nil, nil, errors.New("CRL tidak memiliki nomor (CRLNumber)")
 		}
+		signed := false
+		for _, c := range chain {
+			if rl.CheckSignatureFrom(c) == nil {
+				signed = true
+				break
+			}
+		}
+		if !signed {
+			return nil, nil, errors.New("CRL tidak ditandatangani oleh CA server ini")
+		}
+		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "X509 CRL", Bytes: rl.Raw})...)
 	}
-	return nil, nil, errors.New("CRL tidak ditandatangani oleh CA server ini")
+	return crls[0], out, nil
 }
 
 func crlRecord(rl *x509.RevocationList, pemBytes []byte, source, actor string) store.CRL {

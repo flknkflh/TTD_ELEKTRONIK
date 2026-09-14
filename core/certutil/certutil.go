@@ -185,29 +185,78 @@ type CRLStatus struct {
 	SignatureOK bool      `json:"signature_ok"`
 }
 
-// ValidateCRL parses a PEM/DER CRL, verifies it was signed by issuer, checks
-// freshness, and reports whether target's serial is listed as revoked.
+// ValidateCRL checks target against a PEM/DER CRL — or a PEM bundle of CRLs,
+// which an issuer publishes while a retired Intermediate still signs its own
+// — and reports freshness and whether target's serial is listed as revoked.
+// With issuer set, the CRL signed by issuer is used and its signature
+// verified. With issuer nil (no intermediates known to the verifier) every CRL
+// in the bundle is consulted, without a signature check.
 // This is the offline revocation path for V1 verification (Rencana V1 §16.1).
 func ValidateCRL(crlBytes []byte, issuer, target *x509.Certificate, now time.Time) (CRLStatus, error) {
-	der := crlBytes
-	if block, _ := pem.Decode(crlBytes); block != nil {
-		der = block.Bytes
-	}
-	crl, err := x509.ParseRevocationList(der)
+	crls, err := ParseCRLs(crlBytes)
 	if err != nil {
-		return CRLStatus{}, fmt.Errorf("certutil: parse CRL: %w", err)
+		return CRLStatus{}, err
 	}
+	if issuer != nil {
+		var sigErr error
+		for _, crl := range crls {
+			if err := crl.CheckSignatureFrom(issuer); err != nil {
+				sigErr = err
+				continue
+			}
+			st := crlStatus(crl, target, now)
+			st.SignatureOK = true
+			return st, nil
+		}
+		return crlStatus(crls[0], nil, now), fmt.Errorf("certutil: CRL not signed by expected issuer: %w", sigErr)
+	}
+	st := crlStatus(crls[0], target, now)
+	for _, crl := range crls[1:] {
+		if more := crlStatus(crl, target, now); more.Revoked && !st.Revoked {
+			st.Revoked, st.RevokedAt = true, more.RevokedAt
+		}
+	}
+	return st, nil
+}
+
+// ParseCRLs reads every CRL in a PEM bundle, or a single DER CRL.
+func ParseCRLs(b []byte) ([]*x509.RevocationList, error) {
+	var out []*x509.RevocationList
+	rest := b
+	for {
+		block, r := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = r
+		if block.Type == "CERTIFICATE" {
+			continue
+		}
+		crl, err := x509.ParseRevocationList(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("certutil: parse CRL: %w", err)
+		}
+		out = append(out, crl)
+	}
+	if len(out) == 0 {
+		crl, err := x509.ParseRevocationList(b)
+		if err != nil {
+			return nil, fmt.Errorf("certutil: parse CRL: %w", err)
+		}
+		out = append(out, crl)
+	}
+	return out, nil
+}
+
+func crlStatus(crl *x509.RevocationList, target *x509.Certificate, now time.Time) CRLStatus {
 	st := CRLStatus{
 		Checked:    true,
 		ThisUpdate: crl.ThisUpdate,
 		NextUpdate: crl.NextUpdate,
 		Stale:      !crl.NextUpdate.IsZero() && now.After(crl.NextUpdate),
 	}
-	if issuer != nil {
-		if err := crl.CheckSignatureFrom(issuer); err != nil {
-			return st, fmt.Errorf("certutil: CRL not signed by expected issuer: %w", err)
-		}
-		st.SignatureOK = true
+	if target == nil {
+		return st
 	}
 	for _, entry := range crl.RevokedCertificateEntries {
 		if serialEqual(entry.SerialNumber, target.SerialNumber) {
@@ -216,7 +265,7 @@ func ValidateCRL(crlBytes []byte, issuer, target *x509.Certificate, now time.Tim
 			break
 		}
 	}
-	return st, nil
+	return st
 }
 
 func serialEqual(a, b *big.Int) bool {
