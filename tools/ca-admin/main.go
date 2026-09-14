@@ -48,15 +48,21 @@ var reasonCodes = map[string]int{
 	"privilegeWithdrawn":   9,
 }
 
+// open opens a CA directory for the issuing commands. It reads the
+// Intermediate passphrase (or the legacy one), never the Root's.
 func open(dir string) (Store, error) {
-	return openStore(dir, os.Getenv("PQC_CA_PASSPHRASE"), os.Getenv("PQC_CA_OPERATOR"))
+	pass, err := passphraseFor(roleIntermediate)
+	if err != nil {
+		return Store{Dir: dir}, err
+	}
+	return openStore(dir, pass, operator())
 }
 
 const usage = `ca-admin — offline CA operator for PQC PDF Sign V1
 
 usage: ca-admin <command> [flags]
 
-  init         create a Root + Intermediate ML-DSA-65 CA under --dir
+  init         create a Root + Intermediate ML-DSA-65 CA under --dir (lab / one machine)
   validate     check a device CSR (proof of possession, ML-DSA-65)
   issue        issue one device certificate (identity assigned via flags)
   batch-issue  issue certificates for every CSR in a directory
@@ -67,9 +73,18 @@ usage: ca-admin <command> [flags]
   restore      unpack a ca-admin backup into a new --dir
   show         inspect a certificate or CRL PEM file
 
+Split CA (production: Root offline, Intermediate key never leaves the issuer):
+  init-root             create a Root-only CA (Root environment)
+  intermediate-csr      generate the Intermediate key + CSR (issuer)
+  sign-intermediate     the Root signs an Intermediate CSR (Root environment)
+  install-intermediate  install the signed Intermediate certificate (issuer)
+
 Environment:
-  PQC_CA_PASSPHRASE   if set, CA keys are stored encrypted (production)
-  PQC_CA_OPERATOR     recorded in ceremony.jsonl
+  PQC_CA_ROOT_PASSPHRASE[_FILE]          Root key passphrase (split CA)
+  PQC_CA_INTERMEDIATE_PASSPHRASE[_FILE]  Intermediate key passphrase (split CA, and
+                                         issue/revoke/crl/status/backup on an issuer)
+  PQC_CA_PASSPHRASE                      one passphrase for a CA made by init
+  PQC_CA_OPERATOR                        recorded in ceremony.jsonl
 
 Run "ca-admin <command> -h" for flags.
 `
@@ -101,6 +116,14 @@ func main() {
 		err = cmdRestore(os.Args[2:])
 	case "show":
 		err = cmdShow(os.Args[2:])
+	case "init-root":
+		err = cmdInitRoot(os.Args[2:])
+	case "intermediate-csr":
+		err = cmdIntermediateCSR(os.Args[2:])
+	case "sign-intermediate":
+		err = cmdSignIntermediate(os.Args[2:])
+	case "install-intermediate":
+		err = cmdInstallIntermediate(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -391,7 +414,7 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	root, err := s.Root()
+	root, err := s.rootCert()
 	if err != nil {
 		return err
 	}
@@ -409,7 +432,8 @@ func cmdStatus(args []string) error {
 	}
 	fmt.Printf("CA directory : %s\n", *dir)
 	fmt.Printf("keys         : %s\n", map[bool]string{true: "ENCRYPTED", false: "plaintext (lab)"}[s.encrypted()])
-	fmt.Printf("root         : %s\n  fp %s  not_after %s\n", root.Cert.Subject, certutil.FingerprintSHA256(root.Cert), root.Cert.NotAfter.Format(time.RFC3339))
+	fmt.Printf("root         : %s\n  fp %s  not_after %s\n", root.Subject, certutil.FingerprintSHA256(root), root.NotAfter.Format(time.RFC3339))
+	fmt.Printf("root key     : %s\n", map[bool]string{true: "PRESENT (Root CA machine)", false: "absent (issuer)"}[s.hasRootKey()])
 	fmt.Printf("intermediate : %s\n  fp %s  not_after %s\n", inter.Cert.Subject, certutil.FingerprintSHA256(inter.Cert), inter.Cert.NotAfter.Format(time.RFC3339))
 	fmt.Printf("issued certs : %d\n", issued)
 	if l != nil {

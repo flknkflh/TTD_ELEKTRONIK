@@ -162,11 +162,14 @@ func cmdRestore(args []string) error {
 	if err != nil {
 		return fmt.Errorf("restore incomplete: %w", err)
 	}
-	root, err := s.Root()
+	root, err := s.rootCert()
 	if err != nil {
 		return fmt.Errorf("restored CA is unusable: %w", err)
 	}
-	fmt.Printf("restored %d files to %s/\n  root fp %x\n", count, *dir, sha256Bytes(root.Cert.Raw))
+	if _, err := s.Intermediate(); err != nil {
+		return fmt.Errorf("restored CA is unusable: %w", err)
+	}
+	fmt.Printf("restored %d files to %s/\n  root fp %x\n", count, *dir, sha256Bytes(root.Raw))
 	if name, leak := s.hasPrivateKeyLeak(); leak {
 		return fmt.Errorf("GATE FAIL after restore: public/%s has private key material", name)
 	}

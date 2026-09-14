@@ -1,7 +1,9 @@
 # tools/ca-admin
 
-Offline CA operator for PQC PDF Sign V1 (Rencana V1 §13, §14, §17.5). Runs on
-the air-gapped admin machine — never on a server.
+Offline CA operator for PQC PDF Sign V1 (Rencana V1 §13, §14, §17.5). The Root
+key always stays offline. With a split CA (production) the Intermediate side —
+`intermediate-csr`, `install-intermediate`, `issue`, `revoke`, `crl` — runs on
+the online issuer, which never holds the Root key.
 
 ```sh
 cd tools/ca-admin && go build -o ../../dist/ca-admin .
@@ -23,9 +25,19 @@ ca-admin init        --dir /mnt/ca/pqc-ca            # writes key.pem.enc
 ca-admin batch-issue --dir /mnt/ca/pqc-ca --in /media/in --out /media/out
 ca-admin backup      --dir /mnt/ca/pqc-ca --out /mnt/backup-A/pqc-ca.tar.gz
 ca-admin restore     --in  /mnt/backup-A/pqc-ca.tar.gz --dir /tmp/drill
+
+# --- split CA (production: Root offline, Intermediate key stays on the issuer) ---
+# Root environment (PQC_CA_ROOT_PASSPHRASE[_FILE]):
+ca-admin init-root         --dir /work/root --root-cn "Instansi PQC Root CA"
+ca-admin sign-intermediate --dir /work/root --csr intermediate.csr.pem \
+                           --inter-cn "Instansi PQC Device Signing CA" --out intermediate.crt.pem
+# Issuer (PQC_CA_INTERMEDIATE_PASSPHRASE[_FILE]; never the Root one):
+ca-admin intermediate-csr     --dir /ca
+ca-admin install-intermediate --dir /ca --cert intermediate.crt.pem --root-cert root-ca.crt.pem
 ```
 
-Full runbook: `docs/pki-ceremony.md`.
+Full runbooks: `deploy/production/RUNBOOK.md` §3 (split CA) and
+`docs/pki-ceremony.md` (fully offline CA).
 
 ## CA directory layout
 
@@ -53,6 +65,12 @@ directory; `restore` refuses to overwrite one and re-checks the gate.
 * `ceremony.jsonl` lines carry a SHA-256 for each artifact and the encryption posture.
 * **M7 gate**: `status` / `restore` fail if `public/` holds any private-key material.
 * `backup` → `restore` produces an independent, usable CA and leaves the original untouched.
+* Split CA (`split_test.go`): an issuer holds no Root key yet issues, revokes and
+  publishes CRLs; its chain verifies to the offline Root; the Root and
+  Intermediate keys are sealed under different passphrases, the split commands
+  refuse `PQC_CA_PASSPHRASE`, and issuer commands never read the Root one;
+  `install-intermediate` refuses a certificate from another Root, for another
+  key, or into a directory that holds a Root key.
 
 ## Still open (post-V1)
 

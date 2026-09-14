@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/mldsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
@@ -26,7 +27,11 @@ import (
 //	  issued.jsonl      one line per issued device certificate
 //	  ceremony.jsonl    append-only audit log with artifact checksums
 //
-// With PQC_CA_PASSPHRASE set, CA private keys are written as key.pem.enc
+// `init` writes both keys (lab / single machine). A split CA (split.go) has a
+// Root-only directory kept offline and an issuer directory with no
+// root/key.pem* at all; everything an issuer does needs only root/cert.pem.
+//
+// With a passphrase set, CA private keys are written as key.pem.enc
 // (Argon2id + AES-256-GCM, Rencana V1 §13.2). Without it, key.pem is written
 // in the clear — lab only.
 type Store struct {
@@ -80,8 +85,12 @@ func (s Store) exists() bool {
 
 // encrypted reports whether the CA keys on disk are in encrypted form.
 func (s Store) encrypted() bool {
-	_, err := os.Stat(s.path("intermediate", "key.pem.enc"))
-	return err == nil
+	for _, name := range []string{"intermediate", "root"} {
+		if _, err := os.Stat(s.path(name, "key.pem.enc")); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Init creates a fresh Root + Intermediate CA under s.Dir.
@@ -115,7 +124,14 @@ func (s Store) Init(rootCN, interCN string) error {
 }
 
 func (s Store) writeCA(name string, ca *labpki.CA) error {
-	keyPEM, err := keys.MarshalPKCS8PEM(ca.Key)
+	if err := s.writeKey(name, ca.Key); err != nil {
+		return err
+	}
+	return os.WriteFile(s.path(name, "cert.pem"), labpki.CertPEM(ca.Cert), 0o644)
+}
+
+func (s Store) writeKey(name string, sk *mldsa.PrivateKey) error {
+	keyPEM, err := keys.MarshalPKCS8PEM(sk)
 	if err != nil {
 		return err
 	}
@@ -124,18 +140,12 @@ func (s Store) writeCA(name string, ca *labpki.CA) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(s.path(name, "key.pem.enc"), sealed, 0o600); err != nil {
-			return err
-		}
-	} else {
-		if err := os.WriteFile(s.path(name, "key.pem"), keyPEM, 0o600); err != nil {
-			return err
-		}
+		return os.WriteFile(s.path(name, "key.pem.enc"), sealed, 0o600)
 	}
-	return os.WriteFile(s.path(name, "cert.pem"), labpki.CertPEM(ca.Cert), 0o644)
+	return os.WriteFile(s.path(name, "key.pem"), keyPEM, 0o600)
 }
 
-func (s Store) loadCA(name string) (*labpki.CA, error) {
+func (s Store) loadKey(name string) (*mldsa.PrivateKey, error) {
 	var keyPEM []byte
 	if enc, err := os.ReadFile(s.path(name, "key.pem.enc")); err == nil {
 		keyPEM, err = openKeyPEM(enc, s.Passphrase)
@@ -148,7 +158,11 @@ func (s Store) loadCA(name string) (*labpki.CA, error) {
 			return nil, fmt.Errorf("ca-admin: no CA key for %q: %w", name, err)
 		}
 	}
-	sk, err := keys.ParsePKCS8(keyPEM)
+	return keys.ParsePKCS8(keyPEM)
+}
+
+func (s Store) loadCA(name string) (*labpki.CA, error) {
+	sk, err := s.loadKey(name)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +180,27 @@ func (s Store) loadCA(name string) (*labpki.CA, error) {
 // Intermediate is the signing CA for device certs and CRLs.
 func (s Store) Intermediate() (*labpki.CA, error) { return s.loadCA("intermediate") }
 func (s Store) Root() (*labpki.CA, error)         { return s.loadCA("root") }
+
+// rootCert is the Root certificate alone. Issuing, revoking, publishing a CRL,
+// status and restore need only this, so an issuer directory never holds the
+// Root key.
+func (s Store) rootCert() (*x509.Certificate, error) {
+	raw, err := os.ReadFile(s.path("root", "cert.pem"))
+	if err != nil {
+		return nil, err
+	}
+	return certutil.ParseCertificatePEM(raw)
+}
+
+// hasRootKey reports whether root/key.pem or root/key.pem.enc is present.
+func (s Store) hasRootKey() bool {
+	for _, name := range []string{"key.pem", "key.pem.enc"} {
+		if _, err := os.Stat(s.path("root", name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 func (s Store) loadLedger() (*Ledger, error) {
 	raw, err := os.ReadFile(s.path("ledger.json"))
@@ -197,14 +232,14 @@ func (s Store) appendIssued(r IssuedRecord) error {
 
 // publish (re)writes the public trust material. crlPEM may be nil.
 func (s Store) publish(inter *labpki.CA, crlPEM []byte) error {
-	root, err := s.Root()
+	root, err := s.rootCert()
 	if err != nil {
 		return err
 	}
 	writes := map[string][]byte{
-		"root-ca.crt.pem":         labpki.CertPEM(root.Cert),
+		"root-ca.crt.pem":         labpki.CertPEM(root),
 		"intermediate-ca.crt.pem": labpki.CertPEM(inter.Cert),
-		"ca-chain.pem":            labpki.ChainPEM(inter.Cert, root.Cert),
+		"ca-chain.pem":            labpki.ChainPEM(inter.Cert, root),
 	}
 	if crlPEM != nil {
 		writes["crl.pem"] = crlPEM
@@ -225,7 +260,7 @@ func openStore(dir, passphrase, operator string) (Store, error) {
 		return s, errNotInitialised
 	}
 	if s.encrypted() && s.Passphrase == "" {
-		return s, errors.New("ca-admin: CA keys are encrypted; set PQC_CA_PASSPHRASE")
+		return s, errors.New("ca-admin: CA keys are encrypted; set PQC_CA_INTERMEDIATE_PASSPHRASE (or _FILE), or PQC_CA_PASSPHRASE for a CA made by init")
 	}
 	return s, nil
 }

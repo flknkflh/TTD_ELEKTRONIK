@@ -5,6 +5,14 @@ passphrase. **Production is different**: one witnessed run on an air-gapped
 machine, encrypted keys, checksummed logs, split backups. A second run is only
 needed on rotation or suspected compromise (Rencana V1 §13, §28, §29).
 
+> **Production uses a split CA**: the Root key exists only in an offline (or
+> ephemeral, network-less) environment, and the Intermediate key is generated
+> on the online issuer and never leaves it (`ca-admin init-root`,
+> `intermediate-csr`, `sign-intermediate`, `install-intermediate`). The
+> step-by-step procedure is `deploy/production/RUNBOOK.md` §3. The
+> single-directory flow below (`init` + offline batch issuance) remains valid
+> for a fully offline CA.
+
 `tools/ca-admin` performs every mechanical step below. Reproducible fingerprints
 and an append-only `ceremony.jsonl` (SHA-256 of every artifact + operator +
 `ca_keys_encrypted`) make the run auditable.

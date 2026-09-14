@@ -73,31 +73,50 @@ func NewIntermediateCA(parent *CA, commonName string, validity time.Duration) (*
 	if err != nil {
 		return nil, err
 	}
+	pub, ok := key.Public().(*mldsa.PublicKey)
+	if !ok {
+		return nil, errors.New("labpki: unexpected ML-DSA public key type")
+	}
+	cert, err := parent.IssueIntermediateCert(pub, commonName, validity)
+	if err != nil {
+		return nil, err
+	}
+	return &CA{Key: key, Cert: cert}, nil
+}
+
+// IssueIntermediateCert signs a CA:TRUE, pathlen:0 certificate (keyUsage
+// keyCertSign,cRLSign) for pub. It is how a Root that never holds the
+// Intermediate key — it only sees the Intermediate's CSR — issues the
+// device-signing CA. NotAfter is capped at the Root's own NotAfter.
+func (ca *CA) IssueIntermediateCert(pub *mldsa.PublicKey, commonName string, validity time.Duration) (*x509.Certificate, error) {
+	if pub == nil {
+		return nil, errors.New("labpki: nil intermediate public key")
+	}
 	serial, err := randSerial()
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
+	notAfter := now.Add(validity)
+	if notAfter.After(ca.Cert.NotAfter) {
+		notAfter = ca.Cert.NotAfter
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName, OrganizationalUnit: []string{"PQC Device Signing CA"}},
 		NotBefore:             now.Add(-time.Hour),
-		NotAfter:              now.Add(validity),
+		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            0,
 		MaxPathLenZero:        true,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent.Cert, key.Public(), parent.Key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.Cert, pub, ca.Key)
 	if err != nil {
 		return nil, fmt.Errorf("labpki: create intermediate: %w", err)
 	}
-	cert, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, err
-	}
-	return &CA{Key: key, Cert: cert}, nil
+	return x509.ParseCertificate(der)
 }
 
 // DeviceCertOptions controls a single device certificate.
