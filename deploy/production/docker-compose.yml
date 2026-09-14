@@ -1,0 +1,112 @@
+# PQ PDF Sign — production stack (deploy/production/RUNBOOK.md).
+#
+#   caddy     the ONLY published service (80/443): Let's Encrypt, TLS 1.3 with
+#             hybrid X25519MLKEM768 key exchange, HSTS, body-size cap
+#   api       receiver API (:8099) + verification-only site (:8098), non-root,
+#             CPU/memory capped, no CA private key, no lab issuer
+#   postgres  on a network with no route out of the host
+#
+# Config comes from .env next to this file (cp .env.example .env). Public CA
+# material goes in ./pki (root-ca.crt.pem, ca-chain.pem) — never a private key.
+#
+#   docker compose up -d --build     build + start, data kept
+#   docker compose down              stop, data kept
+#   NEVER `docker compose down -v`   that deletes the database and every PDF
+
+name: pqsign
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pqc
+      POSTGRES_PASSWORD: "${PQC_DB_PASSWORD:?set PQC_DB_PASSWORD in .env}"
+      POSTGRES_DB: pqc
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pqc -d pqc"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [db]
+    logging: &logging
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/production/Dockerfile
+    image: pqsign-api:local
+    restart: unless-stopped
+    environment:
+      PQC_ADDR: ":8099"
+      PQC_VERIFY_ADDR: ":8098"
+      PQC_DATABASE_URL: "postgres://pqc:${PQC_DB_PASSWORD}@postgres:5432/pqc?sslmode=disable"
+      PQC_JWT_SECRET: "${PQC_JWT_SECRET:?set PQC_JWT_SECRET in .env}"
+      PQC_PUBLIC_BASE_URL: "https://${PQC_DOMAIN:?set PQC_DOMAIN in .env}"
+      PQC_ROOT_CA_PEM: /pki/root-ca.crt.pem
+      PQC_CA_CHAIN_PEM: /pki/ca-chain.pem
+      # Only Caddy can reach the API, and Caddy overwrites X-Forwarded-For.
+      PQC_TRUST_PROXY: "1"
+      PQC_SUPERADMIN_USERNAME: "${PQC_SUPERADMIN_USERNAME:-superadmin}"
+      # Empty on purpose: the first boot generates a password and logs it once.
+      PQC_SUPERADMIN_PASSWORD: ""
+      PQC_OBJECT_DIR: /objects
+      PQC_UPLOAD_DIR: /objects/_incoming
+      PQC_MAX_UPLOAD_MB: "${PQC_MAX_UPLOAD_MB:-64}"
+      PQC_MAX_STAMP_MB: "${PQC_MAX_STAMP_MB:-64}"
+      PQC_MAX_VERIFY_MB: "${PQC_MAX_VERIFY_MB:-64}"
+    volumes:
+      - ./pki:/pki:ro
+      - objdata:/objects
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8099/api/v1/public/ca/root.crt"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: "${PQC_API_MEM_LIMIT:-2g}"
+    cpus: "${PQC_API_CPUS:-2}"
+    pids_limit: 512
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [edge, db]
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PQC_DOMAIN: "${PQC_DOMAIN}"
+      ACME_EMAIL: "${ACME_EMAIL:?set ACME_EMAIL in .env}"
+      PQC_PROXY_MAX_BODY_MB: "${PQC_PROXY_MAX_BODY_MB:-72}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [edge]
+    logging: *logging
+
+networks:
+  edge: {}
+  # No route out of the host: the database is reachable from the API only.
+  db:
+    internal: true
+
+volumes:
+  pgdata:
+  objdata:
+  caddydata:
+  caddyconfig:
