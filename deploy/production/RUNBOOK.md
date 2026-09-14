@@ -17,6 +17,11 @@ disk server. Kunci **Intermediate** dibuat di server, tidak pernah keluar, dan
 dipakai API untuk menerbitkan sertifikat perangkat dan CRL secara otomatis.
 Kedua kunci dienkripsi dengan passphrase yang **berbeda**.
 
+**Siklus hidup sertifikat:** sertifikat perangkat diperpanjang otomatis
+(§8.2); Intermediate dirotasi semi-otomatis — hanya tanda tangan Root yang
+dilakukan manusia (§8.8); Root dirotasi manual menurut rencana (§8.9).
+Pengingat tampil sebagai banner di konsol admin dan super admin.
+
 ## Aturan untuk yang menjalankan (manusia atau AI agent)
 
 1. Kerjakan **berurutan**. Jangan lanjut sebelum bagian **Cek** di langkah
@@ -62,6 +67,8 @@ grep -q 'loginAdminMFA' server/internal/api/mfa.go && echo ok-mfa
 grep -q 'replaceCRL' server/internal/api/crl.go && echo ok-crl
 grep -q 'prepareIssuer' server/internal/api/issuer.go && echo ok-issuer
 grep -q 'cmdSignIntermediate' tools/ca-admin/split.go && echo ok-split-ca
+grep -q 'RenewDueCertificates' server/internal/api/renew.go && echo ok-renew
+grep -q 'CheckIntermediateRotation' server/internal/api/issuer.go && echo ok-rotation
 ```
 
 Jalankan test (butuh Docker):
@@ -72,8 +79,9 @@ docker run --rm -v "$PWD":/src golang:1.27 sh -c '
   cd /src/server && PQC_TEST_CA_ADMIN=/tmp/ca-admin go test ./...' 2>&1 | tail -20
 ```
 
-**Cek:** semua paket `ok`, termasuk `TestOnlineIssuerLifecycle` (tidak
-`skipped`). Ada `FAIL` → ⛔ STOP.
+**Cek:** semua paket `ok`, termasuk `TestOnlineIssuerLifecycle`,
+`TestDeviceCertificateRenewal`, `TestOnlineIssuerRotation` dan
+`TestIntermediateRotation` (tidak `skipped`). Ada `FAIL` → ⛔ STOP.
 
 ---
 
@@ -494,9 +502,22 @@ backup volume CA tidak bisa dipakai.
 
 ### 8.2 Sertifikat perangkat
 
-Otomatis saat pengguna yang sudah disetujui mendaftarkan perangkat. Bila
-gagal, konsol Perangkat menampilkan tombol **Terbitkan ulang**. Masa berlaku
-mengikuti `PQC_CA_DEVICE_CERT_DAYS` (default 365).
+Terbit otomatis saat pengguna yang sudah disetujui mendaftarkan perangkat.
+Bila gagal, konsol Perangkat menampilkan tombol **Terbitkan ulang**. Masa
+berlaku mengikuti `PQC_CA_DEVICE_CERT_DAYS` (default 365) dan tidak pernah
+melewati masa berlaku Intermediate.
+
+**Perpanjangan otomatis:** setiap jam server menerbitkan ulang sertifikat yang
+berakhir dalam `PQC_CA_RENEW_DAYS` (default 30) hari — dari CSR yang tersimpan
+saat pendaftaran, untuk **kunci perangkat yang sama**, tanpa tindakan
+pengguna. Sertifikat lama tidak dicabut dan tetap berlaku sampai habis. App
+memeriksa sertifikat ke server sehari sekali dan saat sisa < 30 hari, lalu
+memakai yang baru. Setiap perpanjangan tercatat di audit `certificate.renew`.
+Akun nonaktif atau perangkat yang dilaporkan hilang tidak diperpanjang.
+
+Dokumen yang sudah ditandatangani **tetap valid setelah sertifikatnya
+kedaluwarsa**: verifikasi memakai waktu server menerima dokumen
+(`validation_time_source: server_received_at`).
 
 ### 8.3 CRL
 
@@ -508,11 +529,15 @@ Otomatis (setiap pencabutan + setiap 24 jam, berlaku 7 hari). Konsol
 
 - Uptime `https://<domain>/api/v1/public/ca/root.crt` (200).
 - Sertifikat TLS (Caddy memperbarui otomatis; alert < 14 hari).
-- Masa berlaku Intermediate (kartu CA penerbit; alert < 1 tahun, lihat §9).
+- **Banner di konsol admin** (sumber: `GET /api/v1/admin/capabilities` →
+  `notices`): Root < 5/2/1 tahun, Intermediate hampir habis atau rotasi
+  menunggu Root, CA penerbit menunggu Intermediate, CRL basi. Level
+  `critical` → tindak hari itu juga.
 - Disk `pgdata`, `objdata`, `cadata`; CPU container `api` (SF-1).
 - `GET /api/v1/admin/capabilities` → `crl.stale` harus `false`.
 - Audit log: lonjakan login/MFA gagal, `certificate.issue` di luar kebiasaan,
-  `ca.intermediate.install`.
+  `certificate.renew` gagal, `ca.rotation.start`, `ca.intermediate.install`,
+  `ca.intermediate.rotate`.
 - Log backup harian.
 
 ### 8.5 Update aplikasi
@@ -528,8 +553,17 @@ Ulangi §7.1–7.2.
 
 ### 8.6 Sesi Root berikutnya (hanya saat diperlukan) ⛔ STOP
 
-Untuk menandatangani Intermediate baru, sesi Root memakai arsip dari USB,
-dengan pengaman yang sama seperti §3.3–§3.5 (swap mati, saksi, run sheet):
+Untuk menandatangani Intermediate baru (rotasi §8.8), sesi Root memakai arsip
+dari USB, dengan pengaman yang sama seperti §3.3–§3.5 (swap mati, saksi, run
+sheet). Siapkan dulu:
+
+```sh
+install -d -m 755 -o 10001 -g 10001 /opt/pqsign-ceremony/in /opt/pqsign-ceremony/out
+mount -o ro /dev/<usb-a-partisi> /media/ca-usb-a
+swapoff -a
+```
+
+Lalu:
 
 ```sh
 read -rs ROOTPASS && echo
@@ -548,6 +582,8 @@ rm -f /work/.pass'
 unset ROOTPASS
 ```
 
+Sesudahnya: `umount /media/ca-usb-a && swapon -a`.
+
 Catatan: `intermediates.jsonl` di arsip USB **tidak** ikut diperbarui dengan
 cara ini; catat tanda tangan baru di run sheet.
 
@@ -559,10 +595,76 @@ cara ini; catat tanda tangan baru di run sheet.
 | Superadmin kehilangan HP + semua kode | `docker compose exec postgres psql -U pqc -d pqc -c "DELETE FROM admin_mfa WHERE account_id=(SELECT id FROM accounts WHERE role='superadmin')"` → login ulang, pasang MFA baru |
 | HP/laptop pengguna hilang | Cabut sertifikatnya (CRL otomatis) |
 | API restart terus | `docker compose logs api | tail -20`; pesan pengaman §5.4 → ⛔ STOP |
-| Server disusupi | ⛔ STOP. Anggap **Intermediate bocor**: matikan API, simpan bukti, lalu ceremony Intermediate baru di server yang bersih (§3.2–§3.4 memakai sesi §8.6) dan terbitkan ulang sertifikat semua perangkat. Rotasi otomatis belum didukung (§9) — minta bantuan pengembang |
+| Server disusupi | ⛔ STOP. Anggap **Intermediate bocor**: simpan bukti, pulihkan server bersih, lalu **Mulai rotasi Intermediate sekarang** (§8.8) — sertifikat semua perangkat diterbitkan ulang dari Intermediate baru. Root belum bisa mencabut Intermediate lama (§9): pantau audit `certificate.issue` sampai rotasi selesai |
 | Root diduga bocor | ⛔ STOP. Ceremony penuh baru, build ulang app, semua perangkat daftar ulang |
 | Database rusak | Restore dari backup terbaru |
 | Versi baru bermasalah | `git checkout <tag-sebelumnya>` → build + `up -d api` (migrasi tidak di-rollback otomatis) |
+
+### 8.8 Rotasi Intermediate (semi-otomatis)
+
+**Kapan:** `PQC_CA_ROTATE_DAYS` (default 730) hari sebelum Intermediate
+berakhir, server otomatis membuat kunci + CSR Intermediate berikutnya
+(audit `ca.rotation.start`), dan konsol admin/super admin menampilkan banner
+*Rotasi disiapkan*. Bisa dimulai lebih awal (mis. insiden): super admin →
+kartu **CA penerbit** → **Mulai rotasi Intermediate sekarang**. Selama
+menunggu, Intermediate aktif tetap bekerja seperti biasa.
+
+**Langkah manusia (sekali, ±30 menit, dengan saksi) ⛔ STOP:**
+
+1. Ambil CSR di server:
+   ```sh
+   docker compose exec -T api cat /ca/next/request.csr.pem > /opt/pqsign-ceremony/in/intermediate.csr.pem
+   docker compose exec -T api ca-admin status --dir /ca | grep '^next'
+   ```
+   (atau super admin → **Unduh CSR Intermediate**). Catat SHA-256 CSR.
+2. Sesi Root §8.6 dengan `--inter-cn "<Instansi> PQC Device Signing CA <tahun>"`.
+   Catat `csr key fp` dan fingerprint Intermediate baru di run sheet.
+3. Salin `/opt/pqsign-ceremony/out/intermediate.crt.pem` ke laptop super
+   admin (`scp`), lalu super admin → kartu **CA penerbit** → pilih file →
+   **Pasang sertifikat** → pesan *Rotasi selesai*.
+
+**Yang terjadi otomatis sesudahnya:**
+
+| Hal | Hasil |
+|---|---|
+| Akun, password, MFA | Tidak berubah |
+| Kunci di perangkat pengguna | Tidak berubah, **tidak perlu daftar ulang** |
+| Sertifikat perangkat | Diterbitkan ulang dari Intermediate baru dalam ≤ 1 jam (audit `certificate.renew`); app mengambilnya dalam ≤ 24 jam |
+| Sertifikat lama | **Tidak dicabut**; tetap bisa dipakai sampai habis |
+| Dokumen yang sudah ditandatangani | Tetap valid: PDF membawa rantainya, Root sama |
+| Intermediate lama | Dipensiunkan: tetap di `chain.pem`, tetap menandatangani CRL untuk sertifikat lamanya; kuncinya dihapus otomatis setelah masa berlakunya habis |
+| Mencabut sertifikat lama setelah rotasi | Tetap bisa (CRL bundel) |
+
+**Cek:**
+
+```sh
+docker compose exec -T api ca-admin status --dir /ca | grep -E '^intermediate|^retired|^next|gate'
+curl -s https://<domain>/api/v1/public/ca/chain.pem | grep -c 'BEGIN CERTIFICATE'   # 3
+curl -s https://<domain>/api/v1/public/ca/crl.pem | grep -c 'BEGIN X509 CRL'        # 2
+```
+
+Dalam 1–2 jam audit berisi `certificate.renew ok` untuk tiap perangkat aktif.
+`certificate.renew fail` → ⛔ STOP. Banner rotasi hilang dari konsol.
+
+### 8.9 Rotasi Root (manual, rencana) ⛔ STOP
+
+Root berlaku 20 tahun. Banner: < 5 tahun *info*, < 2 tahun *peringatan*,
+< 1 tahun *kritis*. Rotasi Root **tidak otomatis**, butuh pekerjaan kode dan
+rilis aplikasi, jadi dimulai **±tahun ke-15**:
+
+1. **Pekerjaan kode** (§9): server dan app menerima **bundel Root lama + baru**
+   sebagai jangkar kepercayaan, dan `install-intermediate --rotate` menerima
+   Intermediate dari Root baru.
+2. **Rilis app** yang mem-pin kedua Root; tunggu pengguna memperbarui.
+3. **Ceremony Root baru** (§3.3–§3.5), nama baru, dua USB baru, penerimaan
+   risiko baru.
+4. **Rotasi Intermediate** (§8.8) dengan CSR ditandatangani **Root baru**;
+   sertifikat perangkat diterbitkan ulang otomatis, kunci perangkat tetap.
+5. **Transisi:** dokumen lama tetap diverifikasi dengan Root lama (tetap di
+   bundel verifikasi); dokumen baru dengan Root baru.
+6. Setelah semua Intermediate di bawah Root lama berakhir: Root lama tetap di
+   bundel verifikasi untuk dokumen lama; USB Root lama tetap di brankas atau
+   dimusnahkan dengan berita acara.
 
 ---
 
@@ -574,7 +676,8 @@ cara ini; catat tanda tangan baru di run sheet.
 | **App Windows: opsi `InsecureSkipVerify`** | Rilis app | Hapus dari build rilis |
 | Alamat server default app `http://136.244.116.132:8099` | Rilis app | Ganti ke `https://<domain>` |
 | Build rilis Android/EXE bertanda tangan | Rilis app | `docs/release-checklist.md` |
-| **Rotasi Intermediate** | ≤ 9 tahun setelah ceremony, atau saat insiden | `install-intermediate` menolak Intermediate kedua; butuh perintah rotasi (CRL untuk sertifikat dari Intermediate lama + rantai ganda) |
+| App Android: pembaruan sertifikat otomatis diuji di perangkat | Rilis app | Kode Kotlin belum dikompilasi di server ini (tanpa Android SDK); uji: sertifikat baru terambil tanpa daftar ulang |
+| **Banyak Root sekaligus** (rotasi Root) | ±tahun ke-15 (§8.9) | Server (`PQC_ROOT_CA_PEM`, pengecekan rantai issuer), `install-intermediate --rotate`, dan app masih mengasumsikan satu Root |
 | Pencabutan Intermediate oleh Root (CRL Root) | Insiden | Belum ada `ca-admin` untuk CRL tingkat Root |
 | Rate limit `auth/register` | Disarankan | Belum ada |
 | Pencabutan token sesi | Disarankan | Token berlaku 15 menit |

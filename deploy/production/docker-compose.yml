@@ -70,6 +70,8 @@ services:
       PQC_CA_INTERMEDIATE_CN: "${PQC_CA_INTERMEDIATE_CN:-PQC Device Signing CA}"
       PQC_CA_ORG: "${PQC_CA_ORG:-}"
       PQC_CA_DEVICE_CERT_DAYS: "${PQC_CA_DEVICE_CERT_DAYS:-365}"
+      PQC_CA_RENEW_DAYS: "${PQC_CA_RENEW_DAYS:-30}"
+      PQC_CA_ROTATE_DAYS: "${PQC_CA_ROTATE_DAYS:-730}"
     secrets:
       - ca_intermediate_passphrase
     volumes:

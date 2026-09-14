@@ -34,7 +34,14 @@ ca-admin sign-intermediate --dir /work/root --csr intermediate.csr.pem \
 # Issuer (PQC_CA_INTERMEDIATE_PASSPHRASE[_FILE]; never the Root one):
 ca-admin intermediate-csr     --dir /ca
 ca-admin install-intermediate --dir /ca --cert intermediate.crt.pem --root-cert root-ca.crt.pem
+# Rotation (issuer): prepare next/, the Root signs its CSR, then swap.
+ca-admin intermediate-csr     --dir /ca --next
+ca-admin install-intermediate --dir /ca --rotate --cert next.crt.pem --root-cert root-ca.crt.pem
 ```
+
+After a rotation the old Intermediate lives in `retired/<serial>/`: it stays in
+`ca-chain.pem` and `crl` adds its CRL to `public/crl.pem` (a PEM bundle) while
+it is valid; once it has expired `crl` deletes its key.
 
 Full runbooks: `deploy/production/RUNBOOK.md` §3 (split CA) and
 `docs/pki-ceremony.md` (fully offline CA).
@@ -71,6 +78,10 @@ directory; `restore` refuses to overwrite one and re-checks the gate.
   refuse `PQC_CA_PASSPHRASE`, and issuer commands never read the Root one;
   `install-intermediate` refuses a certificate from another Root, for another
   key, or into a directory that holds a Root key.
+* Rotation (`rotation_test.go`): an installed Intermediate is replaced only via
+  `--next` + `--rotate`; certificates from before and after chain to the Root,
+  and one from the retired Intermediate stays revocable through its CRL in the
+  bundle.
 
 ## Still open (post-V1)
 
