@@ -29,9 +29,10 @@ Implemented (`server/internal/api`, tested in `api_test.go`):
 ✔ POST /api/v1/admin/enrollments/{id}/certificate   (chain + CSR-key match check)
 ✔ POST /api/v1/admin/enrollments/{id}/issue-lab     (RB-1: drive the online CA; when Config.LabIssuer set)
 ✔ POST /api/v1/admin/certificates/{id}/revoke
-✔ POST /api/v1/admin/crl/import
+✔ POST /api/v1/admin/crl/import                     (PEM/DER; signed by the server's CA, unexpired, newer CRL number than the active one; stored in the DB, survives restart)
 ✔ GET  /api/v1/admin/audit-events
-✔ GET  /api/v1/admin/capabilities                   ({lab_issuer:bool, role})
+✔ GET  /api/v1/admin/capabilities                   ({lab_issuer:bool, role, crl:{number,this_update,next_update,entries,source,stale}|null})
+✔ POST /api/v1/admin/certificates/{id}/revoke        (DB revoke; with Config.LabIssuer also publishes a CRL -> {crl_published, crl_error?})
 ✔ GET    /api/v1/admin/admins                        (super admin only: admin roster — admins only, no client accounts)
 ✔ POST   /api/v1/admin/admins                        (super admin only: {username,password} -> active admin)
 ✔ PATCH  /api/v1/admin/admins/{id}                   (super admin only: {password} reset and/or {status:"active"|"disabled"})

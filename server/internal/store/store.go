@@ -75,6 +75,19 @@ type MFACredential struct {
 	CreatedAt time.Time
 }
 
+// CRL is one certificate revocation list the server accepted. The newest is
+// the active one.
+type CRL struct {
+	Number     string // CRLNumber, decimal
+	ThisUpdate time.Time
+	NextUpdate time.Time // zero when the CRL has none
+	Entries    int       // revoked serials listed
+	PEM        []byte
+	Source     string // "import" (admin upload) | "ca" (lab issuer) | "config" (PQC_CRL_PEM)
+	ImportedBy string // account id; "" for config
+	ImportedAt time.Time
+}
+
 type Device struct {
 	ID        string
 	AccountID string

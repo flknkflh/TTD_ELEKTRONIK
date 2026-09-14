@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/x509"
-	"encoding/pem"
 	"io"
 	"path"
 	"strings"
@@ -40,7 +38,7 @@ func (s *Server) strictVerify(res store.Reservation, pdf []byte) (verifiedInfo, 
 	vr, err := verification.VerifyPDF(pdf, verification.Options{
 		RootPEM:          s.cfg.RootCAPEM,
 		IntermediatePEM:  s.cfg.CAChainPEM,
-		CRLPEM:           s.crl,
+		CRLPEM:           s.currentCRL(),
 		RequireMLDSAOnly: true,
 		Timeout:          15 * time.Second, // bound a malformed-PDF parser loop (§26)
 	})
@@ -100,15 +98,6 @@ func firstReason(vr *verification.Result, fallback string) string {
 		return vr.Signatures[0].Errors[0]
 	}
 	return fallback
-}
-
-func parseCRLBytes(b []byte) error {
-	der := b
-	if blk, _ := pem.Decode(b); blk != nil {
-		der = blk.Bytes
-	}
-	_, err := x509.ParseRevocationList(der)
-	return err
 }
 
 func sanitizeName(name string) string {

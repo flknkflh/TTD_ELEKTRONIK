@@ -321,9 +321,8 @@ func (s *Server) disableCascade(r *http.Request, accountID, reason string) int {
 		n++
 	}
 	if n > 0 {
-		if crl, err := s.publishCRLViaCA(r.Context()); err == nil && len(crl) > 0 {
-			s.crl = crl
-			s.st.Append(store.AuditEvent{Type: "crl.publish", AccountID: accountID, Result: "ok"})
+		if err := s.refreshCRLFromCA(r, accountID); err != nil {
+			s.st.Append(store.AuditEvent{Type: "crl.publish", AccountID: accountID, Result: "fail", Detail: err.Error()})
 		}
 	}
 	return n

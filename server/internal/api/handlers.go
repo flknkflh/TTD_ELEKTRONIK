@@ -334,7 +334,22 @@ func (s *Server) hRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	cert, _ := s.st.Certificate(id)
 	s.st.Append(store.AuditEvent{Type: "certificate.revoke", AccountID: cert.AccountID, DeviceID: cert.DeviceID, Result: "ok", Detail: cert.Serial + " " + in.Reason})
-	writeJSON(w, http.StatusOK, map[string]string{"certificate_id": id, "status": store.CertRevoked})
+	out := map[string]any{"certificate_id": id, "status": store.CertRevoked, "crl_published": false}
+	// Keep the CRL in step with the database. With the lab issuer the server
+	// publishes it; with an offline CA the operator issues one and imports it.
+	if s.cfg.LabIssuer != nil {
+		err := s.revokeViaCA(r.Context(), cert.Serial, caReason(in.Reason))
+		if err == nil {
+			err = s.refreshCRLFromCA(r, cert.AccountID)
+		}
+		if err != nil {
+			out["crl_error"] = err.Error()
+			s.st.Append(store.AuditEvent{Type: "crl.publish", AccountID: cert.AccountID, Result: "fail", Detail: err.Error()})
+		} else {
+			out["crl_published"] = true
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) hImportCRL(w http.ResponseWriter, r *http.Request) {
@@ -343,13 +358,14 @@ func (s *Server) hImportCRL(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "read")
 		return
 	}
-	if err := parseCRLBytes(body); err != nil {
-		writeErr(w, http.StatusBadRequest, "not a parseable CRL: "+err.Error())
+	rec, err := s.replaceCRL(body, "import", claims(r).Sub)
+	if err != nil {
+		s.st.Append(store.AuditEvent{Type: "crl.import", Result: "fail", Detail: err.Error()})
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.crl = body
-	s.st.Append(store.AuditEvent{Type: "crl.import", Result: "ok"})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "crl updated"})
+	s.st.Append(store.AuditEvent{Type: "crl.import", Result: "ok", Detail: crlDetail(rec)})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "crl updated", "crl": s.crlStatus()})
 }
 
 func (s *Server) hAudit(w http.ResponseWriter, r *http.Request) {
@@ -574,7 +590,7 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := verification.VerifyPDF(pdf, verification.Options{
-		RootPEM: s.cfg.RootCAPEM, IntermediatePEM: s.cfg.CAChainPEM, CRLPEM: s.crl,
+		RootPEM: s.cfg.RootCAPEM, IntermediatePEM: s.cfg.CAChainPEM, CRLPEM: s.currentCRL(),
 		RequireMLDSAOnly: true, Timeout: 15 * time.Second,
 	})
 	if err != nil {
@@ -593,6 +609,14 @@ func (s *Server) hPublicVerify(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(res.Signatures) > 0 {
+		// The database is the authority on revocation: a certificate revoked
+		// here fails even before a fresh CRL lists it (offline CA).
+		if c, cerr := s.st.CertificateBySerial(res.Signatures[0].CertificateSerial); cerr == nil &&
+			c.Status == store.CertRevoked && !res.Signatures[0].Revoked {
+			res.Signatures[0].Revoked = true
+			reject("sertifikat penanda tangan telah dicabut (catatan server)")
+		}
+
 		// A signature is only complete once the server holds a record of the
 		// exact bytes it accepted. Without that record there is nothing to
 		// compare the upload with, so the crypto alone does not make it valid

@@ -25,6 +25,7 @@ type Memory struct {
 	objects      map[string][]byte
 	mfa          map[string]MFACredential
 	recovery     map[string]map[string]bool // account id -> recovery code hash -> used
+	crls         []CRL                      // accepted CRLs, oldest first
 }
 
 func NewMemory() *Memory {
@@ -131,6 +132,30 @@ func (m *Memory) DeleteAccount(id string) error {
 	delete(m.mfa, id)
 	delete(m.recovery, id)
 	return nil
+}
+
+// --- CRLs ---
+
+func (m *Memory) SaveCRL(c CRL) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, old := range m.crls {
+		if old.Number == c.Number {
+			return fmt.Errorf("store: CRL #%s already stored", c.Number)
+		}
+	}
+	c.ImportedAt = time.Now().UTC()
+	m.crls = append(m.crls, c)
+	return nil
+}
+
+func (m *Memory) LatestCRL() (CRL, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.crls) == 0 {
+		return CRL{}, ErrNotFound
+	}
+	return m.crls[len(m.crls)-1], nil
 }
 
 // --- admin MFA ---

@@ -441,7 +441,8 @@
                   Unggah CRL
                 </button>
               </div>
-              <p class="note" style="margin-top:14px">Format: PEM (Base64). File CRL diverifikasi dan langsung aktif setelah diunggah.</p>
+              <p class="note" style="margin-top:14px">Format: PEM atau DER. CRL harus ditandatangani CA server ini dan bernomor lebih baru dari CRL aktif. Tersimpan di database — tidak hilang saat server restart.</p>
+              <p class="note" id="crlStatus" style="margin-top:6px">—</p>
             </div>
           </div>
         </div>
@@ -706,9 +707,28 @@ async function afterLogin() {
   }
 
   showView("dashboard");
+  renderCrlStatus();
   await refreshAccounts();
   await refresh();
   startAuto();
+}
+
+// ---- CRL status (ops view) ----------------------------------------
+function renderCrlStatus() {
+  const el = $("crlStatus");
+  const c = caps.crl;
+  if (!c) {
+    el.innerHTML = '<span class="pill pending">Belum ada CRL aktif</span> terbitkan dengan ca-admin lalu unggah di sini.';
+    return;
+  }
+  const until = c.next_update ? " · berlaku sampai " + esc(new Date(c.next_update).toLocaleString("id-ID")) : "";
+  el.innerHTML = `CRL aktif <b>#${esc(c.number)}</b> · ${esc(String(c.entries))} sertifikat tercantum${until} ` +
+    (c.stale ? '<span class="pill pending">BASI — terbitkan CRL baru</span>' : '<span class="pill approved">berlaku</span>');
+}
+
+async function refreshCrlStatus() {
+  try { caps = await api("GET", "/api/v1/admin/capabilities"); } catch (_) { return; }
+  renderCrlStatus();
 }
 
 // ---- admin roster (super admin only) -------------------------------
@@ -1066,16 +1086,20 @@ $("btnRevoke").onclick = async () => {
   const id = $("revId").value.trim();
   if (!id) return;
   try {
-    await api("POST", `/api/v1/admin/certificates/${id}/revoke`, { reason: $("revReason").value.trim() || "unspecified" });
-    toast("Dicabut. Jangan lupa terbitkan CRL baru dengan ca-admin.", "ok"); refreshAudit();
+    const r = await api("POST", `/api/v1/admin/certificates/${id}/revoke`, { reason: $("revReason").value.trim() || "unspecified" });
+    if (r.crl_published) toast("Dicabut — CRL baru sudah diterbitkan", "ok");
+    else if (r.crl_error) toast("Dicabut, tetapi CRL gagal diterbitkan: " + r.crl_error, "err");
+    else toast("Dicabut. Terbitkan CRL baru dengan ca-admin lalu unggah di sini agar aplikasi ikut tahu.", "ok");
+    refreshAudit(); refreshCrlStatus();
   } catch (e) { toast("Gagal cabut: " + e.message, "err"); }
 };
 $("btnCrl").onclick = async () => {
   const f = $("crlFile").files[0];
   if (!f) { toast("Pilih file CRL dulu", "err"); return; }
   try {
-    await api("POST", "/api/v1/admin/crl/import", await f.text(), { raw: true, contentType: "application/x-pem-file" });
-    toast("CRL diperbarui", "ok");
+    const r = await api("POST", "/api/v1/admin/crl/import", await f.arrayBuffer(), { raw: true, contentType: "application/pkix-crl" });
+    toast("CRL #" + (r.crl ? r.crl.number : "?") + " aktif", "ok");
+    refreshCrlStatus();
   } catch (e) { toast("Gagal impor CRL: " + e.message, "err"); }
 };
 $("btnVpOpen").onclick = () => {

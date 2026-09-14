@@ -181,6 +181,35 @@ func (p *Postgres) DeleteAccount(id string) error {
 	return affected(p.db.Exec(`DELETE FROM accounts WHERE id=$1`, id))
 }
 
+// --- CRLs ---
+
+func (p *Postgres) SaveCRL(c CRL) error {
+	var next sql.NullTime
+	if !c.NextUpdate.IsZero() {
+		next = sql.NullTime{Time: c.NextUpdate, Valid: true}
+	}
+	_, err := p.db.Exec(
+		`INSERT INTO crls (crl_number, this_update, next_update, entries, pem, source, imported_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		c.Number, c.ThisUpdate, next, c.Entries, c.PEM, c.Source, c.ImportedBy)
+	return err
+}
+
+// LatestCRL returns the most recently accepted CRL. The API only accepts a CRL
+// newer than the active one, so insertion order is CRL-number order.
+func (p *Postgres) LatestCRL() (CRL, error) {
+	var c CRL
+	var next sql.NullTime
+	err := p.db.QueryRow(
+		`SELECT crl_number,this_update,next_update,entries,pem,source,imported_by,imported_at
+		 FROM crls ORDER BY id DESC LIMIT 1`).
+		Scan(&c.Number, &c.ThisUpdate, &next, &c.Entries, &c.PEM, &c.Source, &c.ImportedBy, &c.ImportedAt)
+	if next.Valid {
+		c.NextUpdate = next.Time
+	}
+	return c, norm(err)
+}
+
 // --- admin MFA ---
 
 func (p *Postgres) UpsertMFA(accountID, secret string) error {

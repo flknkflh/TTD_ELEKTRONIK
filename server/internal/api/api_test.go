@@ -45,7 +45,7 @@ func backendStore(t *testing.T) api.Store {
 	}
 	defer db.Close()
 	_, err = db.Exec(`TRUNCATE signatures, reservations, certificates, enrollments,
-		devices, accounts, objects, audit_events RESTART IDENTITY CASCADE`)
+		devices, accounts, objects, audit_events, crls RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -57,8 +57,10 @@ type env struct {
 	t      *testing.T
 	h      http.Handler
 	inter  *labpki.CA
-	su     string // bootstrap super-admin token
-	badmin string // alias of su — satisfies every admin route, approves pending users
+	st     api.Store  // kept so restart() can build a new server over the same data
+	cfg    api.Config // ditto
+	su     string     // bootstrap super-admin token
+	badmin string     // alias of su — satisfies every admin route, approves pending users
 }
 
 func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
@@ -88,11 +90,12 @@ func newEnvWith(t *testing.T, tweak func(*api.Config)) *env {
 	if tweak != nil {
 		tweak(&cfg)
 	}
-	srv, err := api.New(backendStore(t), cfg)
+	st := backendStore(t)
+	srv, err := api.New(st, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, h: srv.Routes(), inter: inter}
+	e := &env{t: t, h: srv.Routes(), inter: inter, st: st, cfg: cfg}
 	// The super admin is bootstrapped by api.New. It creates every admin and
 	// approves every pending user in these tests.
 	e.su = e.login("_su@test")

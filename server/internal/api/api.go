@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"example.internal/pqc-pdf-sign/server/internal/auth"
@@ -107,6 +108,9 @@ type Store interface {
 	RecoveryCodesLeft(accountID string) int
 	DeleteMFA(accountID string) error
 
+	SaveCRL(store.CRL) error
+	LatestCRL() (store.CRL, error)
+
 	CreateDevice(store.Device) (store.Device, error)
 	Device(string) (store.Device, error)
 	SetDeviceStatus(id, status string) error
@@ -146,7 +150,9 @@ type Server struct {
 	st      Store
 	signer  *auth.Signer
 	cfg     Config
-	crl     []byte // mutable copy of cfg.CRLPEM
+	crlMu   sync.RWMutex
+	crl     []byte    // active CRL PEM (crl.go), guarded by crlMu
+	crlRec  store.CRL // metadata of crl
 	issuer  string
 	uploads *uploadManager
 
@@ -199,13 +205,15 @@ func New(st Store, cfg Config) (*Server, error) {
 		st:        st,
 		signer:    auth.NewSigner(cfg.JWTSecret, cfg.AccessTTL),
 		cfg:       cfg,
-		crl:       cfg.CRLPEM,
 		issuer:    issuer,
 		uploads:   newUploadManager(cfg.UploadDir),
 		rlLogin:   mk(rl.LoginPerIP),
 		rlReserve: mk(rl.ReservePerAccount),
 		rlSubmit:  mk(rl.SubmitPerAccount),
 		rlVerify:  mk(rl.VerifyPerIP),
+	}
+	if err := s.loadCRL(); err != nil {
+		return nil, err
 	}
 	s.ensureSuperAdmin()
 	return s, nil
@@ -286,7 +294,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /v/{public_id}", s.hVerifyPage)   // human landing page
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
-	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
+	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(s.currentCRL))
 
 	mux.HandleFunc("GET /api/v1/admin/capabilities", s.admin(s.hCapabilities))
 
@@ -338,6 +346,7 @@ func (s *Server) hCapabilities(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"lab_issuer": s.cfg.LabIssuer != nil,
 		"role":       claims(r).Role,
+		"crl":        s.crlStatus(),
 	})
 }
 

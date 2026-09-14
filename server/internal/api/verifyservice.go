@@ -26,7 +26,7 @@ func (s *Server) VerifyRoutes() http.Handler {
 	mux.HandleFunc("GET /api/v1/public/signatures/{public_id}", s.hPublicRecord)
 	mux.HandleFunc("GET /api/v1/public/ca/root.crt", s.pem(func() []byte { return s.cfg.RootCAPEM }))
 	mux.HandleFunc("GET /api/v1/public/ca/chain.pem", s.pem(func() []byte { return s.cfg.CAChainPEM }))
-	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(func() []byte { return s.crl }))
+	mux.HandleFunc("GET /api/v1/public/ca/crl.pem", s.pem(s.currentCRL))
 
 	s.mountUIKit(mux)
 
