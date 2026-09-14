@@ -534,7 +534,7 @@
           <p class="csub" id="backupSummary" style="margin-top:8px">—</p>
           <div class="tbl-wrap"><table><tbody id="backupRows"></tbody></table></div>
           <div class="row" style="margin-top:12px">
-            <button class="btn" id="btnBackupGuide">Petunjuk tarik database</button>
+            <button class="btn" id="btnBackupGuide">Panduan backup (amankan kunci &amp; tarik database)</button>
           </div>
           <div id="backupGuide" class="hidden backup-guide"></div>
         </div>
@@ -864,8 +864,29 @@ function renderBackupGuide() {
   const R = `sudo restic -r ${repo} --password-file ${pw}`;
   const block = (cmd) => `<pre><button class="btn btn-sm" type="button" data-copy>Salin</button>${esc(cmd)}</pre>`;
   $("backupGuide").innerHTML = `
-    <p><b>Backup hanya bisa diambil lewat server (SSH), bukan dari konsol ini.</b> Semua backup terenkripsi; tanpa file kata sandi
-      <code>${esc(pw)}</code> (salinannya wajib disimpan di luar server) backup tidak bisa dibuka.</p>
+    <p><b>Backup hanya bisa diambil lewat server (SSH), bukan dari konsol ini.</b> Semua backup terenkripsi dengan kunci
+      <code>${esc(pw)}</code>. Kunci itu hanya bisa dibaca root.</p>
+
+    <h3 style="margin:14px 0 4px">A. Amankan kunci backup — wajib, sekali setelah backup dipasang</h3>
+    <div class="warnbox">Tanpa salinan kunci ini di luar server, <b>semua backup tidak bisa dibuka</b> — termasuk saat server rusak.
+      Simpan di password manager / brankas digital instansi, <b>terpisah</b> dari kata sandi server dan dari passphrase CA.</div>
+    <ol>
+      <li><b>Masuk ke server</b> sebagai admin yang punya sudo.
+        ${block(`ssh <user>@${host}`)}</li>
+      <li><b>Tampilkan kunci</b> (satu baris teks acak).
+        ${block(`sudo cat ${pw}`)}</li>
+      <li><b>Salin baris itu ke password manager</b> sebagai catatan aman baru, misalnya
+        <i>"PQ PDF Sign — kunci backup ${esc(host)}"</i>, dan tulis juga lokasi repositori <code>${esc(repo)}</code>.
+        Jangan kirim lewat chat/e-mail dan jangan simpan di file biasa.</li>
+      <li><b>Bersihkan layar terminal</b> supaya kunci tidak tertinggal di layar.
+        ${block(`clear`)}</li>
+      <li><b>Pastikan salinannya benar:</b> jalankan perintah ini, tempelkan kunci <i>dari password manager</i>
+        (tidak tampil saat diketik), tekan Enter. Harus keluar <b>COCOK</b>.
+        ${block(`read -rs K && printf '%s\\n' "$K" | sudo cmp -s - ${pw} && echo COCOK || echo "TIDAK COCOK — ulangi langkah 2-3"; unset K`)}</li>
+      <li>Ulangi pemeriksaan ini bila kunci pernah diganti, dan setiap uji restore bulanan.</li>
+    </ol>
+
+    <h3 style="margin:14px 0 4px">B. Tarik database dari backup</h3>
     <ol>
       <li><b>Masuk ke server</b> sebagai admin yang punya sudo.
         ${block(`ssh <user>@${host}`)}</li>
@@ -884,6 +905,7 @@ function renderBackupGuide() {
     </ol>
     <p><b>File PDF dan data CA</b> ada di backup yang sama (volume <code>${esc((st.volumes || []).join(", ") || "objdata, cadata")}</code>);
       ambil dengan perintah langkah 3 tanpa <code>--include</code>, lalu salin foldernya.</p>
+    <h3 style="margin:14px 0 4px">C. Pulihkan ke server yang berjalan</h3>
     <div class="warnbox"><b>Memulihkan database ke server yang berjalan (darurat saja).</b> Ini <b>menimpa semua data saat ini</b>
       (akun, tanda tangan, audit). Lakukan hanya dengan persetujuan penanggung jawab dan ikuti RUNBOOK §8.1; buat backup baru dulu.
       ${block(`sudo /usr/local/sbin/pqsign-backup\ndocker stop <nama-container-api>\ndocker exec -i ${pg} pg_restore -U ${dbu} -d ${dbn} --clean --if-exists --no-owner < /tmp/pqsign-restore${dump}\ndocker start <nama-container-api>`)}</div>`;
@@ -1310,7 +1332,7 @@ $("btnBackupGuide").onclick = () => {
   const show = g.classList.contains("hidden");
   if (show) renderBackupGuide();
   g.classList.toggle("hidden", !show);
-  $("btnBackupGuide").textContent = show ? "Tutup petunjuk" : "Petunjuk tarik database";
+  $("btnBackupGuide").textContent = show ? "Tutup panduan" : "Panduan backup (amankan kunci & tarik database)";
 };
 $("btnIssuerRotate").onclick = async () => {
   if (!confirm("Mulai rotasi Intermediate sekarang? Server membuat kunci + CSR Intermediate berikutnya; Intermediate aktif tetap dipakai sampai sertifikat barunya dipasang.")) return;

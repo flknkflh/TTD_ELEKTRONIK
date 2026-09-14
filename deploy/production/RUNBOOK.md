@@ -500,8 +500,9 @@ volume CA (`cadata`). Masa simpan **7 harian + 4 mingguan + 6 bulanan** (satu
 snapshot terakhir per hari/minggu/bulan). Laporan tampil untuk super admin di
 **Admin → Backup data**; banner muncul bila backup gagal atau lebih dari 72
 jam tidak berhasil (`PQC_BACKUP_MAX_AGE_HOURS`). Backup **tidak** bisa diunduh
-dari konsol: pengambilan lewat SSH, dan tombol **Petunjuk tarik database**
-menampilkan perintahnya dengan path server ini.
+dari konsol: pengambilan lewat SSH, dan tombol **Panduan backup** menampilkan
+perintahnya dengan path server ini — (A) mengamankan kunci backup,
+(B) menarik database, (C) pemulihan darurat.
 
 Pasang (sekali, sebelum atau sesudah §5):
 
@@ -522,7 +523,14 @@ docker compose up -d api        # memuat laporan backup (mount read-only)
 aman di luar server** (mis. brankas digital instansi), terpisah dari salinan
 `secrets/ca_intermediate_passphrase`. Tanpa file ini backup tidak bisa dibuka.
 Backup berisi hash password, secret TOTP admin, riwayat CRL, dan kunci
-Intermediate terenkripsi.
+Intermediate terenkripsi. Langkahnya ada di konsol (**Panduan backup → A**):
+
+```sh
+sudo cat /root/.config/pqsign-backup/restic-password     # salin ke password manager, lalu: clear
+read -rs K && printf '%s\n' "$K" | sudo cmp -s - /root/.config/pqsign-backup/restic-password && echo COCOK || echo "TIDAK COCOK"; unset K
+```
+
+Tempelkan kunci **dari password manager** pada perintah kedua; harus `COCOK`.
 
 **Cek:** `tail -3 /var/log/pqsign-backup.log` → `backup ok`; konsol super admin
 → Backup data → **Normal**. Lalu uji restore §7.4.
@@ -532,7 +540,7 @@ dengan data. Ia melindungi dari salah hapus, update gagal, dan data rusak —
 **tidak** dari disk rusak, server disusupi, atau server hilang. Tahap
 berikutnya (§9): salinan di luar server.
 
-**Mengambil database:** ikuti **Petunjuk tarik database** di konsol. Memulihkan
+**Mengambil database:** ikuti **Panduan backup → B** di konsol. Memulihkan
 ke server yang berjalan **menimpa semua data** (akun, tanda tangan, audit):
 hanya dengan persetujuan penanggung jawab, dan buat backup baru dulu.
 
