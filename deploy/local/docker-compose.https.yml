@@ -1,0 +1,11 @@
+# Use after DNS and the shared Caddy site have been verified.
+# docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --no-deps api
+services:
+  api:
+    environment:
+      PQC_PUBLIC_BASE_URL: https://pqsign.idk-shield.web.id
+      PQC_TRUST_PROXY: "1"
+    # Replace the public bindings; keep local diagnostics/SSH tunnels available.
+    ports: !override
+      - "127.0.0.1:8099:8099"
+      - "127.0.0.1:8098:8098"

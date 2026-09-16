@@ -35,7 +35,9 @@ services:
     environment:
       PQC_DATABASE_URL: "postgres://pqc:${PQC_DB_PASSWORD:-pqc}@postgres:5432/pqc?sslmode=disable"
       PQC_JWT_SECRET: "${PQC_JWT_SECRET:-local-prototype-secret-change-me-0123456789}"
-      PQC_PUBLIC_BASE_URL: "${PQC_PUBLIC_BASE_URL:-http://136.244.116.132:8099}"
+      PQC_PUBLIC_BASE_URL: "${PQC_PUBLIC_BASE_URL:-https://136.244.116.132}"
+      PQC_TRUST_PROXY: "1"
+      PQC_RELEASE_DIR: /releases
       # First boot bootstraps ONE super admin (creates/disables admins). Leave
       # the password empty in real deploys — the server generates one and
       # prints it to the log once. The lab uses a fixed one so seed.sh can log in.
@@ -50,16 +52,46 @@ services:
       PQC_MAX_UPLOAD_MB: "${PQC_MAX_UPLOAD_MB:-1024}"
       PQC_MAX_STAMP_MB: "${PQC_MAX_STAMP_MB:-150}"
       PQC_MAX_VERIFY_MB: "${PQC_MAX_VERIFY_MB:-350}"
+      # Host backup report (tools/backup/pqsign-backup.sh), shown to the super
+      # admin. Read-only: the API never touches the backups themselves.
+      PQC_BACKUP_STATUS_FILE: /backup-status/status.json
     volumes:
       - cadata:/ca
       - objdata:/objects
+      - ../../release-files:/releases:ro
+      - /var/backups/pqsign/status:/backup-status:ro
     ports:
-      - "8099:8099"   # full API (register / login / sign / admin)
-      - "8098:8098"   # verification-only site — no login, verify + QR pages only
+      - "127.0.0.1:8099:8099"   # local diagnostics; public access through Caddy HTTPS
+      - "127.0.0.1:8098:8098"   # local verification diagnostics
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      # `default` WAJIB disebut di sini. Selama blok `networks:` tidak ada,
+      # layanan ini memakai jaringan default proyek secara implisit — dan
+      # begitu blok ini ditulis, yang implisit TIDAK lagi otomatis. Tanpa
+      # baris ini, `api` kehilangan jalur ke `postgres` dan mati saat start
+      # dengan galat koneksi basis data.
+      default: {}
+      # Jaringan bersama dengan Caddy milik WG-SHIELD, supaya aplikasi ini
+      # dapat dilayani di 443 lewat https://pqsign.idk-shield.web.id alih-alih
+      # membuka porta 8098/8099 sendiri ke internet.
+      shared_edge:
+        aliases:
+          # Nama yang dipakai Caddy. Sengaja BUKAN `api`: di jaringan yang
+          # dipakai bersama beberapa proyek, nama segenerik itu cepat
+          # bertabrakan.
+          - pqsign-api
+
+networks:
+  # Dibuat di luar compose:  docker network create shared_edge
+  #
+  # `external: true` berarti compose ini tidak memilikinya: jaringan itu
+  # dipakai bersama proyek `wgshield`, dan `docker compose down` di sini
+  # tidak boleh menghapusnya lalu memutus proyek sebelah.
+  shared_edge:
+    external: true
 
 volumes:
   pgdata:

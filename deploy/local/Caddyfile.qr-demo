@@ -1,0 +1,19 @@
+{
+	admin off
+	auto_https off
+}
+
+# HTTP only: preserve old QR paths, but never expose the API over HTTP.
+http://:8098, http://:8099 {
+	header {
+		Cache-Control "no-store"
+		-Server
+	}
+	@qr {
+		method GET HEAD
+		path / /v/* /s/*
+	}
+	# Temporary redirect: browsers should not cache the demo mapping forever.
+	redir @qr https://136.244.116.132{uri} 302
+	respond "Gunakan https://136.244.116.132 untuk mengakses aplikasi." 404
+}

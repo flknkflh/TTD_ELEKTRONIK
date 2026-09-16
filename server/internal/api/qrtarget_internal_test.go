@@ -10,14 +10,14 @@ import (
 // Without a real base (dev / LAN on localhost) the request decides, and an
 // all-loopback setup falls through to the bare verification ID.
 func TestQRTarget(t *testing.T) {
-	pub := &Server{cfg: Config{PublicBaseURL: "http://136.244.116.132:8099/"}}
+	pub := &Server{cfg: Config{PublicBaseURL: "https://136.244.116.132/"}}
 	for _, u := range []string{
 		"http://172.16.23.177:8099/api/v1/signatures/x/stamp",
 		"http://evil.example/api/v1/signatures/x/stamp?base=http://evil.example",
 		"http://127.0.0.1:8099/api/v1/signatures/x/stamp",
 	} {
 		r := httptest.NewRequest("POST", u, nil)
-		if got := pub.qrTarget(r, "sig_abc"); got != "http://136.244.116.132:8099/v/sig_abc" {
+		if got := pub.qrTarget(r, "sig_abc"); got != "https://136.244.116.132/v/sig_abc" {
 			t.Errorf("configured base, request %s: got %q", u, got)
 		}
 	}

@@ -1,0 +1,18 @@
+# Append this site to the existing shared Caddy configuration.
+# Prerequisite: public DNS A pqsign.idk-shield.web.id -> 136.244.116.132.
+pqsign.idk-shield.web.id {
+	encode zstd gzip
+	request_body {
+		max_size 1032MB
+	}
+	header {
+		Strict-Transport-Security "max-age=86400"
+		-Server
+	}
+	log
+	route {
+		@verifyHome path /
+		reverse_proxy @verifyHome pqsign-api:8098
+		reverse_proxy pqsign-api:8099
+	}
+}

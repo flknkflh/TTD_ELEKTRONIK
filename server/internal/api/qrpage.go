@@ -37,6 +37,10 @@ func serverBar(defaultBase string) string {
   var DEF = ` + jsString(defaultBase) + `;
   function clean(u){ return String(u||"").trim().replace(/\/+$/,""); }
   window.SRV = clean(localStorage.getItem("pqc_srv") || DEF);
+  if (/^https?:\/\/136\.244\.116\.132:(8098|8099)$/.test(window.SRV)) {
+    window.SRV = "https://136.244.116.132";
+    localStorage.setItem("pqc_srv", window.SRV);
+  }
   var box = document.getElementById("srv");
   box.value = window.SRV;
   var host = location.hostname;
