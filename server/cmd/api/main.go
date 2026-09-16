@@ -45,6 +45,7 @@ func main() {
 	}
 
 	cfg := api.Config{JWTSecret: secret, PublicBaseURL: *baseURL, AccessTTL: 15 * time.Minute}
+	cfg.ReleaseDir = os.Getenv("PQC_RELEASE_DIR")
 	cfg.SuperAdminUsername = envOr("PQC_SUPERADMIN_USERNAME", "superadmin")
 	cfg.SuperAdminPassword = os.Getenv("PQC_SUPERADMIN_PASSWORD") // "" -> generated + logged once
 	cfg.MaxUploadBytes = mbEnv("PQC_MAX_UPLOAD_MB", 25)           // absolute ceiling

@@ -64,3 +64,8 @@ research/pdfsigner/
 *.test
 *.prof
 .DS_Store
+/import-review/
+/TTD_ELEKTRONIK.zip
+/release-files/
+*.keystore
+*.jks

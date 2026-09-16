@@ -28,6 +28,7 @@ import (
 // Config wires the server. RootCAPEM is the only trust anchor for submissions
 // and verification (§5.3).
 type Config struct {
+	ReleaseDir     string // read-only public app releases; empty disables downloads
 	RootCAPEM      []byte
 	CAChainPEM     []byte // Root + Intermediate, served at /public/ca/chain.pem
 	CRLPEM         []byte // current CRL; replaceable via /admin/crl/import
@@ -279,8 +280,10 @@ func randToken(n int) string {
 
 // Routes returns the http.Handler for the whole API.
 func (s *Server) Routes() http.Handler {
+	// Release downloads are deliberately public and never expose a directory listing.
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /updates/{file}", s.hAppRelease)
 	mux.HandleFunc("POST /api/v1/auth/register", s.hRegister)
 	mux.HandleFunc("POST /api/v1/auth/login", s.limit(s.rlLogin, s.byIP, s.hLogin))
 	mux.HandleFunc("POST /api/v1/devices", s.user(s.hCreateDevice))
