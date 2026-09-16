@@ -11,6 +11,8 @@ package main
 
 import (
 	"embed"
+	"os"
+	"path/filepath"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -21,6 +23,13 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--apply-update" {
+		if err := applyUpdate(); err != nil {
+			self, _ := os.Executable()
+			_ = os.WriteFile(filepath.Join(filepath.Dir(self), "update-error.txt"), []byte(err.Error()), 0600)
+		}
+		return
+	}
 	app := NewApp()
 	err := wails.Run(&options.App{
 		Title:                    "PQC PDF Sign",

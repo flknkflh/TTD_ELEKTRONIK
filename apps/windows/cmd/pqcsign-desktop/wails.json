@@ -12,7 +12,7 @@
   "info": {
     "companyName": "PQC PDF Sign V1",
     "productName": "PQC PDF Sign",
-    "productVersion": "0.1-m4",
+    "productVersion": "0.7.2",
     "comments": "Client-side ML-DSA-65 PDF signing. DPAPI-protected device key."
   }
 }

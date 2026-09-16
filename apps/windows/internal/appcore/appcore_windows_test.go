@@ -61,7 +61,7 @@ func TestClientEndToEnd(t *testing.T) {
 	in := filepath.Join(t.TempDir(), "doc.pdf")
 	must(t, os.WriteFile(in, testpdf.Sample(), 0o644))
 	out := filepath.Join(t.TempDir(), "doc.signed.pdf")
-	sr, err := app.SignPDF(in, out, "M4 e2e", "Test User", "1357", `[{"page":1,"x":0.6,"y":0.8,"w":0.25}]`, "Jakarta")
+	sr, err := app.SignPDF(in, out, "M4 e2e", "Test User", "1357", `[{"page":1,"x":0.6,"y":0.8,"w":0.25}]`, "Jakarta", "800/ABC/2026", "Undangan Rapat")
 	must(t, err)
 	if sr.ServerStatus != "accepted" {
 		t.Fatalf("server status = %q", sr.ServerStatus)
@@ -136,7 +136,7 @@ func TestClientEndToEnd(t *testing.T) {
 	}
 
 	// Wrong PIN must be refused when signing again.
-	if _, err := app.SignPDF(in, out, "x", "x", "9999", "", ""); err == nil {
+	if _, err := app.SignPDF(in, out, "x", "x", "9999", "", "", "", ""); err == nil {
 		t.Fatal("SignPDF accepted the wrong PIN")
 	}
 

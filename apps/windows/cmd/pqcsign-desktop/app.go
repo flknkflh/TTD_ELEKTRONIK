@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -134,8 +135,8 @@ func toCertView(cs appcore.CertStatus) certView {
 // SignPDF takes the QR placements as a JSON array string
 // ([{page,x,y,w},...], page-relative top-left fractions) so only a string
 // crosses the bridge.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace string) (signView, error) {
-	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace)
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace, letterNo, letterSubject string) (signView, error) {
+	r, err := a.core.SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace, letterNo, letterSubject)
 	return signView{
 		OutputPath: r.OutputPath, PublicID: r.PublicID, VerificationURL: r.VerificationURL,
 		OriginalSHA512: r.OriginalSHA512, SignedSHA512: r.SignedSHA512, ServerStatus: r.ServerStatus,
@@ -191,6 +192,34 @@ func (a *App) SaveSignedPDF(suggested string) (string, error) {
 		DefaultFilename: suggested,
 		Filters:         []wails.FileFilter{{DisplayName: "Berkas PDF (*.pdf)", Pattern: "*.pdf"}},
 	})
+}
+
+// SaveCopy writes an already-signed PDF to a second location the user picks.
+// The signing flow chooses its output path up front; this is the "Simpan PDF
+// hasil" button offered after a successful signature.
+func (a *App) SaveCopy(srcPath, suggested string) (string, error) {
+	if srcPath == "" {
+		return "", errors.New("belum ada dokumen bertanda tangan")
+	}
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return "", err
+	}
+	if suggested == "" {
+		suggested = filepath.Base(srcPath)
+	}
+	dst, err := wails.SaveFileDialog(a.ctx, wails.SaveDialogOptions{
+		Title:           "Simpan PDF hasil",
+		DefaultFilename: suggested,
+		Filters:         []wails.FileFilter{{DisplayName: "Berkas PDF (*.pdf)", Pattern: "*.pdf"}},
+	})
+	if err != nil || dst == "" {
+		return "", err
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return "", err
+	}
+	return dst, nil
 }
 
 func (a *App) ReportLost() error { return a.core.ReportLost() }

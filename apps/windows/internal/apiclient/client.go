@@ -286,13 +286,21 @@ type StampPlacement struct {
 // placement (Rencana RB-2c), ready to sign on-device. The page count is
 // unchanged. Placements go through as a JSON `stamps` query param; the server
 // still accepts a single placement via page/x/y/w for older clients.
-func (c *Client) Stamp(publicID string, pdf []byte, placements []StampPlacement, reason, issuedPlace string) ([]byte, error) {
+func (c *Client) Stamp(publicID string, pdf []byte, placements []StampPlacement, reason, issuedPlace, letterNo, letterSubject string) ([]byte, error) {
 	q := url.Values{}
 	if reason != "" {
 		q.Set("reason", reason)
 	}
 	if issuedPlace != "" {
 		q.Set("issued_place", issuedPlace)
+	}
+	// Per-signature letter details; the server renders them as
+	// "Nomor: ..." / "Perihal: ..." above the signer block.
+	if letterNo != "" {
+		q.Set("letter_no", letterNo)
+	}
+	if letterSubject != "" {
+		q.Set("letter_subject", letterSubject)
 	}
 	if js, err := json.Marshal(placements); err == nil {
 		q.Set("stamps", string(js))

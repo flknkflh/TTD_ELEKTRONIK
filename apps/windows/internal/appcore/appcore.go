@@ -71,7 +71,7 @@ func (a *App) VerifyPublic(serverURL, path string) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := apiclient.New(serverURL, true).VerifyPublic(pdf)
+	res, err := apiclient.New(serverURL, false).VerifyPublic(pdf)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +371,7 @@ func (a *App) PdfBytesB64(path string) (string, error) {
 // signs locally, verifies the result against the bundled Root CA, writes it,
 // and submits it (§15). placementsJSON is a JSON array of QRPlacement; an
 // empty string or "[]" falls back to a single default placement.
-func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace string) (SignResult, error) {
+func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, issuedPlace, letterNo, letterSubject string) (SignResult, error) {
 	var places []QRPlacement
 	if s := strings.TrimSpace(placementsJSON); s != "" && s != "[]" {
 		if err := json.Unmarshal([]byte(s), &places); err != nil {
@@ -381,10 +381,10 @@ func (a *App) SignPDF(inPath, outPath, reason, signerName, pin, placementsJSON, 
 	if len(places) == 0 {
 		places = []QRPlacement{{X: 0.62, Y: 0.80, W: 0.30}}
 	}
-	return a.signPDF(inPath, outPath, reason, signerName, pin, places, issuedPlace)
+	return a.signPDF(inPath, outPath, reason, signerName, pin, places, issuedPlace, letterNo, letterSubject)
 }
 
-func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []QRPlacement, issuedPlace string) (SignResult, error) {
+func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []QRPlacement, issuedPlace, letterNo, letterSubject string) (SignResult, error) {
 	a.step(1, "Menyiapkan dokumen", -1)
 	pdf, err := os.ReadFile(inPath)
 	if err != nil {
@@ -429,7 +429,7 @@ func (a *App) signPDF(inPath, outPath, reason, signerName, pin string, places []
 		sp[i] = apiclient.StampPlacement{Page: p.Page, X: p.X, Y: p.Y, W: p.W}
 	}
 	done := a.uploadProgress(2, "Mengunggah dokumen & menempelkan QR")
-	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason, issuedPlace)
+	toSign, err := a.api.Stamp(res.PublicID, pdf, sp, reason, issuedPlace, letterNo, letterSubject)
 	done()
 	if err != nil {
 		if apiclient.IsTooLarge(err) {
@@ -552,7 +552,59 @@ func (a *App) VerifyPDF(path string) (json.RawMessage, error) {
 		return nil, err
 	}
 	b, _ := json.MarshalIndent(res, "", "  ")
-	return b, nil
+	// Fold in the fingerprint check automatically. The reservation id is bound
+	// into the signature, so nothing has to be typed in and the document is
+	// never uploaded - only its SHA-512 goes to the server.
+	return withHashCheck(a, b, pdf, res), nil
+}
+
+// withHashCheck appends a "hash_check" object to an already-marshalled
+// verification result. It never fails the verification: when there is no id in
+// the signature, or the server cannot be reached, it records why instead.
+func withHashCheck(a *App, raw []byte, pdf []byte, res *verification.Result) json.RawMessage {
+	var env map[string]any
+	if json.Unmarshal(raw, &env) != nil {
+		return raw
+	}
+	out := map[string]any{"checked": false}
+
+	publicID := ""
+	if res != nil {
+		for _, sig := range res.Signatures {
+			if id := sig.PublicID(); id != "" {
+				publicID = id
+				break
+			}
+		}
+	}
+	serverURL := ""
+	if st, _ := a.store.State(); st.ServerBaseURL != "" {
+		serverURL = st.ServerBaseURL
+	}
+
+	switch {
+	case publicID == "":
+		out["reason"] = "dokumen tidak membawa ID verifikasi"
+	case serverURL == "":
+		out["reason"] = "alamat server belum diketahui"
+	default:
+		out["public_id"] = publicID
+		r, err := apiclient.New(serverURL, false).VerifyHash(publicID, hashutil.CalculateSHA512(pdf))
+		if err != nil {
+			out["reason"] = "server tidak bisa dihubungi: " + err.Error()
+		} else {
+			out["checked"] = true
+			for k, v := range r {
+				out[k] = v
+			}
+		}
+	}
+	env["hash_check"] = out
+	b, err := json.MarshalIndent(env, "", "  ")
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // ---- 6. History ----
@@ -627,7 +679,7 @@ func (a *App) VerifyByHash(serverURL, publicID, path string) (json.RawMessage, e
 	if err != nil {
 		return nil, err
 	}
-	res, err := apiclient.New(serverURL, true).VerifyHash(publicID, hashutil.CalculateSHA512(b))
+	res, err := apiclient.New(serverURL, false).VerifyHash(publicID, hashutil.CalculateSHA512(b))
 	if err != nil {
 		return nil, err
 	}

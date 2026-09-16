@@ -5,251 +5,816 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>PQC PDF Sign</title>
 <style>
-  :root {
-    color-scheme: light dark;
-    --bg: #f6f7f9;
-    --bg-elev: #ffffff;
-    --fg: #1c1e21;
-    --fg-soft: #5c6169;
-    --fg-faint: #8a9099;
-    --border: #e4e6ea;
-    --border-strong: #d0d3d9;
-    --accent: #4f46e5;
-    --accent-fg: #ffffff;
-    --accent-soft: #eef0fe;
-    --ok: #15803d;
-    --ok-soft: #dcfce7;
-    --bad: #b91c1c;
-    --bad-soft: #fee2e2;
-    --warn: #92400e;
-    --warn-soft: #fef3c7;
-    --shadow: 0 1px 2px rgba(20,22,25,.04), 0 8px 24px rgba(20,22,25,.06);
-    --radius: 14px;
-    --radius-sm: 9px;
+/* ===================================================================
+   PQC PDF Sign - LIQUID GLASS visual system
+   Palette : Assets/PALET-WARNA-PQC-PDF-SIGN-LIQUID-GLASS.txt
+   Type    : Plus Jakarta Sans (bundled, offline)
+   Light = "Arctic Quantum Glass" | Dark = "Midnight Quantum Glass"
+   =================================================================== */
+
+@property --ang { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("assets/pjs-latin.woff2") format("woff2");
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("assets/pjs-latinext.woff2") format("woff2");
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+1E00-1E9F, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --bg:            #F7FBFF;
+  --bg-2:          #EEF7FF;
+  --bg-elev:       rgba(255,255,255,.72);
+
+  --glass:         rgba(255,255,255,.54);
+  --glass-strong:  rgba(255,255,255,.74);
+  --glass-soft:    rgba(236,247,255,.40);
+  --glass-brd:     rgba(255,255,255,.78);
+  --glass-brd-acc: rgba(110,190,255,.42);
+  --glass-hi:      rgba(255,255,255,.92);
+  --blur:          blur(24px) saturate(145%);
+  --glass-shadow:  0 12px 40px rgba(38,99,142,.14), inset 0 1px 0 rgba(255,255,255,.82);
+
+  --fg:            #102A43;
+  --fg-soft:       #486581;
+  --fg-faint:      #829AB1;
+
+  --border:        #DCEAF5;
+  --border-strong: #C4D9EA;
+  --border-active: #59BFFF;
+
+  --accent:        #169BFF;
+  --accent-2:      #35D9F5;
+  --accent-3:      #7B55E7;
+  --accent-hover:  #087BDD;
+  --accent-fg:     #FFFFFF;
+  --accent-soft:   #E0F2FF;
+
+  --ok:   #12B886; --ok-soft:   #DFF8EF;
+  --bad:  #E5484D; --bad-soft:  #FFE8E8;
+  --warn: #92400E; --warn-soft: #FFF3D6;
+
+  --glow-blue:   rgba(22,155,255,.30);
+  --glow-cyan:   rgba(53,217,245,.28);
+  --glow-violet: rgba(158,120,255,.20);
+  --spot:        rgba(53,217,245,.20);
+
+  --shadow: 0 1px 2px rgba(30,80,120,.06), 0 10px 34px rgba(30,80,120,.12);
+  --radius: 18px;
+  --radius-sm: 12px;
+
+  --bg-photo-op: .68;
+  --veil: linear-gradient(180deg, rgba(247,251,255,.68) 0%, rgba(247,251,255,.80) 45%, rgba(247,251,255,.90) 100%);
+
+  --spring: cubic-bezier(.34,1.56,.64,1);
+  --ease:   cubic-bezier(.22,1,.36,1);
+}
+
+@media (prefers-color-scheme: dark) {
+
+:root:not([data-theme="light"]) {
+  --bg:            #050B18;
+  --bg-2:          #081225;
+  --bg-elev:       rgba(10,28,54,.78);
+
+  --glass:         rgba(9,25,48,.60);
+  --glass-strong:  rgba(10,28,54,.80);
+  --glass-soft:    rgba(18,43,75,.36);
+  --glass-brd:     rgba(147,214,255,.20);
+  --glass-brd-acc: rgba(45,212,255,.42);
+  --glass-hi:      rgba(190,233,255,.38);
+  --blur:          blur(24px) saturate(135%);
+  --glass-shadow:  0 14px 48px rgba(0,0,0,.42), 0 0 30px rgba(10,159,255,.08), inset 0 1px 0 rgba(188,231,255,.16);
+
+  --fg:            #F3F9FF;
+  --fg-soft:       #C4D7E8;
+  --fg-faint:      #7F9DB8;
+
+  --border:        #193A57;
+  --border-strong: #28506E;
+  --border-active: #2BD7FF;
+
+  --accent:        #0A9FFF;
+  --accent-2:      #1CDFF5;
+  --accent-3:      #9566FF;
+  --accent-hover:  #35C8FF;
+  --accent-fg:     #07111E;
+  --accent-soft:   rgba(56,189,248,.14);
+
+  --ok:   #2AD6A0; --ok-soft:   rgba(42,214,160,.14);
+  --bad:  #FF6470; --bad-soft:  rgba(255,100,112,.14);
+  --warn: #FFB84D; --warn-soft: rgba(255,184,77,.14);
+
+  --glow-blue:   rgba(30,144,255,.42);
+  --glow-cyan:   rgba(0,220,255,.38);
+  --glow-violet: rgba(139,92,246,.36);
+  --spot:        rgba(28,223,245,.16);
+
+  --shadow: 0 1px 2px rgba(0,0,0,.24), 0 14px 44px rgba(0,0,0,.44);
+
+  --bg-photo-op: .78;
+  --veil: linear-gradient(180deg, rgba(3,8,20,.52) 0%, rgba(5,14,30,.70) 45%, rgba(5,14,30,.84) 100%);
+}
+
+}
+
+:root[data-theme="dark"] {
+  --bg:            #050B18;
+  --bg-2:          #081225;
+  --bg-elev:       rgba(10,28,54,.78);
+
+  --glass:         rgba(9,25,48,.60);
+  --glass-strong:  rgba(10,28,54,.80);
+  --glass-soft:    rgba(18,43,75,.36);
+  --glass-brd:     rgba(147,214,255,.20);
+  --glass-brd-acc: rgba(45,212,255,.42);
+  --glass-hi:      rgba(190,233,255,.38);
+  --blur:          blur(24px) saturate(135%);
+  --glass-shadow:  0 14px 48px rgba(0,0,0,.42), 0 0 30px rgba(10,159,255,.08), inset 0 1px 0 rgba(188,231,255,.16);
+
+  --fg:            #F3F9FF;
+  --fg-soft:       #C4D7E8;
+  --fg-faint:      #7F9DB8;
+
+  --border:        #193A57;
+  --border-strong: #28506E;
+  --border-active: #2BD7FF;
+
+  --accent:        #0A9FFF;
+  --accent-2:      #1CDFF5;
+  --accent-3:      #9566FF;
+  --accent-hover:  #35C8FF;
+  --accent-fg:     #07111E;
+  --accent-soft:   rgba(56,189,248,.14);
+
+  --ok:   #2AD6A0; --ok-soft:   rgba(42,214,160,.14);
+  --bad:  #FF6470; --bad-soft:  rgba(255,100,112,.14);
+  --warn: #FFB84D; --warn-soft: rgba(255,184,77,.14);
+
+  --glow-blue:   rgba(30,144,255,.42);
+  --glow-cyan:   rgba(0,220,255,.38);
+  --glow-violet: rgba(139,92,246,.36);
+  --spot:        rgba(28,223,245,.16);
+
+  --shadow: 0 1px 2px rgba(0,0,0,.24), 0 14px 44px rgba(0,0,0,.44);
+
+  --bg-photo-op: .78;
+  --veil: linear-gradient(180deg, rgba(3,8,20,.52) 0%, rgba(5,14,30,.70) 45%, rgba(5,14,30,.84) 100%);
+}
+
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font: 14px/1.6 "Plus Jakarta Sans", -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  font-feature-settings: "cv05" 1, "ss01" 1;
+}
+::selection { background: var(--accent-soft); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ============================ BACKDROP LAYERS ============================ */
+.bg-layer { position: fixed; inset: 0; pointer-events: none; z-index: -10; }
+#bgPhoto {
+  z-index: -10; background-size: cover; background-position: center;
+  opacity: var(--bg-photo-op);
+  background-image: url("assets/bg_light.jpg");
+  transform: scale(1.10) translate3d(var(--px,0px), var(--py,0px), 0);
+  transition: transform .5s cubic-bezier(.22,1,.36,1), opacity .5s;
+  will-change: transform;
+}
+@media (prefers-color-scheme: dark) {
+
+:root:not([data-theme="light"]) #bgPhoto { background-image: url("assets/bg_dark.jpg"); }
+
+}
+
+:root[data-theme="dark"] #bgPhoto { background-image: url("assets/bg_dark.jpg"); }
+
+
+#bgMesh {
+  z-index: -9; opacity: .75;
+  transform: translate3d(calc(var(--px,0px) * 1.8), calc(var(--py,0px) * 1.8), 0);
+  transition: transform .6s cubic-bezier(.22,1,.36,1);
+  background:
+    radial-gradient(38vw 38vw at 12% 18%, var(--glow-blue),   transparent 62%),
+    radial-gradient(34vw 34vw at 86% 26%, var(--glow-cyan),   transparent 60%),
+    radial-gradient(42vw 42vw at 72% 88%, var(--glow-violet), transparent 64%),
+    radial-gradient(30vw 30vw at 24% 84%, var(--glow-cyan),   transparent 58%);
+  background-repeat: no-repeat;
+  animation: meshFlow 34s ease-in-out infinite alternate;
+  will-change: background-position;
+}
+@keyframes meshFlow {
+  0%   { background-position:   0%   0%,  0%   0%,  0%   0%,  0%   0%; filter: hue-rotate(0deg); }
+  50%  { background-position:  8vw  6vh, -7vw  5vh,  6vw -8vh, -5vw -4vh; filter: hue-rotate(12deg); }
+  100% { background-position: -6vw  9vh,  9vw -6vh, -8vw  4vh,  7vw  6vh; filter: hue-rotate(-8deg); }
+}
+#bgVeil { z-index: -8; background: var(--veil); transition: background .5s; }
+#fxTopo { z-index: -7; opacity: .6;
+  transform: translate3d(calc(var(--px,0px) * 2.6), calc(var(--py,0px) * 2.6), 0);
+  transition: transform .7s cubic-bezier(.22,1,.36,1); }
+#fxDots { z-index: -6; opacity: .85;
+  transform: translate3d(calc(var(--px,0px) * 3.4), calc(var(--py,0px) * 3.4), 0);
+  transition: transform .8s cubic-bezier(.22,1,.36,1); }
+
+/* ============================== CHROME ================================= */
+header {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px;
+  background: var(--glass);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--glass-brd);
+  box-shadow: 0 4px 24px rgba(10,40,80,.06);
+}
+.brand { display: flex; align-items: center; gap: 11px; font-weight: 700; letter-spacing: -.02em; font-size: 15px; }
+.brand .dot {
+  width: 30px; height: 30px; border-radius: 9px; object-fit: contain;
+  filter: drop-shadow(0 0 10px var(--glow-cyan));
+  animation: brandIn .7s var(--spring) both, brandFloat 7s ease-in-out 1s infinite;
+}
+@keyframes brandIn   { from { opacity:0; transform: scale(.6) rotate(-12deg); } to { opacity:1; transform:none; } }
+@keyframes brandFloat{ 0%,100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
+.brand .ver {
+  font-weight: 600; font-size: 11px; color: var(--fg-soft);
+  border: 1px solid var(--glass-brd-acc); border-radius: 999px; padding: 1px 9px;
+  background: var(--glass-soft);
+}
+.spacer { flex: 1; }
+
+/* theme-aware asset swapping (logos ship in a light and a dark cut).
+   Explicit for all four states so the manual toggle wins over the OS. */
+.only-light { display: block; }
+.only-dark  { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .only-light { display: none; }
+  :root:not([data-theme="light"]) .only-dark  { display: block; }
+}
+:root[data-theme="dark"]  .only-light { display: none; }
+:root[data-theme="dark"]  .only-dark  { display: block; }
+:root[data-theme="light"] .only-light { display: block; }
+:root[data-theme="light"] .only-dark  { display: none; }
+
+/* round icon button used by Back + theme toggle */
+.iconbtn {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none;
+  border: 1px solid var(--glass-brd); background: var(--glass-soft); color: var(--fg-soft);
+  border-radius: 11px; cursor: pointer; font: inherit; font-size: 15px; line-height: 1;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  transition: transform .22s var(--spring), border-color .22s, color .22s, box-shadow .25s, opacity .25s;
+}
+.iconbtn:hover { border-color: var(--border-active); color: var(--fg); transform: translateY(-2px); box-shadow: 0 8px 20px var(--glow-blue); }
+.iconbtn:active { transform: scale(.9); }
+#btnBack[hidden] { display: none; }
+#btnBack { animation: backIn .35s var(--spring) both; }
+@keyframes backIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+/* the theme icon swaps with a little spin */
+#btnTheme .ico { display: block; transition: transform .5s var(--spring); }
+#btnTheme:hover .ico { transform: rotate(45deg) scale(1.12); }
+
+.acct { position: relative; }
+.acct-btn {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--glass-brd); background: var(--glass-soft); color: var(--fg-soft);
+  padding: 7px 12px; border-radius: 999px; font: inherit; font-size: 12.5px; cursor: pointer;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  transition: transform .2s var(--spring), border-color .2s, color .2s, box-shadow .2s;
+}
+.acct-btn:hover { border-color: var(--border-active); color: var(--fg); transform: translateY(-1px); box-shadow: 0 6px 18px var(--glow-blue); }
+.acct-btn:active { transform: scale(.96); }
+.acct-menu {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 40;
+  min-width: 226px; padding: 7px;
+  background: var(--glass-strong); border: 1px solid var(--glass-brd);
+  border-radius: var(--radius-sm); box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  animation: menuIn .28s var(--spring) both;
+}
+@keyframes menuIn { from { opacity:0; transform: translateY(-8px) scale(.97); } to { opacity:1; transform:none; } }
+.acct-menu button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  color: var(--fg); font: inherit; padding: 9px 11px; border-radius: 9px; cursor: pointer;
+  transition: background .18s, transform .18s var(--spring);
+}
+.acct-menu button:hover { background: var(--glass-soft); transform: translateX(3px); }
+.acct-menu button.danger { color: var(--bad); }
+.acct-menu hr { border: 0; border-top: 1px solid var(--glass-brd); margin: 6px 4px; }
+
+main { max-width: 620px; margin: 0 auto; padding: 30px 20px 64px; position: relative; z-index: 1; }
+body.placing main { max-width: 1060px; }
+
+/* ================= SCREEN TRANSITION + STAGGER REVEAL ================== */
+.screen { display: none; }
+.screen.active { display: block; }
+.screen.active > * { animation: rise .55s var(--ease) both; }
+.screen.active > *:nth-child(1) { animation-delay: .02s; }
+.screen.active > *:nth-child(2) { animation-delay: .07s; }
+.screen.active > *:nth-child(3) { animation-delay: .12s; }
+.screen.active > *:nth-child(4) { animation-delay: .17s; }
+.screen.active > *:nth-child(5) { animation-delay: .22s; }
+.screen.active > *:nth-child(6) { animation-delay: .27s; }
+.screen.active > *:nth-child(7) { animation-delay: .32s; }
+.screen.active > *:nth-child(8) { animation-delay: .37s; }
+.screen.active > *:nth-child(9)  { animation-delay: .42s; }
+.screen.active > *:nth-child(10) { animation-delay: .47s; }
+.screen.active > *:nth-child(11) { animation-delay: .52s; }
+.screen.active > *:nth-child(12) { animation-delay: .57s; }
+.screen.active > *:nth-child(13) { animation-delay: .62s; }
+.screen.active > *:nth-child(14) { animation-delay: .67s; }
+.screen.active > *:nth-child(n+15) { animation-delay: .72s; }
+/* the stat tiles cascade inside their own row */
+.stats > *:nth-child(1) { animation-delay: .10s; }
+.stats > *:nth-child(2) { animation-delay: .17s; }
+.stats > *:nth-child(3) { animation-delay: .24s; }
+.stats > *:nth-child(4) { animation-delay: .31s; }
+.stats > * { animation: rise .5s var(--ease) both; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px) scale(.985); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+h1 { font-size: 25px; letter-spacing: -.03em; margin: 0 0 5px; font-weight: 800; }
+.sub { color: var(--fg-soft); margin: 0 0 22px; }
+h2.sec { font-size: 15px; font-weight: 700; letter-spacing: -.01em; margin: 26px 0 10px; display: flex; align-items: center; gap: 9px; }
+h2.sec::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--glass-brd), transparent); }
+
+/* ================================ GLASS CARD ============================ */
+.card {
+  position: relative; isolation: isolate;
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-shadow);
+  padding: 22px;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  transform: perspective(900px) rotateX(var(--tx,0deg)) rotateY(var(--ty,0deg)) translateZ(0);
+  transition: transform .35s var(--ease), box-shadow .35s var(--ease);
+  transform-style: preserve-3d;
+}
+.card + .card { margin-top: 14px; }
+.card::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; z-index: -1;
+  background: radial-gradient(460px circle at var(--mx,50%) var(--my,-20%), var(--spot), transparent 62%);
+  opacity: 0; transition: opacity .4s var(--ease);
+}
+.card:hover::before { opacity: 1; }
+.card::after {
+  content: ""; position: absolute; left: 12%; right: 12%; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--glass-hi), transparent);
+  pointer-events: none; border-radius: 1px;
+}
+
+label { display: block; font-size: 12.5px; color: var(--fg-soft); margin: 15px 0 6px; font-weight: 600; }
+label:first-child { margin-top: 0; }
+input[type=text], input[type=password] {
+  width: 100%; padding: 11px 13px; font: inherit;
+  background: var(--glass-soft); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  transition: border-color .22s, box-shadow .3s, background .22s, transform .22s var(--spring);
+}
+input:focus {
+  outline: none; border-color: var(--border-active); background: var(--glass-strong);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 22px var(--glow-blue);
+  transform: translateY(-1px);
+}
+input::placeholder { color: var(--fg-faint); }
+
+/* ================================= BUTTONS ============================== */
+.btn {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 18px; font: inherit; font-weight: 700; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 52%, var(--accent-3) 100%);
+  background-size: 200% 200%;
+  color: #fff;
+  box-shadow: 0 6px 20px var(--glow-blue), inset 0 1px 0 rgba(255,255,255,.28);
+  transition: transform .22s var(--spring), box-shadow .3s, background-position .6s var(--ease), filter .2s;
+}
+.btn:hover { background-position: 100% 0; transform: translateY(-2px); box-shadow: 0 12px 30px var(--glow-blue), inset 0 1px 0 rgba(255,255,255,.34); }
+.btn:active { transform: translateY(0) scale(.97); }
+.btn:disabled { opacity: .5; cursor: default; transform: none; box-shadow: none; filter: grayscale(.35); }
+#aboutDialog [hidden] { display: none !important; }
+#aboutDialog::backdrop { background: rgba(8,20,35,.55); backdrop-filter: blur(5px); }
+.btn::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(140px circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.30), transparent 60%);
+  opacity: 0; transition: opacity .35s;
+}
+.btn:hover::after { opacity: 1; }
+.btn.secondary {
+  background: var(--glass); color: var(--fg); border-color: var(--glass-brd);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow);
+}
+.btn.secondary:hover { border-color: var(--border-active); box-shadow: 0 10px 26px var(--glow-blue); }
+.btn.ghost { background: transparent; color: var(--accent); box-shadow: none; }
+.btn.block { width: 100%; }
+.btn .spin {
+  width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: spin .7s linear infinite; display: none;
+}
+.btn.loading .spin { display: inline-block; }
+.btn.loading .txt { opacity: .7; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn.block::before {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px;
+  background: conic-gradient(from var(--ang), transparent 0%, var(--accent-2) 12%, transparent 28%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: spinBorder 4s linear infinite; pointer-events: none;
+}
+@keyframes spinBorder { to { --ang: 360deg; } }
+
+/* ================================== TABS ================================ */
+.tabs {
+  display: inline-flex; padding: 5px; gap: 4px; margin-bottom: 20px;
+  background: var(--glass); border: 1px solid var(--glass-brd); border-radius: 999px;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow);
+}
+.tabs button {
+  border: 0; background: transparent; color: var(--fg-soft); font: inherit; font-weight: 600;
+  padding: 8px 18px; border-radius: 999px; cursor: pointer;
+  transition: color .22s, background .3s var(--ease), transform .22s var(--spring), box-shadow .3s;
+}
+.tabs button:hover { color: var(--fg); }
+.tabs button.on {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; box-shadow: 0 6px 18px var(--glow-blue); transform: translateY(-1px);
+}
+.tabs button:active { transform: scale(.95); }
+
+/* ============================== ACTION CARDS ============================ */
+.action {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: flex; align-items: center; gap: 16px; width: 100%; text-align: left;
+  padding: 18px; border: 1px solid var(--glass-brd); border-radius: var(--radius);
+  background: var(--glass); color: var(--fg); font: inherit;
+  box-shadow: var(--glass-shadow); cursor: pointer;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  transform: perspective(900px) rotateX(var(--tx,0deg)) rotateY(var(--ty,0deg));
+  transition: transform .35s var(--ease), box-shadow .35s var(--ease), border-color .3s;
+}
+.action + .action { margin-top: 13px; }
+.action:hover { border-color: var(--glass-brd-acc); box-shadow: 0 18px 46px var(--glow-blue), var(--glass-shadow); }
+.action:active { transform: scale(.985); }
+.action:disabled { opacity: .48; cursor: default; transform: none; box-shadow: var(--glass-shadow); border-color: var(--glass-brd); filter: grayscale(.4); }
+.action::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(420px circle at var(--mx,50%) var(--my,-20%), var(--spot), transparent 60%);
+  opacity: 0; transition: opacity .4s var(--ease);
+}
+.action:hover::before { opacity: 1; }
+.action:not(:disabled)::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px;
+  background: conic-gradient(from var(--ang), transparent 0%, var(--accent-2) 10%, var(--accent-3) 18%, transparent 32%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  opacity: 0; transition: opacity .4s; animation: spinBorder 6s linear infinite; pointer-events: none;
+}
+.action:not(:disabled):hover::after { opacity: 1; }
+.action .ic {
+  width: 54px; height: 54px; flex: none; border-radius: 15px; display: grid; place-items: center;
+  background: var(--glass-soft); border: 1px solid var(--glass-brd);
+  font-size: 22px; overflow: hidden;
+  transition: transform .4s var(--spring), box-shadow .4s;
+}
+/* no `display` here: .only-light / .only-dark own that */
+.action .ic img { width: 100%; height: 100%; object-fit: contain; }
+.action:hover .ic { transform: scale(1.09) rotate(-3deg); box-shadow: 0 0 22px var(--glow-cyan); }
+.action .t { font-weight: 700; font-size: 15.5px; letter-spacing: -.015em; }
+.action .d { color: var(--fg-soft); font-size: 12.5px; margin-top: 2px; }
+
+.hero { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; }
+.hero img {
+  width: 76px; height: 76px; object-fit: contain; flex: none;
+  filter: drop-shadow(0 6px 22px var(--glow-cyan));
+  animation: heroIn .8s var(--spring) both, brandFloat 8s ease-in-out 1s infinite;
+}
+@keyframes heroIn { from { opacity: 0; transform: translateY(14px) scale(.82); } to { opacity: 1; transform: none; } }
+
+/* ============================== DASHBOARD =============================== */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; margin-bottom: 6px; }
+.stat {
+  position: relative; overflow: hidden;
+  padding: 14px 13px; border-radius: 15px;
+  background: var(--glass); border: 1px solid var(--glass-brd);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  transition: transform .35s var(--spring), box-shadow .35s, border-color .3s;
+}
+.stat:hover { transform: translateY(-4px); border-color: var(--glass-brd-acc); box-shadow: 0 16px 34px var(--glow-blue); }
+.stat .k { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-faint); }
+.stat .v {
+  font-size: 27px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2) 60%, var(--accent-3));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.stat .u { font-size: 11px; color: var(--fg-soft); margin-top: 1px; }
+.stat .sparkline { position: absolute; right: 8px; bottom: 8px; opacity: .5; }
+/* a thin accent bar wipes in along the top of each tile */
+.stat::before {
+  content: ""; position: absolute; left: 0; top: 0; height: 2px; width: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3));
+  transform: scaleX(0); transform-origin: left;
+  animation: wipeIn .9s var(--ease) both; animation-delay: inherit;
+}
+@keyframes wipeIn { to { transform: scaleX(1); } }
+
+/* bar chart */
+.chart { display: flex; align-items: flex-end; gap: 10px; height: 118px; padding: 6px 2px 0; }
+.chart .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; height: 100%; justify-content: flex-end; }
+.chart .bar {
+  width: 100%; border-radius: 7px 7px 3px 3px; min-height: 3px;
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 16px var(--glow-blue);
+  transform-origin: bottom; transform: scaleY(0);
+  animation: growBar .8s var(--spring) both;
+  position: relative;
+}
+.chart .bar:hover { filter: brightness(1.15); }
+.chart .bar .n {
+  position: absolute; top: -19px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; font-weight: 700; color: var(--fg-soft); font-variant-numeric: tabular-nums;
+}
+@keyframes growBar { to { transform: scaleY(1); } }
+.chart .lbl { font-size: 10.5px; color: var(--fg-faint); font-weight: 600; }
+
+/* ===================== ROOT CA - NARRATIVE, NOT AN ACTION =============== */
+.note-card {
+  position: relative; overflow: hidden;
+  display: flex; gap: 15px; align-items: flex-start;
+  padding: 16px 17px; border-radius: var(--radius-sm);
+  background: var(--glass-soft); border: 1px solid var(--glass-brd);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow);
+}
+.note-card > img {
+  width: 46px; height: 46px; object-fit: contain; flex: none;
+  filter: drop-shadow(0 0 12px var(--glow-blue));
+  animation: brandFloat 9s ease-in-out infinite;
+}
+.note-card .t { font-weight: 700; font-size: 13.5px; letter-spacing: -.01em; }
+.note-card .d { color: var(--fg-soft); font-size: 12.5px; margin-top: 3px; }
+
+/* trust chain diagram */
+.chain { display: flex; flex-direction: column; gap: 0; margin-top: 14px; }
+.chain .node {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 13px; border-radius: 11px;
+  background: var(--glass); border: 1px solid var(--glass-brd);
+  font-size: 12.5px; font-weight: 600;
+  animation: rise .5s var(--ease) both;
+}
+.chain .node .badge {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--accent-2); box-shadow: 0 0 10px var(--accent-2);
+  animation: pulseDot 2.4s ease-in-out infinite;
+}
+.chain .node:nth-child(1) { animation-delay: .05s } .chain .node:nth-child(1) .badge { animation-delay: 0s }
+.chain .node:nth-child(3) { animation-delay: .15s } .chain .node:nth-child(3) .badge { animation-delay: .3s }
+.chain .node:nth-child(5) { animation-delay: .25s } .chain .node:nth-child(5) .badge { animation-delay: .6s }
+.chain .node:nth-child(7) { animation-delay: .35s } .chain .node:nth-child(7) .badge { animation-delay: .9s }
+@keyframes pulseDot { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.5); opacity: .55 } }
+.chain .link {
+  width: 2px; height: 15px; margin-left: 26px; border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-2), transparent);
+  position: relative; overflow: hidden;
+}
+/* a pulse of light travels down the chain - "data flow" */
+.chain .link::after {
+  content: ""; position: absolute; left: 0; width: 100%; height: 8px;
+  background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2);
+  animation: flowDown 2.2s linear infinite;
+}
+@keyframes flowDown { from { top: -8px; opacity: 0 } 20% { opacity: 1 } to { top: 15px; opacity: 0 } }
+.chain .node .qm { margin-left: auto; color: var(--fg-faint); font-weight: 600; font-size: 11.5px; }
+
+/* accordion - the feature explanations */
+.acc { border: 1px solid var(--glass-brd); border-radius: var(--radius-sm); overflow: hidden;
+  background: var(--glass-soft); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+.acc + .acc { margin-top: 9px; }
+.acc > summary {
+  list-style: none; cursor: pointer; padding: 13px 15px;
+  font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 10px;
+  transition: background .25s, color .2s;
+}
+.acc > summary::-webkit-details-marker { display: none; }
+.acc > summary:hover { background: var(--glass); }
+.acc > summary .chev { margin-left: auto; color: var(--fg-faint); transition: transform .35s var(--spring); }
+.acc[open] > summary .chev { transform: rotate(90deg); color: var(--accent); }
+.acc .body { padding: 0 15px 14px; color: var(--fg-soft); font-size: 12.8px; animation: accOpen .4s var(--ease) both; }
+@keyframes accOpen { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.acc .body ul { margin: 7px 0 0; padding-left: 18px; }
+.acc .body li { margin: 4px 0; }
+.acc .body b { color: var(--fg); }
+
+/* ================================= BITS ================================= */
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; border: 1px solid transparent; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.pill.ok   { background: var(--ok-soft);   color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
+.pill.bad  { background: var(--bad-soft);  color: var(--bad);  border-color: color-mix(in srgb, var(--bad) 28%, transparent); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 28%, transparent); }
+
+.filepick {
+  display: flex; align-items: center; gap: 12px; padding: 16px;
+  border: 1.5px dashed var(--border-strong); border-radius: var(--radius-sm);
+  cursor: pointer; color: var(--fg-soft); background: var(--glass-soft);
+  transition: border-color .25s, color .25s, background .25s, transform .25s var(--spring), box-shadow .3s;
+}
+.filepick:hover { border-color: var(--border-active); color: var(--fg); background: var(--glass);
+  transform: translateY(-2px); box-shadow: 0 10px 28px var(--glow-blue); }
+.filepick:active { transform: scale(.99); }
+.filepick .fn { color: var(--fg); font-weight: 600; }
+
+.result { margin-top: 18px; animation: rise .5s var(--ease) both; }
+.verdict { display: flex; align-items: center; gap: 12px; font-size: 16.5px; font-weight: 700; margin-bottom: 14px; }
+.verdict .mark {
+  width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; font-size: 18px; animation: markPop .55s var(--spring) both;
+}
+@keyframes markPop { from { transform: scale(0) rotate(-45deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.verdict.ok  .mark { background: var(--ok);  box-shadow: 0 0 26px color-mix(in srgb, var(--ok) 55%, transparent); }
+.verdict.bad .mark { background: var(--bad); box-shadow: 0 0 26px color-mix(in srgb, var(--bad) 55%, transparent); }
+dl.kv { margin: 0; display: grid; grid-template-columns: 152px 1fr; gap: 9px 14px; font-size: 13px; }
+dl.kv dt { color: var(--fg-soft); }
+dl.kv dd { margin: 0; word-break: break-word; }
+dl.kv dd.mono { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 12px; }
+
+/* ---- verification loader: a document being scanned ---- */
+.vload { display: flex; align-items: center; gap: 15px; padding: 6px 2px; }
+.vload-doc {
+  position: relative; flex: none; width: 34px; height: 44px; border-radius: 5px;
+  border: 1.5px solid var(--border-active); overflow: hidden;
+  background: var(--glass-soft);
+  box-shadow: 0 0 18px var(--glow-blue);
+}
+/* the ruled lines of a page */
+.vload-doc::before {
+  content: ""; position: absolute; left: 6px; right: 6px; top: 8px; height: 2px;
+  border-radius: 2px; background: var(--fg-faint); opacity: .5;
+  box-shadow: 0 7px 0 var(--fg-faint), 0 14px 0 var(--fg-faint), 0 21px 0 var(--fg-faint);
+}
+/* the scan line sweeping down it */
+.vload-scan {
+  position: absolute; left: 0; right: 0; height: 9px;
+  background: linear-gradient(180deg, transparent, var(--accent-2), transparent);
+  box-shadow: 0 0 12px var(--accent-2);
+  animation: vscan 1.5s ease-in-out infinite;
+}
+@keyframes vscan { 0% { top: -9px } 100% { top: 44px } }
+.vload-body { flex: 1; min-width: 0; }
+.vload-txt { color: var(--fg-soft); font-size: 12.5px; font-weight: 600; }
+.vload-bar {
+  margin-top: 9px; height: 4px; border-radius: 3px; overflow: hidden;
+  background: var(--glass-soft); border: 1px solid var(--glass-brd);
+}
+.vload-bar span {
+  display: block; height: 100%; width: 38%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3));
+  animation: vbar 1.25s cubic-bezier(.65,0,.35,1) infinite;
+}
+@keyframes vbar {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(330%); }
+}
+
+.note { color: var(--fg-faint); font-size: 12px; margin-top: 15px; }
+.msg  { color: var(--bad); font-size: 13px; margin-top: 11px; min-height: 1.2em; }
+.hint { color: var(--fg-soft); font-size: 12.5px; margin-top: 12px; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 26px; z-index: 90;
+  transform: translate(-50%, 24px) scale(.94);
+  background: var(--glass-strong); color: var(--fg);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  padding: 12px 20px; border-radius: 13px;
+  font-size: 13px; font-weight: 600; box-shadow: var(--glass-shadow);
+  opacity: 0; pointer-events: none; max-width: 90vw;
+  transition: opacity .28s, transform .45s var(--spring);
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+#toast.ok  { border-color: color-mix(in srgb, var(--ok) 45%, transparent);  box-shadow: 0 12px 40px color-mix(in srgb, var(--ok) 30%, transparent); }
+#toast.bad { border-color: color-mix(in srgb, var(--bad) 45%, transparent); box-shadow: 0 12px 40px color-mix(in srgb, var(--bad) 30%, transparent); }
+
+/* ============================= QR PLACEMENT ============================= */
+.qr-nav { display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin: 4px 0 12px; color: var(--fg-soft); font-size: 13px; }
+.qr-nav button {
+  border: 1px solid var(--glass-brd); background: var(--glass); color: var(--fg);
+  width: 34px; height: 34px; border-radius: 10px; cursor: pointer; font: inherit; line-height: 1;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  transition: transform .22s var(--spring), border-color .22s, box-shadow .25s;
+}
+.qr-nav button:hover:not(:disabled) { border-color: var(--border-active); transform: translateY(-2px); box-shadow: 0 6px 16px var(--glow-blue); }
+.qr-nav button:active:not(:disabled) { transform: scale(.92); }
+.qr-nav button:disabled { opacity: .35; cursor: default; }
+.qr-nav input[type=number] {
+  width: 62px; padding: 6px; text-align: center; font: inherit;
+  background: var(--glass-soft); color: var(--fg);
+  border: 1px solid var(--border-strong); border-radius: 9px;
+}
+.qr-nav input[type=number]:focus { outline: none; border-color: var(--border-active); box-shadow: 0 0 0 3px var(--accent-soft); }
+.qr-scroll {
+  max-height: 72vh; overflow: auto; padding: 16px;
+  border: 1px solid var(--glass-brd); border-radius: 14px;
+  background: var(--glass-soft);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.qr-stage { position: relative; margin: 0 auto; width: fit-content;
+  border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden;
+  background: #fff; box-shadow: 0 14px 44px rgba(0,0,0,.28); touch-action: none; }
+.qr-stage canvas { display: block; }
+.qr-box {
+  position: absolute; left: 0; top: 0; cursor: move; border-radius: 6px;
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 0 1px rgba(255,255,255,.85) inset, 0 0 22px var(--glow-blue);
+}
+.qr-box .lbl { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  text-align: center; font-size: 10px; line-height: 1.2; font-weight: 800; letter-spacing: .06em;
+  color: var(--accent); pointer-events: none; text-shadow: 0 1px 2px rgba(255,255,255,.9); }
+.qr-box .hdl { position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px;
+  background: var(--accent); border: 2px solid #fff; border-radius: 50%; cursor: nwse-resize;
+  box-shadow: 0 0 12px var(--glow-blue); }
+.qr-help { color: var(--fg-faint); font-size: 12px; text-align: center; margin: 8px 0 0; }
+.qr-marker { position: absolute; border: 2px dashed var(--accent); border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent); pointer-events: none; }
+
+/* =========================== REDUCED MOTION ============================= */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #101114;
-      --bg-elev: #1a1c20;
-      --fg: #e8eaed;
-      --fg-soft: #a8adb5;
-      --fg-faint: #71767e;
-      --border: #2a2d33;
-      --border-strong: #3a3e46;
-      --accent: #7c7cf3;
-      --accent-fg: #0e0f12;
-      --accent-soft: #23233a;
-      --ok: #4ade80; --ok-soft: #13291c;
-      --bad: #f87171; --bad-soft: #2a1414;
-      --warn: #fbbf24; --warn-soft: #2a2210;
-      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
-    }
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    font: 14px/1.55 -apple-system, "Segoe UI Variable", "Segoe UI", system-ui, Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--fg);
-    -webkit-font-smoothing: antialiased;
-  }
-  ::selection { background: var(--accent-soft); }
+  #bgMesh { animation: none; }
+  .card, .action { transform: none !important; }
+}
 
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 22px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-elev);
-  }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -.01em; }
-  .brand .ver { font-weight: 500; font-size: 11px; color: var(--fg-faint);
-    border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
-  .brand .logo { height: 28px; width: auto; display: block; }
-  .acct { position: relative; }
-  .acct-btn {
-    display: flex; align-items: center; gap: 8px;
-    border: 1px solid var(--border); background: transparent; color: var(--fg-soft);
-    padding: 6px 10px; border-radius: 999px; font: inherit; font-size: 12.5px; cursor: pointer;
-  }
-  .acct-btn:hover { border-color: var(--border-strong); color: var(--fg); }
-  .acct-menu {
-    position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
-    min-width: 210px; background: var(--bg-elev); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 6px;
-  }
-  .acct-menu button {
-    display: block; width: 100%; text-align: left; border: 0; background: transparent;
-    color: var(--fg); font: inherit; padding: 9px 10px; border-radius: 7px; cursor: pointer;
-  }
-  .acct-menu button:hover { background: var(--bg); }
-  .acct-menu button.danger { color: var(--bad); }
-  .acct-menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+/* ---- actions offered under a successful signature ---- */
+.signActions {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 16px;
+  border-top: 1px solid var(--glass-brd);
+  animation: rise .45s var(--ease) both; animation-delay: .12s;
+}
+.signActions .btn { flex: 1 1 auto; min-width: 160px; }
 
-  main { max-width: 560px; margin: 0 auto; padding: 34px 20px 60px; }
+/* ---- password field with a reveal button ---- */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 46px; }
+/* Edge/WebView2 draws its own reveal control; one is enough */
+.pw-wrap input::-ms-reveal, .pw-wrap input::-ms-clear { display: none; }
+.pw-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 32px; height: 32px;
+  border: 0; background: transparent; color: var(--fg-faint);
+  border-radius: 9px; cursor: pointer; padding: 0;
+  transition: color .2s, background .2s, transform .2s var(--spring);
+}
+.pw-eye:hover { color: var(--accent); background: var(--glass-soft); }
+.pw-eye:active { transform: translateY(-50%) scale(.88); }
+.pw-eye svg { width: 17px; height: 17px; }
+/* The app builds the button with both icons inside and flips
+   aria-pressed; show one at a time. "true" means the text is visible. */
+.pw-eye .i-hide, .pw-eye[aria-pressed="true"] .i-show { display: none; }
+.pw-eye[aria-pressed="true"] .i-hide { display: block; }
 
-  .screen { display: none; }
-  .screen.active { display: block; animation: pop .24s cubic-bezier(.2,.7,.3,1); }
-  @keyframes pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-
-  h1 { font-size: 20px; letter-spacing: -.02em; margin: 0 0 4px; }
-  .sub { color: var(--fg-soft); margin: 0 0 22px; }
-
-  .card {
-    background: var(--bg-elev); border: 1px solid var(--border);
-    border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px;
-  }
-  .card + .card { margin-top: 14px; }
-
-  label { display: block; font-size: 12.5px; color: var(--fg-soft); margin: 14px 0 6px; font-weight: 550; }
-  label:first-child { margin-top: 0; }
-  input[type=text], input[type=password] {
-    width: 100%; padding: 10px 12px; font: inherit;
-    background: var(--bg); color: var(--fg);
-    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-    transition: border-color .15s, box-shadow .15s;
-  }
-  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  input::placeholder { color: var(--fg-faint); }
-
-  /* password box with a show/hide (eye) button inside it — added from JS */
-  .pw-wrap { position: relative; }
-  .pw-wrap input { padding-right: 44px; }
-  .pw-eye {
-    position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
-    width: 34px; height: 34px; display: grid; place-items: center;
-    border: 0; border-radius: 7px; background: transparent; color: var(--fg-faint); cursor: pointer;
-  }
-  .pw-eye:hover { color: var(--fg); background: var(--bg-elev); }
-  .pw-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .pw-eye svg { width: 18px; height: 18px; }
-  .pw-eye .i-hide, .pw-eye[aria-pressed="true"] .i-show { display: none; }
-  .pw-eye[aria-pressed="true"] .i-hide { display: block; }
-  /* WebView2 draws its own reveal button on password boxes; keep only ours */
-  input::-ms-reveal, input::-ms-clear { display: none; }
-
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 10px 16px; font: inherit; font-weight: 560; cursor: pointer;
-    border: 1px solid transparent; border-radius: var(--radius-sm);
-    background: var(--accent); color: var(--accent-fg);
-    transition: transform .1s, filter .15s, background .15s;
-  }
-  .btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
-  .btn:active { transform: translateY(0); }
-  .btn:disabled { opacity: .55; cursor: default; transform: none; filter: none; }
-  .btn.secondary { background: var(--bg); color: var(--fg); border-color: var(--border-strong); }
-  .btn.secondary:hover { border-color: var(--fg-faint); }
-  .btn.ghost { background: transparent; color: var(--accent); }
-  .btn.block { width: 100%; }
-  .btn .spin {
-    width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent;
-    border-radius: 50%; animation: spin .7s linear infinite; display: none;
-  }
-  .btn.loading .spin { display: inline-block; }
-  .btn.loading .txt { opacity: .7; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .tabs { display: inline-flex; padding: 4px; gap: 4px; background: var(--bg);
-    border: 1px solid var(--border); border-radius: 999px; margin-bottom: 18px; }
-  .tabs button { border: 0; background: transparent; color: var(--fg-soft); font: inherit; font-weight: 550;
-    padding: 7px 16px; border-radius: 999px; cursor: pointer; transition: .15s; }
-  .tabs button.on { background: var(--accent); color: var(--accent-fg); }
-
-  .action {
-    display: flex; align-items: center; gap: 16px; width: 100%; text-align: left;
-    padding: 18px; border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--bg-elev); cursor: pointer; transition: border-color .15s, transform .1s, box-shadow .15s;
-  }
-  .action + .action { margin-top: 12px; }
-  .action:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
-  .action:disabled { opacity: .5; cursor: default; transform: none; box-shadow: none; border-color: var(--border); }
-  .action .ic { width: 42px; height: 42px; flex: none; border-radius: 12px; display: grid; place-items: center;
-    background: var(--accent-soft); font-size: 20px; }
-  .action .t { font-weight: 600; font-size: 15px; }
-  .action .d { color: var(--fg-soft); font-size: 12.5px; margin-top: 1px; }
-
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
-    font-size: 12px; font-weight: 600; }
-  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .pill.ok { background: var(--ok-soft); color: var(--ok); }
-  .pill.bad { background: var(--bad-soft); color: var(--bad); }
-  .pill.warn { background: var(--warn-soft); color: var(--warn); }
-
-  .filepick {
-    display: flex; align-items: center; gap: 12px; padding: 14px;
-    border: 1.5px dashed var(--border-strong); border-radius: var(--radius-sm);
-    cursor: pointer; transition: .15s; color: var(--fg-soft);
-  }
-  .filepick:hover { border-color: var(--accent); color: var(--fg); background: var(--bg); }
-  .filepick .fn { color: var(--fg); font-weight: 550; }
-
-  .result { margin-top: 16px; }
-  .verdict { display: flex; align-items: center; gap: 12px; font-size: 16px; font-weight: 650; margin-bottom: 12px; }
-  .verdict .mark { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 18px; }
-  .verdict.ok .mark { background: var(--ok); }
-  .verdict.bad .mark { background: var(--bad); }
-  .verdict.warn .mark { background: var(--warn); }
-  .progress-box { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--border);
-    border-radius: var(--radius-sm); background: var(--bg); }
-  .progress-box .step { font-weight: 600; }
-  .progress-box .meta { color: var(--fg-soft); font-size: 12.5px; margin-top: 2px; }
-  .bar { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 10px; }
-  .bar > i { display: block; height: 100%; width: 2%; background: var(--accent); transition: width .3s; }
-  dl.kv { margin: 0; display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; font-size: 13px; }
-  dl.kv dt { color: var(--fg-soft); }
-  dl.kv dd { margin: 0; word-break: break-word; }
-  dl.kv dd.mono { font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 12px; }
-
-  .note { color: var(--fg-faint); font-size: 12px; margin-top: 14px; }
-  .msg { color: var(--bad); font-size: 13px; margin-top: 10px; min-height: 1.2em; }
-  .hint { color: var(--fg-soft); font-size: 12.5px; margin-top: 12px; }
-
-  #toast {
-    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);
-    background: #16181d; color: #fff; padding: 11px 18px; border-radius: 10px;
-    font-size: 13px; font-weight: 500; box-shadow: 0 10px 40px rgba(0,0,0,.35);
-    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: 90vw;
-  }
-  #toast.show { opacity: 1; transform: translate(-50%, 0); }
-  #toast.ok { background: #15803d; }
-  #toast.bad { background: #b91c1c; }
-
-  /* ---- QR placement ---- */
-  body.placing main { max-width: 1040px; }
-  .qr-nav { display: flex; align-items: center; justify-content: center; gap: 12px;
-    margin: 4px 0 12px; color: var(--fg-soft); font-size: 13px; }
-  .qr-nav button { border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg);
-    width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font: inherit; line-height: 1; }
-  .qr-nav button:disabled { opacity: .4; cursor: default; }
-  .qr-nav input[type=number] { width: 58px; padding: 5px 6px; text-align: center; font: inherit;
-    background: var(--bg-elev); color: var(--fg); border: 1px solid var(--border-strong);
-    border-radius: 7px; }
-  .qr-nav input[type=number]:focus { outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft); }
-  .qr-scroll { max-height: 72vh; overflow: auto; border: 1px solid var(--border);
-    border-radius: 10px; background: var(--bg); padding: 16px; }
-  .qr-stage { position: relative; margin: 0 auto; width: fit-content;
-    border: 1px solid var(--border-strong); border-radius: 4px; overflow: hidden;
-    background: #fff; box-shadow: var(--shadow); touch-action: none; }
-  .qr-stage canvas { display: block; }
-  .qr-box { position: absolute; left: 0; top: 0;
-    border: 2px solid var(--accent); background: rgba(79,70,229,.12);
-    border-radius: 4px; cursor: move; box-shadow: 0 0 0 1px #fff inset; }
-  .qr-box .lbl { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-    text-align: center; font-size: 10px; font-weight: 700; letter-spacing: .06em;
-    color: var(--accent); pointer-events: none; }
-  .qr-box .hdl { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px;
-    background: var(--accent); border: 2px solid #fff; border-radius: 50%; cursor: nwse-resize; }
-  .qr-help { color: var(--fg-faint); font-size: 12px; text-align: center; margin: 8px 0 0; }
-  .qr-box .lbl { font-size: 10px; line-height: 1.2; }
-  .qr-marker { position: absolute; border: 2px dashed var(--accent); border-radius: 4px;
-    background: rgba(79,70,229,.06); pointer-events: none; }
 </style>
 </head>
 <body>
+<!-- Liquid Glass backdrop: photo + mesh gradient + topography + data flow -->
+<div class="bg-layer" id="bgPhoto"></div>
+<div class="bg-layer" id="bgMesh"></div>
+<div class="bg-layer" id="bgVeil"></div>
+<canvas class="bg-layer" id="fxTopo"></canvas>
+<canvas class="bg-layer" id="fxDots"></canvas>
+
 <header>
-  <div class="brand"><img class="logo" src="logo.png" alt=""> PQC PDF Sign <span class="ver" id="verTag"></span></div>
+  <button class="iconbtn" id="btnBack" hidden title="Kembali" aria-label="Kembali">&#8249;</button>
+  <div class="brand"><img class="dot only-light" src="assets/logo_pdfsign_light.png" alt="" /><img class="dot only-dark" src="assets/logo_pdfsign_dark.png" alt="" /> PQC PDF Sign <span class="ver" id="verTag"></span></div>
+  <div class="spacer"></div>
+  <button class="iconbtn" id="btnTheme" title="Ganti tema terang / gelap" aria-label="Ganti tema"><span class="ico" id="themeIco">&#9681;</span></button>
   <div class="acct" id="acct" hidden>
     <button class="acct-btn" id="acctBtn"><span id="acctEmail"></span> ▾</button>
     <div class="acct-menu" id="acctMenu" hidden>
@@ -264,8 +829,14 @@
 <main>
   <!-- AUTH -->
   <section class="screen active" id="scAuth">
-    <h1>Masuk</h1>
-    <p class="sub">Tanda tangan digital pasca-kuantum untuk dokumen PDF.</p>
+    <div class="hero">
+      <img class="only-light" src="assets/logo_secdoc_light.png" alt="" />
+      <img class="only-dark" src="assets/logo_secdoc_dark.png" alt="" />
+      <div>
+        <h1>Masuk</h1>
+        <p class="sub" style="margin-bottom:0">Tanda tangan digital pasca-kuantum (ML-DSA-65) untuk dokumen PDF.</p>
+      </div>
+    </div>
     <div class="tabs">
       <button id="tabLogin" class="on">Masuk</button>
       <button id="tabReg">Daftar akun</button>
@@ -274,7 +845,7 @@
 
     <div class="card" id="paneLogin">
       <label>Alamat server</label>
-      <input type="text" id="srv" placeholder="http://136.244.116.132:8099" />
+      <input type="text" id="srv" placeholder="https://136.244.116.132" />
       <label>Email</label>
       <input type="text" id="lemail" autocomplete="username" placeholder="nama@instansi.go.id" />
       <label>Kata sandi</label>
@@ -285,7 +856,7 @@
 
     <div class="card" id="paneReg" hidden>
       <label>Alamat server</label>
-      <input type="text" id="rsrv" placeholder="http://136.244.116.132:8099" />
+      <input type="text" id="rsrv" placeholder="https://136.244.116.132" />
       <label>Nama lengkap <span style="color:var(--fg-faint)">(dengan gelar)</span></label>
       <input type="text" id="rname" placeholder="mis. Gita Aurora, S.Ap., M.P.A." />
       <label>Jabatan</label>
@@ -306,7 +877,7 @@
     <div class="card" id="paneVerify" hidden>
       <p class="hint" style="margin-top:0">Verifikasi terbuka untuk umum — tidak perlu akun.</p>
       <label>Alamat server</label>
-      <input type="text" id="vsrv" placeholder="http://136.244.116.132:8099" />
+      <input type="text" id="vsrv" placeholder="https://136.244.116.132" />
       <div class="filepick" id="vpPick" style="margin-top:14px">
         <span>📄</span><span id="vpName">Pilih berkas PDF…</span>
       </div>
@@ -318,14 +889,87 @@
   <section class="screen" id="scHome">
     <h1>Halo 👋</h1>
     <p class="sub" id="homeSub">Perangkat siap digunakan.</p>
+
+    <div class="stats" id="statRow">
+      <div class="stat"><div class="k">Ditandatangani</div><div class="v tnum" data-count="0">0</div><div class="u">dokumen</div></div>
+      <div class="stat"><div class="k">Bulan ini</div><div class="v tnum" data-count="0">0</div><div class="u">dokumen</div></div>
+      <div class="stat"><div class="k">Diverifikasi</div><div class="v tnum" data-count="0">0</div><div class="u">di perangkat ini</div></div>
+      <div class="stat"><div class="k">Sertifikat</div><div class="v" id="statCert" style="font-size:15px;padding-top:7px">&mdash;</div><div class="u" id="statCertSub">ML-DSA-65</div></div>
+    </div>
+
+    <h2 class="sec">Aktivitas 6 bulan terakhir</h2>
+    <div class="card"><div class="chart" id="statChart"></div>
+      <p class="qr-help" id="chartEmpty" hidden style="margin-top:12px">Belum ada dokumen yang ditandatangani.</p>
+    </div>
+
+    <h2 class="sec">Aksi</h2>
     <button class="action" id="goSign">
-      <div class="ic">✍️</div>
+      <div class="ic"><img class="only-light" src="assets/logo_signing_light.png" alt="" /><img class="only-dark" src="assets/logo_signing_dark.png" alt="" /></div>
       <div><div class="t">Tanda Tangani Dokumen</div><div class="d">Pilih PDF, tandatangani di perangkat ini, unduh hasilnya ber-QR</div></div>
     </button>
     <button class="action" id="goVerify">
-      <div class="ic">🔍</div>
-      <div><div class="t">Verifikasi Dokumen</div><div class="d">Periksa keaslian & keutuhan sebuah PDF bertanda tangan</div></div>
+      <div class="ic"><img class="only-light" src="assets/logo_qrverify_light.png" alt="" /><img class="only-dark" src="assets/logo_qrverify_dark.png" alt="" /></div>
+      <div><div class="t">Verifikasi Dokumen</div><div class="d">Periksa keaslian &amp; keutuhan sebuah PDF bertanda tangan</div></div>
     </button>
+
+    <h2 class="sec">Rantai kepercayaan</h2>
+    <div class="note-card">
+      <img class="only-light" src="assets/logo_catrusted_light.png" alt="" />
+      <img class="only-dark" src="assets/logo_catrusted_dark.png" alt="" />
+      <div style="min-width:0">
+        <div class="t">Root CA Trusted &mdash; dasar kepercayaan</div>
+        <div class="d">Setiap verifikasi menelusuri rantai sertifikat sampai ke <b>Root CA eksplisit</b> yang dikonfigurasi aplikasi &mdash; bukan sertifikat yang kebetulan menempel di dalam PDF. Sertifikat yang dibuat sendiri karena itu tidak otomatis dipercaya.</div>
+        <div class="chain">
+          <div class="node"><span class="badge"></span> Root CA Trusted <span class="qm">trust anchor</span></div>
+          <div class="link"></div>
+          <div class="node"><span class="badge"></span> Intermediate CA <span class="qm">penerbit</span></div>
+          <div class="link"></div>
+          <div class="node"><span class="badge"></span> Sertifikat Penandatangan <span class="qm">perangkat ini</span></div>
+          <div class="link"></div>
+          <div class="node"><span class="badge"></span> Dokumen PDF Bertanda Tangan <span class="qm">hasil</span></div>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="sec">Tentang fitur</h2>
+    <details class="acc">
+      <summary>Tanda Tangani Dokumen <span class="chev">&#8250;</span></summary>
+      <div class="body">
+        Memberi tanda tangan digital pada PDF <b>di perangkat Anda</b>. Kunci privat tidak pernah dikirim ke server.
+        <ul>
+          <li>Memilih dokumen PDF yang akan ditandatangani.</li>
+          <li>Menandatangani di perangkat, lalu menghasilkan PDF bertanda tangan.</li>
+          <li>Menyertakan QR agar penerima mudah memvalidasi.</li>
+        </ul>
+        Tanda tangan digital di sini bukan sekadar gambar, melainkan mekanisme kriptografis yang membuktikan dokumen berasal dari perangkat bersertifikat dan isinya tidak berubah setelah ditandatangani.
+      </div>
+    </details>
+    <details class="acc">
+      <summary>Verifikasi Dokumen <span class="chev">&#8250;</span></summary>
+      <div class="body">
+        Memeriksa keaslian dan keutuhan PDF yang sudah ditandatangani. Verifikasi menjawab:
+        <ul>
+          <li>Apakah dokumen benar-benar punya tanda tangan digital?</li>
+          <li>Apakah tanda tangan itu masih valid?</li>
+          <li>Apakah dokumen berubah setelah ditandatangani?</li>
+          <li>Apakah rantai sertifikat berakhir pada Root CA yang dipercaya?</li>
+        </ul>
+        Hasilnya bisa berupa <b>Valid</b>, <b>Dokumen Berubah</b>, <b>Sertifikat Tidak Dipercaya</b>, atau <b>Tanda Tangan Tidak Valid</b>.
+      </div>
+    </details>
+    <details class="acc">
+      <summary>Root CA Trusted <span class="chev">&#8250;</span></summary>
+      <div class="body">
+        <b>CA (Certificate Authority)</b> adalah pihak yang menerbitkan sertifikat digital. Di puncaknya ada <b>Root CA</b> sebagai titik kepercayaan utama (<i>trust anchor</i>).
+        <ul>
+          <li>Menjadi acuan tunggal saat memeriksa sertifikat.</li>
+          <li>Memisahkan sertifikat yang <i>ada di dalam</i> PDF dari sertifikat yang benar-benar <i>dipercaya</i> sistem.</li>
+          <li>Mengurangi risiko menerima sertifikat yang dibuat sendiri.</li>
+        </ul>
+        Identitas Root CA ditampilkan sebagai fingerprint sehingga bisa dibandingkan dengan yang seharusnya.
+      </div>
+    </details>
+
     <p class="note" id="homeNote"></p>
   </section>
 
@@ -338,6 +982,10 @@
         <span>📄</span><span id="inName">Pilih berkas PDF…</span>
       </div>
       <p class="hint" style="margin-top:8px">Ukuran maksimal <b><span id="maxMb">150</span> MB</b> per dokumen.</p>
+      <label>Nomor surat</label>
+      <input type="text" id="sletterno" placeholder="mis. 800/1234/BKD/2026" />
+      <label>Perihal surat</label>
+      <input type="text" id="sletsubject" placeholder="mis. Undangan Rapat Koordinasi" />
       <label>Alasan penandatanganan</label>
       <input type="text" id="sreason" value="Persetujuan" />
       <label>Dikeluarkan di (kota)</label>
@@ -372,8 +1020,8 @@
       <p class="qr-help">Titik QR: <b id="stampCount">1</b>
         <button class="btn secondary" id="btnAddStamp" type="button" style="padding:5px 12px; margin-left:8px">+ Tambah titik QR</button></p>
       <div style="display:flex; gap:10px; margin-top:14px">
-        <button class="btn" id="btnSign"><span class="spin"></span><span class="txt">Tandatangani &amp; simpan</span></button>
-        <button class="btn secondary" id="placeBack">← Ganti berkas</button>
+        <button class="btn" id="btnSign"><span class="spin"></span><span class="txt">Tanda tangani dokumen</span></button>
+        <button class="btn secondary" id="placeBack">Ganti berkas</button>
       </div>
       <div class="msg" id="placeMsg"></div>
       <div class="progress-box" id="signProgress" hidden>
@@ -396,7 +1044,7 @@
       <div style="margin-top:16px"><button class="btn secondary" id="verifyBack">Kembali</button></div>
       <div class="result" id="verifyResult" hidden></div>
 
-      <hr style="margin:22px 0;border:0;border-top:1px solid var(--border)">
+      <div hidden id="vhManual"><hr style="margin:22px 0;border:0;border-top:1px solid var(--border)">
       <label>Atau verifikasi tanpa mengunggah (untuk berkas rahasia)</label>
       <p class="note" style="margin-top:4px">Berkas tidak diunggah — hanya sidik jari SHA-512
       (64 byte) yang dikirim ke server untuk dicocokkan.</p>
@@ -405,7 +1053,7 @@
         <span>📄</span><span id="vhName">Pilih PDF (hanya di-hash lokal)…</span>
       </div>
       <div style="margin-top:12px"><button class="btn" id="btnVhCheck">Cocokkan sidik jari</button></div>
-      <div class="result" id="vhResult" hidden></div>
+      <div class="result" id="vhResult" hidden></div></div>
     </div>
   </section>
 </main>
@@ -422,8 +1070,8 @@
   if (pdfjs) pdfjs.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
   const STAMP_ASPECT = 0.42; // caption+QR block, height/width — must match the server
 
-  const APP_VERSION = "v0.6.0";
-  const DEFAULT_SRV = "http://136.244.116.132:8099";
+  const APP_VERSION = "v0.7.2";
+  const DEFAULT_SRV = "https://136.244.116.132";
 
   let currentScreen = "scAuth";
   const state = {
@@ -431,7 +1079,7 @@
     // installs migrate to the current default automatically.
     get srv() {
       const v = localStorage.getItem("pqc_srv");
-      return (v && !/localhost|127\.0\.0\.1|10\.0\.2\.2|0\.0\.0\.0/i.test(v)) ? v : DEFAULT_SRV;
+      return (v && !/localhost|127\.0\.0\.1|10\.0\.2\.2|0\.0\.0\.0/i.test(v) && !/^https?:\/\/136\.244\.116\.132:(8098|8099)\/?$/.test(v)) ? v : DEFAULT_SRV;
     },
     set srv(v) { try { localStorage.setItem("pqc_srv", v); } catch (_) {} },
     get email() { return localStorage.getItem("pqc_email") || ""; },
@@ -510,7 +1158,7 @@
     const email = $("remail").value.trim();
     if (!email || $("rpw").value.length < 8) { $("regMsg").textContent = "Isi email dan kata sandi minimal 8 karakter."; return; }
     try {
-      await call("Connect", $("rsrv").value.trim(), true);
+      await call("Connect", $("rsrv").value.trim(), false);
       const r = await call("Register", $("rname").value.trim(), $("rorg").value.trim(), email, $("rpw").value,
         $("rpos").value.trim(), $("rnip").value.trim());
       state.srv = $("rsrv").value.trim(); state.email = email;
@@ -524,7 +1172,7 @@
     $("loginMsg").textContent = "";
     const email = $("lemail").value.trim();
     try {
-      await call("Connect", $("srv").value.trim(), true);
+      await call("Connect", $("srv").value.trim(), false);
       await call("Login", email, $("lpw").value);
       state.srv = $("srv").value.trim(); state.email = email;
       $("loginMsg").textContent = "";
@@ -778,7 +1426,7 @@
     progressStart("Memulai…");
     try {
       const placements = savedStamps.concat([qrPlacement()]);
-      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", JSON.stringify(placements), $("splace").value.trim());
+      const r = await call("SignPDF", signIn, signOut, $("sreason").value.trim(), "", "", JSON.stringify(placements), $("splace").value.trim(), $("sletterno").value.trim(), $("sletsubject").value.trim());
       progressStop();
       renderSignResult(r);
       if (r.submitted) toast("Berhasil ditandatangani & tercatat di server.", "ok");
@@ -920,6 +1568,8 @@
       row("Penanda tangan", rec.signer_name) +
       row("Jabatan", rec.position) +
       row("NIP", rec.nip, true) +
+      row("Nomor surat", rec.letter_no) +
+      row("Perihal surat", rec.letter_subject) +
       row("Perangkat", rec.device_label) +
       row("No. sertifikat", rec.certificate_serial, true) +
       row("Waktu (klaim perangkat)", rec.client_claimed_signing_time) +
@@ -932,6 +1582,15 @@
         : "");
   }
 
+  // Automatic fingerprint check (appcore adds hash_check to local results).
+  function hashCheckRow(hc) {
+    if (!hc) return "";
+    const k = "Sidik jari vs catatan server";
+    if (!hc.checked) return row(k, "tidak diperiksa — " + (hc.reason || "tidak diketahui"));
+    if (hc.match === true) return row(k, "COCOK — byte-identik dengan yang diterbitkan server");
+    return row(k, "TIDAK COCOK — berkas berbeda dari yang diterbitkan server");
+  }
+
   function renderVerdict(raw) {
     let top; try { top = JSON.parse(raw); } catch (_) { return "<div class='hint'>Hasil tidak terbaca.</div>"; }
     // Local verify returns the core result directly; the public /verify wraps
@@ -939,6 +1598,10 @@
     const o = top.verification || top;
     const sigs = o.signatures || [];
     const rec = top.record || {};
+    // The letter number and subject live in the server record. Public verify
+    // returns it directly; a local verify folds the same record into the
+    // automatic fingerprint check.
+    const letter = top.record || (top.hash_check && top.hash_check.record) || {};
     const storedOnly = rec.verification_status === "stored_unverified" || rec.certificate_status === "not_server_verified";
     const storedBanner = storedOnly
       ? '<div class="hint" style="margin-top:8px">⚠ Berkas ini terlalu besar untuk diverifikasi otomatis oleh server saat diserahkan — server hanya menyimpan salinan &amp; mencatat SHA-512-nya. Pemeriksaan kriptografis di atas dijalankan ulang sekarang atas berkas ini.</div>'
@@ -953,6 +1616,8 @@
         '<dl class="kv">' +
         row("Penanda tangan", name) +
         row("Instansi", org) +
+        row("Nomor surat", letter.letter_no) +
+        row("Perihal surat", letter.letter_subject) +
         row("Algoritma", s.algorithm) +
         row("Alasan", s.reason || "-") +
         row("Waktu (klaim perangkat)", s.client_claimed_signing_time) +
@@ -962,6 +1627,7 @@
         (top.registered === true ? row("Terdaftar di server", storedOnly ? "ya (disimpan, tidak diverifikasi server)" : "ya") : "") +
         (top.hash_match === true ? row("Sidik jari cocok dengan catatan server", "ya")
           : top.hash_match === false ? row("Sidik jari cocok dengan catatan server", "TIDAK — berkas berbeda") : "") +
+        hashCheckRow(o.hash_check) +
         (pid ? row("ID verifikasi", pid, true) : "") +
         "</dl>" + storedBanner +
         '<p class="note">Waktu di atas berasal dari jam perangkat penandatangan, bukan stempel waktu tepercaya.</p>';
@@ -1072,14 +1738,647 @@
 
   // ---------- init ----------
   $("verTag").textContent = APP_VERSION;
+  const updateButton = document.createElement("button");
+  updateButton.textContent = "Tentang";
+  updateButton.className = "btn";
+  $("verTag").parentElement.appendChild(updateButton);
+  const about = document.createElement("dialog");
+  about.id = "aboutDialog";
+  about.style.cssText = "width:min(520px,90vw);border:1px solid var(--glass-brd);border-radius:20px;padding:28px;background:var(--glass-strong);backdrop-filter:var(--blur);color:var(--fg);max-height:85vh;overflow:auto";
+  about.innerHTML = `<h2>Tentang PQC PDF Sign</h2>
+    <p>Aplikasi penandatanganan PDF dengan kriptografi pascakuantum ML-DSA-65. Tanda tangan dibuat pada perangkat Anda; QR menghubungkan dokumen ke layanan verifikasi HTTPS.</p>
+    <p>Versi terpasang: <strong id="aboutVersion"></strong> · Windows</p>
+    <hr><h3>Pembaruan aplikasi</h3>
+    <p id="updateStatus" role="status" aria-live="polite">Periksa apakah versi baru tersedia.</p>
+    <p id="updateNotes" style="white-space:pre-wrap"></p>
+    <progress id="updateProgress" max="100" value="0" hidden style="width:100%"></progress>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:20px">
+      <button class="btn" id="updateCheck">Periksa pembaruan</button>
+      <button class="btn" id="updateDownload" hidden>Unduh pembaruan</button>
+      <button class="btn" id="updateInstall" hidden>Instal pembaruan</button>
+      <button class="btn" id="aboutClose">Tutup</button>
+    </div>`;
+  document.body.appendChild(about);
+  $("aboutVersion").textContent = APP_VERSION;
+  let updateBusy=false, updatePhase="idle";
+  const updateStatus = text => { $("updateStatus").textContent=text; };
+  const updateLock = busy => { updateBusy=busy; ["updateCheck","updateDownload","updateInstall"].forEach(id=>$(id).disabled=busy); $("updateCheck").disabled=busy || updatePhase==="ready"; };
+  updateButton.onclick = () => about.showModal();
+  $("aboutClose").onclick = () => about.close();
+  $("updateCheck").onclick = async () => {
+    updateLock(true); updateStatus("Memeriksa pembaruan…");
+    $("updateProgress").hidden=false; $("updateProgress").removeAttribute("value");
+    try {
+      const release=JSON.parse(await call("CheckUpdate"));
+      $("updateDownload").hidden=!release;
+      $("updateNotes").textContent=release ? (release.notes || "Tidak ada catatan perubahan.") : "";
+      updateStatus(release ? "Versi " + release.version + " tersedia · " + (release.size/1048576).toFixed(1) + " MB" : "Versi aplikasi Anda sudah terbaru.");
+    } catch(e) { updateStatus("Pemeriksaan gagal: "+(e.message||e)); }
+    finally { $("updateProgress").hidden=true; updateLock(false); }
+  };
+  $("updateDownload").onclick = async () => {
+    updateLock(true); updatePhase="downloading"; $("updateInstall").hidden=true;
+    $("updateProgress").hidden=false; $("updateProgress").value=0;
+    updateStatus("Mengunduh pembaruan: 0%");
+    try {
+      await call("DownloadUpdate"); updatePhase="ready";
+      $("updateProgress").value=100; $("updateInstall").hidden=false; $("updateDownload").hidden=true;
+      updateStatus("Unduhan selesai dan terverifikasi. Pembaruan siap diinstal.");
+    } catch(e) { updatePhase="error"; updateStatus("Unduhan gagal: "+(e.message||e)+". Silakan coba lagi."); }
+    finally {updateLock(false);}
+  };
+  $("updateInstall").onclick = async () => {
+    if (!confirm("Simpan pekerjaan terlebih dahulu. Aplikasi akan ditutup untuk menginstal pembaruan, lalu dibuka kembali. Lanjutkan?")) return;
+    updateLock(true); updateStatus("Menyiapkan instalasi…");
+    $("updateProgress").hidden=false; $("updateProgress").removeAttribute("value");
+    try {await call("InstallUpdate");}
+    catch(e){updateStatus("Instalasi gagal: "+(e.message||e));$("updateProgress").hidden=true;$("updateDownload").hidden=false;updateLock(false);}
+  };
   $("srv").value = state.srv;
   $("rsrv").value = state.srv;
   $("lemail").value = state.email;
   bindingsReady().then((ready) => {
     if (!ready) return;
+    if (window.runtime && window.runtime.EventsOn) window.runtime.EventsOn("update-progress", pct => {
+      if(updatePhase!=="downloading") return;
+      $("updateProgress").value=pct;
+      updateStatus(pct===100 ? "Memverifikasi unduhan…" : "Mengunduh pembaruan: "+pct+"%");
+    });
     if (window.runtime && window.runtime.EventsOn) window.runtime.EventsOn("sign-progress", onSignProgress);
     call("MaxSignMB").then((n) => { if (n > 0) { maxSignMB = n; $("maxMb").textContent = n; } }).catch(() => {});
   });
+})();
+</script>
+<script>
+/* ===================================================================
+   PQC PDF Sign - Liquid Glass motion + shell layer.
+   Presentational only: it never changes app state. The one place it
+   reads data is App.History(), the same read-only endpoint the app
+   already exposes, to fill the dashboard.
+   =================================================================== */
+(() => {
+  "use strict";
+
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const osDark = window.matchMedia("(prefers-color-scheme: dark)");
+  const $ = (id) => document.getElementById(id);
+
+  // Declared up front and assigned further down: applyTheme() runs before the
+  // canvas layers exist and calls repaint(). With `const` these would be in the
+  // temporal dead zone and repaint() would throw, killing the whole script.
+  let topo = null, dots = null;
+  function repaint() {
+    if (topo) topo.draw(performance.now() / 1000);
+    if (dots) dots.draw();
+  }
+
+  /* =================================================================
+     THEME TOGGLE - light / dark, remembered on the device.
+     ================================================================= */
+  const THEME_KEY = "pqc_theme";
+  function currentTheme() {
+    const t = (() => { try { return localStorage.getItem(THEME_KEY); } catch (_) { return null; } })();
+    if (t === "dark" || t === "light") return t;
+    return osDark.matches ? "dark" : "light";
+  }
+  const SUN = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.5 6.5 4.9 4.9M19.1 19.1l-1.6-1.6M17.5 6.5l1.6-1.6M4.9 19.1l1.6-1.6"/></svg>';
+  const MOON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5a6.9 6.9 0 0 0 10.7 10.7Z"/></svg>';
+  function applyTheme(t, persist) {
+    document.documentElement.setAttribute("data-theme", t);
+    const ico = $("themeIco");
+    // in dark mode the button offers the sun (switch to light), and vice versa
+    if (ico) ico.innerHTML = t === "dark" ? SUN : MOON;
+    const btn = $("btnTheme");
+    if (btn) btn.title = t === "dark" ? "Beralih ke tema terang" : "Beralih ke tema gelap";
+    if (persist) { try { localStorage.setItem(THEME_KEY, t); } catch (_) {} }
+    // canvases pick their stroke colours from the theme
+    repaint();
+  }
+  applyTheme(currentTheme(), false);
+  osDark.addEventListener("change", () => {
+    let saved = null;
+    try { saved = localStorage.getItem(THEME_KEY); } catch (_) {}
+    if (!saved) applyTheme(osDark.matches ? "dark" : "light", false);
+  });
+  if ($("btnTheme")) {
+    $("btnTheme").addEventListener("click", () => {
+      const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      applyTheme(next, true);
+      const ico = $("themeIco");
+      if (ico && !reduce) {
+        ico.animate(
+          [{ transform: "rotate(0) scale(1)" }, { transform: "rotate(180deg) scale(.6)" }, { transform: "rotate(360deg) scale(1)" }],
+          { duration: 520, easing: "cubic-bezier(.34,1.56,.64,1)" });
+      }
+    });
+  }
+  const isDark = () => document.documentElement.getAttribute("data-theme") === "dark";
+
+  /* ---------- shared canvas plumbing ---------- */
+  function fitCanvas(cv) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(window.innerWidth * dpr);
+    cv.height = Math.round(window.innerHeight * dpr);
+    cv.style.width = window.innerWidth + "px";
+    cv.style.height = window.innerHeight + "px";
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return ctx;
+  }
+
+  /* =================================================================
+     ANIMATED TOPOGRAPHY - iso-contours via marching squares over a
+     slowly morphing scalar field.
+     ================================================================= */
+  topo = (() => {
+    const cv = $("fxTopo");
+    if (!cv) return null;
+    let ctx = fitCanvas(cv);
+    const CELL = 22, LEVELS = 11;
+    let cols = 0, rows = 0, field = null;
+
+    function grid() {
+      cols = Math.ceil(window.innerWidth / CELL) + 1;
+      rows = Math.ceil(window.innerHeight / CELL) + 1;
+      field = new Float32Array(cols * rows);
+    }
+    grid();
+
+    function sample(x, y, t) {
+      return (
+        Math.sin(x * 0.85 + t * 0.22) * 0.55 +
+        Math.sin(y * 0.72 - t * 0.17) * 0.5 +
+        Math.sin((x + y) * 0.52 + t * 0.29) * 0.42 +
+        Math.sin((x - y) * 0.38 - t * 0.13) * 0.36 +
+        Math.sin(Math.hypot(x - 2.2, y - 1.3) * 1.05 - t * 0.34) * 0.5
+      );
+    }
+    function compute(t) {
+      const sx = 3.0 / Math.max(cols, 1), sy = 2.0 / Math.max(rows, 1);
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) field[r * cols + c] = sample(c * sx, r * sy, t);
+    }
+    const ip = (a, b, lv) => (Math.abs(b - a) < 1e-6 ? 0.5 : (lv - a) / (b - a));
+
+    function draw(t) {
+      const w = window.innerWidth, h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
+      compute(t);
+      const dark = isDark();
+      for (let li = 0; li < LEVELS; li++) {
+        const lv = -1.5 + (li / (LEVELS - 1)) * 3.0;
+        const k = 1 - Math.abs(li / (LEVELS - 1) - 0.5) * 2;
+        ctx.beginPath();
+        for (let r = 0; r < rows - 1; r++) {
+          for (let c = 0; c < cols - 1; c++) {
+            const i = r * cols + c;
+            const tl = field[i], tr = field[i + 1], bl = field[i + cols], br = field[i + cols + 1];
+            let idx = 0;
+            if (tl > lv) idx |= 8;
+            if (tr > lv) idx |= 4;
+            if (br > lv) idx |= 2;
+            if (bl > lv) idx |= 1;
+            if (idx === 0 || idx === 15) continue;
+            const x = c * CELL, y = r * CELL;
+            const T = [x + CELL * ip(tl, tr, lv), y];
+            const R = [x + CELL, y + CELL * ip(tr, br, lv)];
+            const B = [x + CELL * ip(bl, br, lv), y + CELL];
+            const L = [x, y + CELL * ip(tl, bl, lv)];
+            const seg = (p, q) => { ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); };
+            switch (idx) {
+              case 1: case 14: seg(L, B); break;
+              case 2: case 13: seg(B, R); break;
+              case 3: case 12: seg(L, R); break;
+              case 4: case 11: seg(T, R); break;
+              case 6: case  9: seg(T, B); break;
+              case 7: case  8: seg(L, T); break;
+              case 5: seg(L, T); seg(B, R); break;
+              case 10: seg(L, B); seg(T, R); break;
+            }
+          }
+        }
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = dark
+          ? "rgba(90, 200, 255, " + (0.05 + k * 0.16).toFixed(3) + ")"
+          : "rgba(24, 120, 190, " + (0.04 + k * 0.11).toFixed(3) + ")";
+        ctx.stroke();
+      }
+    }
+    return { draw, resize() { ctx = fitCanvas(cv); grid(); } };
+  })();
+
+  /* ================= PARTICLE / DATA FLOW ========================= */
+  dots = (() => {
+    const cv = $("fxDots");
+    if (!cv) return null;
+    let ctx = fitCanvas(cv);
+    let ps = [];
+    function seed() {
+      const w = window.innerWidth, h = window.innerHeight;
+      const n = Math.min(64, Math.round((w * h) / 26000));
+      ps = Array.from({ length: n }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.2, vy: -0.1 - Math.random() * 0.24,
+        r: 0.7 + Math.random() * 1.5, a: 0.25 + Math.random() * 0.5,
+      }));
+    }
+    seed();
+    function draw() {
+      const w = window.innerWidth, h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
+      const dark = isDark();
+      const rgb = dark ? "120, 225, 255" : "20, 130, 200";
+      for (const p of ps) {
+        p.x += p.vx; p.y += p.vy;
+        if (p.y < -12) { p.y = h + 12; p.x = Math.random() * w; }
+        if (p.x < -12) p.x = w + 12;
+        if (p.x > w + 12) p.x = -12;
+      }
+      ctx.lineWidth = 1;
+      for (let i = 0; i < ps.length; i++) {
+        for (let j = i + 1; j < ps.length; j++) {
+          const dx = ps[i].x - ps[j].x, dy = ps[i].y - ps[j].y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > 20000) continue;
+          const o = (1 - Math.sqrt(d2) / 141) * (dark ? 0.2 : 0.14);
+          ctx.strokeStyle = "rgba(" + rgb + "," + o.toFixed(3) + ")";
+          ctx.beginPath(); ctx.moveTo(ps[i].x, ps[i].y); ctx.lineTo(ps[j].x, ps[j].y); ctx.stroke();
+        }
+      }
+      for (const p of ps) {
+        ctx.fillStyle = "rgba(" + rgb + "," + (p.a * (dark ? 0.85 : 0.6)).toFixed(3) + ")";
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    return { draw, resize() { ctx = fitCanvas(cv); seed(); } };
+  })();
+
+  if (!reduce) {
+    let last = 0;
+    const tick = (now) => {
+      requestAnimationFrame(tick);
+      if (document.hidden || now - last < 33) return;
+      last = now;
+      if (topo) topo.draw(now / 1000);
+      if (dots) dots.draw();
+    };
+    requestAnimationFrame(tick);
+  } else {
+    repaint();
+  }
+
+  let rt;
+  window.addEventListener("resize", () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { if (topo) topo.resize(); if (dots) dots.resize(); }, 150);
+  });
+
+  /* ===================== MOUSE PARALLAX ========================== */
+  if (!reduce) {
+    let px = 0, py = 0, tx = 0, ty = 0, raf = 0;
+    document.addEventListener("pointermove", (e) => {
+      tx = (e.clientX / window.innerWidth - 0.5) * -18;
+      ty = (e.clientY / window.innerHeight - 0.5) * -14;
+      if (!raf) raf = requestAnimationFrame(step);
+    });
+    function step() {
+      raf = 0;
+      px += (tx - px) * 0.08; py += (ty - py) * 0.08;
+      document.documentElement.style.setProperty("--px", px.toFixed(2) + "px");
+      document.documentElement.style.setProperty("--py", py.toFixed(2) + "px");
+      if (Math.abs(tx - px) > 0.05 || Math.abs(ty - py) > 0.05) raf = requestAnimationFrame(step);
+    }
+  }
+
+  /* ================ SPOTLIGHT + 3D CARD TILT ===================== */
+  const TILT_SEL = ".card, .action, .stat";
+  const SPOT_SEL = ".card, .action, .btn, .stat";
+  const MAX_TILT = 5.5;
+
+  document.addEventListener("pointermove", (e) => {
+    const spot = e.target.closest && e.target.closest(SPOT_SEL);
+    if (spot) {
+      const r = spot.getBoundingClientRect();
+      spot.style.setProperty("--mx", (((e.clientX - r.left) / r.width) * 100).toFixed(2) + "%");
+      spot.style.setProperty("--my", (((e.clientY - r.top) / r.height) * 100).toFixed(2) + "%");
+    }
+    if (reduce) return;
+    const tilt = e.target.closest && e.target.closest(TILT_SEL);
+    if (tilt && !tilt.disabled) {
+      const r = tilt.getBoundingClientRect();
+      const cx = (e.clientX - r.left) / r.width - 0.5;
+      const cy = (e.clientY - r.top) / r.height - 0.5;
+      tilt.style.setProperty("--ty", (cx * MAX_TILT * 2).toFixed(2) + "deg");
+      tilt.style.setProperty("--tx", (-cy * MAX_TILT * 2).toFixed(2) + "deg");
+    }
+  }, { passive: true });
+
+  document.addEventListener("pointerout", (e) => {
+    const tilt = e.target.closest && e.target.closest(TILT_SEL);
+    if (tilt && !tilt.contains(e.relatedTarget)) {
+      tilt.style.setProperty("--tx", "0deg");
+      tilt.style.setProperty("--ty", "0deg");
+    }
+  }, { passive: true });
+
+  /* =================================================================
+     BACK BUTTON - one affordance in the header for every screen.
+     It drives the screen's own existing back control, so navigation
+     stays entirely the app logic's business.
+     ================================================================= */
+  const BACK_FOR = { scSign: "signBack", scPlace: "placeBack", scVerify: "verifyBack" };
+  function activeScreen() {
+    const el = document.querySelector(".screen.active");
+    return el ? el.id : "";
+  }
+  function syncBack() {
+    const btn = $("btnBack");
+    if (!btn) return;
+    const target = BACK_FOR[activeScreen()];
+    btn.hidden = !target;
+  }
+  if ($("btnBack")) {
+    $("btnBack").addEventListener("click", () => {
+      const target = BACK_FOR[activeScreen()];
+      if (target && $(target)) $(target).click();
+    });
+  }
+
+  /* =================================================================
+     DASHBOARD - real counts from App.History(); the "verified" tally
+     is a device-local counter, since verification is not recorded per
+     account on the server.
+     ================================================================= */
+  const VERIFY_KEY = "pqc_verify_count";
+  const getVerifyCount = () => {
+    try { return parseInt(localStorage.getItem(VERIFY_KEY) || "0", 10) || 0; } catch (_) { return 0; }
+  };
+  // count every verification the user runs in this app
+  for (const id of ["pickVerify", "vpPick"]) {
+    const el = $(id);
+    if (el) el.addEventListener("click", () => {
+      try { localStorage.setItem(VERIFY_KEY, String(getVerifyCount() + 1)); } catch (_) {}
+    });
+  }
+
+  function countUp(el, to) {
+    const from = 0;
+    if (reduce || to === 0) { el.textContent = String(to); return; }
+    const dur = 900, t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const eased = 1 - Math.pow(1 - k, 3);
+      el.textContent = String(Math.round(from + (to - from) * eased));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function monthKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+  function renderChart(byMonth) {
+    const host = $("statChart");
+    if (!host) return;
+    const now = new Date();
+    const cols = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      cols.push({ key: monthKey(d), label: MONTHS[d.getMonth()], n: byMonth[monthKey(d)] || 0 });
+    }
+    const max = Math.max(1, ...cols.map((c) => c.n));
+    host.innerHTML = cols.map((c, i) => {
+      const pct = Math.round((c.n / max) * 100);
+      return '<div class="col">' +
+        '<div class="bar" style="height:' + Math.max(pct, 2) + '%; animation-delay:' + (0.08 * i + 0.1).toFixed(2) + 's">' +
+        (c.n ? '<span class="n">' + c.n + "</span>" : "") + "</div>" +
+        '<div class="lbl">' + c.label + "</div></div>";
+    }).join("");
+    const empty = $("chartEmpty");
+    if (empty) empty.hidden = cols.some((c) => c.n > 0);
+  }
+
+  async function loadStats() {
+    const tiles = document.querySelectorAll("#statRow .stat .v");
+    if (!tiles.length) return;
+    let list = [];
+    try {
+      const api = window.go && window.go.main && window.go.main.App;
+      if (api && api.History) {
+        const raw = await api.History();
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        list = Array.isArray(parsed) ? parsed : (parsed && parsed.signatures) || [];
+      }
+    } catch (_) { list = []; }
+
+    const byMonth = {};
+    let thisMonth = 0;
+    const nowKey = monthKey(new Date());
+    for (const it of list) {
+      const ts = it.CreatedAt || it.created_at || it.ServerReceivedAt;
+      const d = ts ? new Date(ts) : null;
+      if (!d || isNaN(d)) continue;
+      const k = monthKey(d);
+      byMonth[k] = (byMonth[k] || 0) + 1;
+      if (k === nowKey) thisMonth++;
+    }
+    countUp(tiles[0], list.length);
+    countUp(tiles[1], thisMonth);
+    countUp(tiles[2], getVerifyCount());
+    renderChart(byMonth);
+  }
+
+  // certificate serial lands in #homeNote; mirror it into the stat tile
+  function syncCertTile() {
+    const note = $("homeNote"), cell = $("statCert"), sub = $("statCertSub");
+    if (!note || !cell) return;
+    const m = /Sertifikat:\s*(\S+)/.exec(note.textContent || "");
+    if (m) {
+      cell.textContent = "Aktif";
+      cell.style.background = "none";
+      cell.style.color = "var(--ok)";
+      if (sub) sub.textContent = m[1].slice(0, 16);
+    } else {
+      cell.textContent = "—";
+      if (sub) sub.textContent = "ML-DSA-65";
+    }
+  }
+
+  /* =================================================================
+     VERIFICATION LOADER
+     The app logic drops a plain `<div class="hint">Memeriksa…</div>` into
+     the result box while it works. Swap that one placeholder for an
+     animated scanner, keeping its text. Detection is "exactly one .hint
+     child", and the replacement is not that shape, so it cannot loop.
+     ================================================================= */
+  const LOADER_HOSTS = ["vpResult", "verifyResult", "vhResult", "signResult"];
+
+  function loaderMarkup(text) {
+    return '<div class="vload">' +
+      '<div class="vload-doc"><span class="vload-scan"></span></div>' +
+      '<div class="vload-body">' +
+        '<div class="vload-txt">' + text + "</div>" +
+        '<div class="vload-bar"><span></span></div>' +
+      "</div></div>";
+  }
+
+  function upgradePlaceholder(host) {
+    if (!host || host.hidden) return;
+    if (host.children.length !== 1) return;
+    const only = host.firstElementChild;
+    if (!only.classList || !only.classList.contains("hint")) return;
+    const txt = (only.textContent || "").trim();
+    if (!txt) return;
+    host.innerHTML = loaderMarkup(txt);
+  }
+
+  for (const id of LOADER_HOSTS) {
+    const host = $(id);
+    if (!host) continue;
+    new MutationObserver(() => upgradePlaceholder(host))
+      .observe(host, { childList: true });
+  }
+
+  /* =================================================================
+     POST-SIGNING ACTIONS
+     "Simpan PDF hasil" and "Ganti dokumen" belong under the result, and
+     only once a signature exists. resetSign() empties #signResult, so
+     they disappear again on the next run without any extra bookkeeping.
+     ================================================================= */
+  function signedPathFrom(host) {
+    // the result table's last row is "Tersimpan di <path>"
+    const dts = host.querySelectorAll("dl.kv dt");
+    for (const dt of dts) {
+      if ((dt.textContent || "").trim().toLowerCase().startsWith("tersimpan")) {
+        const dd = dt.nextElementSibling;
+        return dd ? (dd.textContent || "").trim() : "";
+      }
+    }
+    return "";
+  }
+
+  function addSignActions(host) {
+    if (!host || host.hidden) return;
+    if (host.querySelector(".signActions")) return;          // already added
+    if (!host.querySelector(".verdict.ok")) return;          // only on success
+
+    const path = signedPathFrom(host);
+    const row = document.createElement("div");
+    row.className = "signActions";
+    row.innerHTML =
+      '<button class="btn" id="btnSaveCopy"><span class="spin"></span><span class="txt">Simpan PDF hasil</span></button>' +
+      '<button class="btn secondary" id="btnNewDoc">Ganti dokumen</button>';
+    host.appendChild(row);
+
+    row.querySelector("#btnSaveCopy").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      if (!path) { toastLike("Belum ada berkas hasil."); return; }
+      btn.classList.add("loading"); btn.disabled = true;
+      try {
+        const dst = await window.go.main.App.SaveCopy(path, "");
+        toastLike(dst ? "Tersimpan di " + dst : "Dibatalkan.", dst ? "ok" : "");
+      } catch (err) {
+        toastLike((err && err.message) || String(err), "bad");
+      } finally {
+        btn.classList.remove("loading"); btn.disabled = false;
+      }
+    });
+
+    row.querySelector("#btnNewDoc").addEventListener("click", () => {
+      // back to the file-picking screen; the app clears the old result there
+      const back = $("placeBack");
+      if (back) back.click();
+      const pick = $("pickIn");
+      if (pick) setTimeout(() => pick.click(), 220);
+    });
+  }
+
+  // reuse the app's toast element without touching its logic
+  function toastLike(text, kind) {
+    const t = $("toast");
+    if (!t) return;
+    t.textContent = text;
+    t.className = "show " + (kind || "");
+    clearTimeout(toastLike._t);
+    toastLike._t = setTimeout(() => (t.className = ""), kind === "bad" ? 5000 : 2600);
+  }
+
+  {
+    const host = $("signResult");
+    if (host) new MutationObserver(() => addSignActions(host))
+      .observe(host, { childList: true, attributes: true, attributeFilter: ["hidden"] });
+  }
+
+  /* =================================================================
+     PASSWORD REVEAL
+     Deliberately not implemented here. The app already wraps every
+     password box in .pw-wrap with a .pw-eye button and drives it from
+     setPwVisible(), which finds that button as a child of
+     input.parentNode. Wrapping the field a second time re-parented it,
+     setPwVisible() then found nothing and threw - and because logging
+     out calls it between hiding the account menu and switching screens,
+     the menu vanished and the app sat on the dashboard for ever. This
+     layer only gives the app's own button its look; see .pw-eye in the
+     stylesheet.
+     ================================================================= */
+
+
+  /* =================================================================
+     ENTER SUBMITS
+     Enter inside a field runs that section's primary action, so the
+     whole app is keyboard-drivable. The page-number box on the QR
+     screen is excluded: there Enter means "go to this page", and the
+     primary button would sign the document.
+     ================================================================= */
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    const el = e.target;
+    if (!el || el.tagName !== "INPUT") return;
+    if (el.closest(".qr-nav")) return;               // page navigation, not a submit
+
+    const scope = el.closest(".card") || el.closest(".screen.active");
+    if (!scope) return;
+    const btn = Array.from(scope.querySelectorAll(".btn"))
+      .find((b) => !b.disabled && !b.classList.contains("secondary") && b.offsetParent !== null);
+    if (!btn) return;
+    e.preventDefault();
+    btn.click();
+    // same nudge the pointer press gives, so the key feels like the click
+    if (!reduce) {
+      btn.animate([{ transform: "scale(1)" }, { transform: "scale(.97)" }, { transform: "scale(1)" }],
+        { duration: 200, easing: "cubic-bezier(.34,1.56,.64,1)" });
+    }
+  });
+
+  /* =================================================================
+     STAGGER REVEAL + screen-change hooks.
+     ================================================================= */
+  let statsLoaded = false;
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      const el = m.target;
+      if (m.attributeName === "class" && el.classList.contains("screen") && el.classList.contains("active")) {
+        el.style.animation = "none";
+        void el.offsetWidth; // reflow -> children replay their stagger
+        el.style.animation = "";
+        syncBack();
+        if (el.id === "scHome") {
+          syncCertTile();
+          loadStats();
+          statsLoaded = true;
+        }
+      }
+    }
+  });
+  document.querySelectorAll(".screen").forEach((s) =>
+    mo.observe(s, { attributes: true, attributeFilter: ["class"] }));
+
+  // homeNote is filled asynchronously after Prepare() resolves
+  const noteEl = $("homeNote");
+  if (noteEl) new MutationObserver(syncCertTile).observe(noteEl, { childList: true, characterData: true, subtree: true });
+
+  syncBack();
+  if (activeScreen() === "scHome" && !statsLoaded) loadStats();
 })();
 </script>
 </body>
