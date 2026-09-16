@@ -1,0 +1,286 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Length 4217 >>
+stream
+0.13 0.18 0.25 rg
+BT /F2 19 Tf 1 0 0 1 48 788 Tm (Referensi Infrastruktur Server Produksi) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 753 Tm (PQC PDF Sign) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 729 Tm (Tanggal penyusunan: 14 September 2026) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 709 Tm (Status dokumen: rancangan acuan pengadaan dan konfigurasi server produksi.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 684 Tm (Ringkasan Produksi) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 660 Tm (PQC PDF Sign melakukan penandatanganan PDF pada perangkat pengguna. Server produksi menerima) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 648 Tm (PDF yang telah ditandatangani, memverifikasi tanda tangan terhadap Root CA, menyimpan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 636 Tm (dokumen dan metadata, menyediakan halaman verifikasi publik, serta mendistribusikan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 624 Tm (pembaruan aplikasi.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 604 Tm (Seluruh akses pengguna wajib melalui HTTPS. Port aplikasi dan database hanya tersedia pada) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 592 Tm (jaringan internal. Acuan kapasitas penyimpanan produksi dalam dokumen ini adalah 1 TB.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 567 Tm (1. Arsitektur Produksi) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 543 Tm (Alur utama layanan:) Tj ET
+BT /F1 8.5 Tf 1 0 0 1 60 523 Tm (Pengguna Windows/Android -> HTTPS 443 -> Reverse Proxy -> API 8099) Tj ET
+BT /F1 8.5 Tf 1 0 0 1 60 511 Tm (Pengunjung QR            -> HTTPS 443 -> Reverse Proxy -> Verifier 8098) Tj ET
+BT /F1 8.5 Tf 1 0 0 1 60 499 Tm (API                      -> TCP 5432  -> PostgreSQL) Tj ET
+BT /F1 8.5 Tf 1 0 0 1 60 487 Tm (API                      -> Storage 1 TB untuk PDF dan upload sementara) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 470 Tm (Komponen produksi:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 450 Tm (- Reverse proxy Caddy sebagai satu-satunya layanan aplikasi yang terekspos ke internet.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 435 Tm (- Receiver API untuk autentikasi, enrolment, upload, verifikasi, admin, dan update.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 420 Tm (- Verification-only service untuk halaman verifikasi publik dan QR.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 405 Tm (- PostgreSQL untuk akun, sertifikat, metadata tanda tangan, dan audit.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 390 Tm (- Filesystem atau object storage untuk PDF dan upload sementara.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 375 Tm (- Sistem backup terpisah dari storage utama.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 350 Tm (2. Inventaris Port Produksi) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 326 Tm (Port | Transport | Akses | Fungsi) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 314 Tm (443 | TCP | Publik | HTTPS utama melalui HTTP/1.1 atau HTTP/2) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 302 Tm (443 | UDP | Publik, opsional | HTTPS melalui HTTP/3 dan QUIC) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 290 Tm (80 | TCP | Publik | Redirect permanen dari HTTP ke HTTPS) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 278 Tm (22 | TCP | IP admin/VPN | Administrasi server melalui SSH) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 266 Tm (8099 | TCP | Internal | Receiver API, autentikasi, admin, upload, dan update) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 254 Tm (8098 | TCP | Internal | Verification-only service dan halaman QR) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 242 Tm (5432 | TCP | Internal database | PostgreSQL; hanya dapat diakses oleh API) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 230 Tm (53 | UDP/TCP | Keluar | Resolusi DNS ke resolver yang ditentukan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 209 Tm (Aturan firewall produksi:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 189 Tm (- Izinkan TCP 80 dan TCP 443 dari internet.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 174 Tm (- Izinkan UDP 443 bila HTTP/3 digunakan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 159 Tm (- Izinkan TCP 22 hanya dari VPN atau alamat IP administrator.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 144 Tm (- Jangan publikasikan port 8098, 8099, dan 5432 ke internet.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 129 Tm (- Batasi koneksi keluar sesuai kebutuhan DNS, backup, pembaruan sistem, dan penerbit) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 117 Tm (  sertifikat TLS.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 92 Tm (3. Protokol Komunikasi Produksi) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 68 Tm (Jalur | Protokol | Keamanan) Tj ET
+0.35 0.4 0.48 rg BT /F1 7.5 Tf 1 0 0 1 48 26 Tm (PQC PDF Sign - Infrastruktur dan Kapasitas | Halaman 1 dari 5) Tj ET
+endstream
+endobj
+4 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
+endobj
+5 0 obj
+<< /Length 4633 >>
+stream
+0.13 0.18 0.25 rg
+BT /F1 8.2 Tf 1 0 0 1 53 788 Tm (Klien ke reverse proxy | HTTPS melalui HTTP/1.1, HTTP/2, atau HTTP/3 | TLS) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 776 Tm (Reverse proxy ke API/verifier | HTTP pada jaringan privat | Tidak dapat diakses publik) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 764 Tm (API ke PostgreSQL | PostgreSQL wire protocol melalui TCP | Jaringan database terisolasi) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 752 Tm (Administrator ke server | SSH | Kunci SSH dan pembatasan sumber IP) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 740 Tm (Server ke backup storage | SFTP, HTTPS, atau protokol penyedia storage | Enkripsi saat) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 730 Tm (transit) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 709 Tm (HTTP/3 pada UDP 443 bersifat opsional. Fungsinya memperbaiki kinerja HTTPS pada jaringan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 697 Tm (seluler atau jaringan dengan packet loss. Jika tidak tersedia, klien kembali menggunakan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 685 Tm (HTTP/2 atau HTTP/1.1 melalui TCP 443. HTTP/3 bukan layanan streaming atau port fitur) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 673 Tm (tersendiri.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 653 Tm (TLS wajib digunakan untuk seluruh trafik publik. HTTP port 80 hanya digunakan untuk redirect) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 641 Tm (dan tidak boleh melayani login, API, upload, atau data dokumen.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 616 Tm (4. Karakteristik Transfer Data) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 592 Tm (PQC PDF Sign bukan layanan media streaming dan tidak menggunakan WebSocket, RTSP, RTP,) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 580 Tm (WebRTC, MQTT, atau gRPC streaming.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 560 Tm (- File kecil dikirim sebagai body HTTPS biasa.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 545 Tm (- Klien dapat mengirim file besar dalam chunk agar upload dapat dilanjutkan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 530 Tm (- Endpoint resumable upload menggunakan metode POST, PATCH, dan GET.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 515 Tm (- Server menulis upload ke storage sambil menghitung SHA-512.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 500 Tm (- Proses stamp dan verifikasi PDF memproses dokumen secara utuh di memori.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 480 Tm (Istilah yang tepat adalah HTTPS file transfer dengan chunked/resumable upload. Upload) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 468 Tm (sementara harus memiliki masa kedaluwarsa dan dibersihkan otomatis.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 448 Tm (Batas produksi yang disarankan:) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 428 Tm (Operasi | Batas dokumen) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 416 Tm (Upload maksimum | 64 MB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 404 Tm (Pembuatan stamp server | 64 MB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 392 Tm (Verifikasi ketat otomatis | 64 MB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 380 Tm (Chunk upload klien | 2 MB per chunk) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 359 Tm (Batas 64 MB mengikuti baseline stack produksi dan menjaga penggunaan RAM tetap terkendali.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 347 Tm (Perubahan batas harus disertai pengujian beban karena library PDF memproses seluruh dokumen) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 335 Tm (di memori.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 310 Tm (5. Kebutuhan Bandwidth Produksi) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 286 Tm (Trafik terbesar berasal dari upload PDF, download PDF, dan unduhan aplikasi. Login, QR,) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 274 Tm (sertifikat, metadata, serta audit relatif kecil.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 254 Tm (Per transaksi dokumen:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 234 Tm (- Metadata, login, reservasi, dan sertifikat: sekitar 50-500 KB.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 219 Tm (- Upload PDF: sebesar ukuran dokumen.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 204 Tm (- Download PDF: sebesar ukuran dokumen.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 189 Tm (- Overhead HTTPS/HTTP: sekitar 2-10 persen.) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 169 Tm (Ukuran PDF | Upload selesai 1 menit | Upload selesai 5 menit) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 157 Tm (10 MB | sekitar 1,4 Mbps | sekitar 0,3 Mbps) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 145 Tm (25 MB | sekitar 3,5 Mbps | sekitar 0,7 Mbps) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 133 Tm (50 MB | sekitar 7 Mbps | sekitar 1,4 Mbps) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 121 Tm (64 MB | sekitar 9 Mbps | sekitar 1,8 Mbps) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 100 Tm (Rekomendasi koneksi produksi:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 80 Tm (- Minimum 100 Mbps simetris dengan koneksi stabil.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 65 Tm (- Disarankan 500 Mbps simetris untuk banyak pengguna dan upload paralel.) Tj ET
+0.35 0.4 0.48 rg BT /F1 7.5 Tf 1 0 0 1 48 26 Tm (PQC PDF Sign - Infrastruktur dan Kapasitas | Halaman 2 dari 5) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 4825 >>
+stream
+0.13 0.18 0.25 rg
+BT /F1 9.5 Tf 1 0 0 1 58 788 Tm (- Skala tinggi menggunakan 1 Gbps simetris dengan pemantauan throughput.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 773 Tm (- Sediakan kuota transfer bulanan minimal 1 TB dan evaluasi dari penggunaan nyata.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 753 Tm (Contoh trafik: 10.000 dokumen per bulan dengan rata-rata 10 MB menghasilkan sekitar 100 GB) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 741 Tm (upload. Jika seluruh dokumen juga diunduh satu kali, trafik menjadi sekitar 200 GB ditambah) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 729 Tm (overhead, update aplikasi, backup, dan akses web.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 704 Tm (6. Rencana Domain dan Subdomain Produksi) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 680 Tm (Gunakan domain resmi yang singkat dan dimiliki organisasi. Contoh rancangan menggunakan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 668 Tm (pqsign.id; nama harus diperiksa ketersediaan dan kepemilikannya sebelum pengadaan.) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 648 Tm (Domain atau subdomain | Fungsi produksi) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 636 Tm (verify.pqsign.id | Verifikasi publik dan tujuan permanen QR PDF) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 624 Tm (api.pqsign.id | API aplikasi Windows dan Android) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 612 Tm (admin.pqsign.id | Portal administrasi dengan akses terbatas) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 600 Tm (download.pqsign.id | APK, EXE, dan manifest pembaruan aplikasi) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 588 Tm (pki.pqsign.id | Root CA, certificate chain, dan CRL publik) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 576 Tm (status.pqsign.id | Informasi kesehatan dan gangguan layanan) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 564 Tm (docs.pqsign.id | Dokumentasi pengguna dan prosedur operasional) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 543 Tm (Ketentuan domain produksi:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 523 Tm (1. Seluruh subdomain menggunakan HTTPS port 443 dan TLS yang valid.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 508 Tm (2. admin.pqsign.id hanya dapat diakses melalui VPN atau allowlist IP.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 493 Tm (3. api.pqsign.id menggunakan rate limiting, audit log, dan batas ukuran request.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 478 Tm (4. verify.pqsign.id dipertahankan jangka panjang karena URL tertanam dalam PDF.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 463 Tm (5. download.pqsign.id dapat diarahkan ke CDN atau object storage di masa depan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 448 Tm (6. pki.pqsign.id harus stabil agar URL CRL dan certificate chain tidak berubah.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 433 Tm (7. DNS dikelola pada akun organisasi dengan MFA dan pencatatan perubahan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 413 Tm (Tahap implementasi domain:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 393 Tm (1. Daftarkan domain atas nama organisasi.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 378 Tm (2. Buat record DNS menuju reverse proxy produksi.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 363 Tm (3. Aktifkan TLS dan perpanjangan sertifikat otomatis.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 348 Tm (4. Konfigurasikan public base URL ke https://verify.pqsign.id.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 333 Tm (5. Konfigurasikan aplikasi ke https://api.pqsign.id.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 318 Tm (6. Konfigurasikan updater ke https://download.pqsign.id.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 303 Tm (7. Uji login, upload, download, QR, verifikasi, admin, PKI, dan update.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 288 Tm (8. Pertahankan redirect alamat lama selama masa migrasi klien dan QR.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 268 Tm (QR yang telah tertanam di dalam PDF tidak boleh diedit karena perubahan PDF dapat merusak) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 256 Tm (tanda tangan. Domain verifikasi harus dianggap sebagai alamat permanen.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 231 Tm (7. Spesifikasi Storage Produksi 1 TB) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 207 Tm (Kapasitas storage utama yang digunakan sebagai acuan adalah 1 TB SSD/NVMe. Untuk perencanaan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 195 Tm (aman, jangan menggunakan seluruh kapasitas secara operasional. Pertahankan minimal 20 persen) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 183 Tm (ruang kosong.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 163 Tm (Alokasi yang disarankan:) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 143 Tm (Kebutuhan | Alokasi) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 131 Tm (PDF bertanda tangan | 700 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 119 Tm (PostgreSQL dan metadata | 80 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 107 Tm (Upload sementara/resumable | 60 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 95 Tm (Log aplikasi, proxy, dan audit | 40 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 83 Tm (APK, EXE, dan riwayat update | 20 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 71 Tm (Cadangan ruang operasional | 100 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 59 Tm (Total | 1.000 GB) Tj ET
+0.35 0.4 0.48 rg BT /F1 7.5 Tf 1 0 0 1 48 26 Tm (PQC PDF Sign - Infrastruktur dan Kapasitas | Halaman 3 dari 5) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Length 4485 >>
+stream
+0.13 0.18 0.25 rg
+BT /F1 9.5 Tf 1 0 0 1 48 788 Tm (Estimasi jumlah dokumen pada alokasi PDF 700 GB:) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 768 Tm (Rata-rata ukuran PDF | Perkiraan kapasitas dokumen) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 756 Tm (5 MB | sekitar 140.000 dokumen) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 744 Tm (10 MB | sekitar 70.000 dokumen) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 732 Tm (25 MB | sekitar 28.000 dokumen) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 720 Tm (50 MB | sekitar 14.000 dokumen) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 699 Tm (Angka tersebut adalah estimasi kasar sebelum memperhitungkan filesystem overhead dan variasi) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 687 Tm (ukuran file.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 667 Tm (Ketentuan storage:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 647 Tm (- Gunakan SSD atau NVMe, bukan storage sementara dari instance.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 632 Tm (- Pisahkan objek PDF dari database secara logis melalui volume atau filesystem berbeda.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 617 Tm (- Aktifkan monitoring penggunaan disk dengan peringatan pada 70, 80, dan 90 persen.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 602 Tm (- Hapus upload sementara yang kedaluwarsa secara otomatis.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 587 Tm (- Terapkan kebijakan retensi dokumen sesuai kebutuhan hukum dan organisasi.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 572 Tm (- Jangan menyimpan private key Root CA pada server aplikasi.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 557 Tm (- Enkripsi storage atau volume bila tersedia dari penyedia infrastruktur.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 532 Tm (8. Backup dan Pemulihan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 508 Tm (Kapasitas backup tidak termasuk dalam storage utama 1 TB dan harus disediakan terpisah.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 496 Tm (Backup pada disk yang sama tidak melindungi dari kerusakan disk atau kehilangan server.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 476 Tm (Rekomendasi minimum:) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 456 Tm (- Kapasitas backup terpisah minimal 1 TB; disarankan 2 TB untuk beberapa versi.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 441 Tm (- Backup PostgreSQL harian.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 426 Tm (- Backup objek PDF secara incremental setiap hari.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 411 Tm (- Backup data Intermediate CA, CRL, dan ledger setelah perubahan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 396 Tm (- Retensi harian 7 hari, mingguan 4 minggu, dan bulanan sesuai kebijakan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 381 Tm (- Enkripsi backup saat transit dan saat tersimpan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 366 Tm (- Simpan sekurangnya satu salinan di lokasi atau penyedia berbeda.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 351 Tm (- Lakukan uji restore berkala dan catat waktu pemulihan aktual.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 326 Tm (9. Spesifikasi Server Referensi) Tj ET
+BT /F2 8.2 Tf 1 0 0 1 53 302 Tm (Komponen | Spesifikasi produksi yang disarankan) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 290 Tm (CPU | Minimum 4 vCPU; disarankan 8 vCPU) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 278 Tm (RAM | Minimum 8 GB; disarankan 16 GB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 266 Tm (Storage utama | 1 TB SSD/NVMe) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 254 Tm (Storage backup | Terpisah, minimum 1 TB; disarankan 2 TB) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 242 Tm (Jaringan | Minimum 100 Mbps; disarankan 500 Mbps simetris) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 230 Tm (Sistem operasi | Linux LTS 64-bit yang masih didukung) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 218 Tm (Container runtime | Docker Engine dan Docker Compose) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 206 Tm (Public IP | Satu IPv4 statis; IPv6 opsional) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 194 Tm (TLS | Sertifikat publik dengan perpanjangan otomatis) Tj ET
+BT /F1 8.2 Tf 1 0 0 1 53 182 Tm (Monitoring | CPU, RAM, disk, latency, error rate, dan masa berlaku TLS) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 161 Tm (RAM 16 GB disarankan karena verifikasi dan stamping PDF dapat menggunakan beberapa kali) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 149 Tm (ukuran dokumen dalam memori. Pembatasan resource container tetap harus diterapkan agar satu) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 137 Tm (proses tidak menghabiskan seluruh resource server.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 112 Tm (10. Kontrol Keamanan Produksi) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 88 Tm (- Terapkan MFA untuk akun administrator.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 73 Tm (- Gunakan password dan secret unik; jangan gunakan nilai default pengembangan.) Tj ET
+0.35 0.4 0.48 rg BT /F1 7.5 Tf 1 0 0 1 48 26 Tm (PQC PDF Sign - Infrastruktur dan Kapasitas | Halaman 4 dari 5) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 9 0 R >>
+endobj
+11 0 obj
+<< /Length 1817 >>
+stream
+0.13 0.18 0.25 rg
+BT /F1 9.5 Tf 1 0 0 1 58 788 Tm (- Gunakan kunci SSH dan nonaktifkan login SSH berbasis password bila memungkinkan.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 773 Tm (- Batasi admin melalui VPN atau allowlist IP.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 758 Tm (- Terapkan rate limiting pada login, verifikasi, dan upload.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 743 Tm (- Jalankan API dengan user non-root dan pembatasan CPU, RAM, serta process ID.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 728 Tm (- Pisahkan jaringan reverse proxy, API, dan database.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 713 Tm (- Jangan publikasikan PostgreSQL atau listener internal.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 698 Tm (- Simpan secret di secret manager atau Docker secrets.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 683 Tm (- Aktifkan log audit dan rotasi log.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 668 Tm (- Terapkan patch keamanan sistem operasi dan container secara berkala.) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 58 653 Tm (- Pantau sertifikat TLS, backup terakhir, kapasitas disk, dan error aplikasi.) Tj ET
+BT /F2 13 Tf 1 0 0 1 48 628 Tm (Kesimpulan) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 604 Tm (Referensi produksi menggunakan satu pintu publik HTTPS port 443, API dan verifier pada) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 592 Tm (jaringan internal, PostgreSQL yang terisolasi, storage utama 1 TB SSD/NVMe, serta backup) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 580 Tm (terpisah. Konfigurasi awal yang disarankan adalah 8 vCPU, RAM 16 GB, koneksi 500 Mbps) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 568 Tm (simetris, dan backup 2 TB. Domain layanan dipisahkan berdasarkan fungsi agar keamanan,) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48 556 Tm (operasional, dan pengembangan kapasitas lebih mudah dikelola.) Tj ET
+0.35 0.4 0.48 rg BT /F1 7.5 Tf 1 0 0 1 48 26 Tm (PQC PDF Sign - Infrastruktur dan Kapasitas | Halaman 5 dari 5) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 13 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 11 0 R >>
+endobj
+13 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R] /Count 5 >>
+endobj
+14 0 obj
+<< /Type /Catalog /Pages 13 0 R >>
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000004429 00000 n 
+0000004566 00000 n 
+0000009251 00000 n 
+0000009388 00000 n 
+0000014265 00000 n 
+0000014402 00000 n 
+0000018939 00000 n 
+0000019077 00000 n 
+0000020947 00000 n 
+0000021086 00000 n 
+0000021170 00000 n 
+trailer
+<< /Size 15 /Root 14 0 R >>
+startxref
+21221
+%%EOF
