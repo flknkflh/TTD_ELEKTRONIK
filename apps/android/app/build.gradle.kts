@@ -12,8 +12,8 @@ android {
         applicationId = "id.example.pqcsign"
         minSdk = 29          // matches gomobile bind -androidapi 29 (Rencana V1 §21)
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 9
+        versionName = "0.7.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // arm64 only: the AAR ships jni/arm64-v8a/libgojni.so
         ndk { abiFilters += "arm64-v8a" }
@@ -24,6 +24,9 @@ android {
     // stays unsigned (CI still produces an artifact for inspection).
     val ksPath = System.getenv("PQC_ANDROID_KEYSTORE")
     signingConfigs {
+        getByName("debug") {
+            System.getenv("PQC_ANDROID_DEBUG_KEYSTORE")?.let { storeFile = file(it) }
+        }
         if (ksPath != null && file(ksPath).exists()) {
             create("release") {
                 storeFile = file(ksPath)
@@ -75,6 +78,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity:1.9.3")
     implementation("androidx.biometric:biometric:1.1.0")
+    // spring physics for the Liquid Glass microinteractions (ui/Glass.kt)
+    implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0") // in-app QR scanner (verify screen)

@@ -21,6 +21,8 @@ import java.security.MessageDigest
  * generated here, wrapped by the KeyVault immediately, and unwrapped only for
  * the duration of a single sign/CSR operation (then zeroed).
  */
+private const val PUBLIC_ID_PREFIX = "pqc-public-id:"
+
 class AppCore(private val context: Context, val state: AppState) {
 
     private val vault = KeyVault(context)
@@ -29,7 +31,7 @@ class AppCore(private val context: Context, val state: AppState) {
     fun connect(url: String, insecure: Boolean) {
         state.serverUrl = url
         state.insecureTls = insecure
-        api = ApiClient(url, insecure)
+        api = ApiClient(state.serverUrl, state.insecureTls)
     }
 
     // ---- 1. Login ----
@@ -184,7 +186,13 @@ class AppCore(private val context: Context, val state: AppState) {
      * via SAF.
      */
     fun signPdf(
-        inUri: Uri, reason: String, signerName: String, places: List<ApiClient.StampPlacement>, issuedPlace: String = "",
+        inUri: Uri,
+        reason: String,
+        signerName: String,
+        places: List<ApiClient.StampPlacement>,
+        issuedPlace: String = "",
+        letterNo: String = "",
+        letterSubject: String = "",
         onStep: (step: Int, label: String, pct: Int) -> Unit = { _, _, _ -> },
     ): SignResult {
         onStep(1, "Menyiapkan dokumen", -1)
@@ -210,7 +218,7 @@ class AppCore(private val context: Context, val state: AppState) {
             try {
                 api.stamp(res.publicId, pdf, places.ifEmpty {
                     listOf(ApiClient.StampPlacement(0, 0.62, 0.80, 0.30))
-                }, reason, issuedPlace)
+                }, reason, issuedPlace, letterNo, letterSubject)
             } catch (e: ApiClient.ApiException) {
                 // 413: too big for a server-drawn QR stamp (docs/large-files.md).
                 // Sign the original as-is; the QR link still comes from the record.
@@ -342,13 +350,53 @@ class AppCore(private val context: Context, val state: AppState) {
         val pdf = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         val root = readCache(ROOT_FILE) ?: error("no Root CA cached; register the device or import a Root CA")
         val crl = runCatching { api.publicCrl() }.getOrNull()
-        return SigningEngine.verifyPdf(pdf, root, crl).pretty()
+        val res = SigningEngine.verifyPdf(pdf, root, crl)
+        // Fold in the fingerprint check automatically: the reservation id is
+        // bound into the signature, so nothing has to be typed in and the
+        // document is never uploaded - only its SHA-512 goes to the server.
+        return withHashCheck(JSONObject(res.json), pdf).toString(2)
+    }
+
+    /**
+     * Adds a "hash_check" object to a verification result. Never fails the
+     * verification: with no id in the signature, or no reachable server, it
+     * records why instead.
+     */
+    private fun withHashCheck(res: JSONObject, pdf: ByteArray): JSONObject {
+        val out = JSONObject().put("checked", false)
+        val publicId = publicIdFrom(res)
+        val server = state.serverUrl.trim()
+        when {
+            publicId.isEmpty() -> out.put("reason", "dokumen tidak membawa ID verifikasi")
+            server.isEmpty() -> out.put("reason", "alamat server belum diketahui")
+            else -> {
+                out.put("public_id", publicId)
+                try {
+                    val r = ApiClient(server, false).verifyHash(publicId, sha512Hex(pdf))
+                    out.put("checked", true)
+                    for (k in r.keys()) out.put(k, r.get(k))
+                } catch (t: Throwable) {
+                    out.put("reason", "server tidak bisa dihubungi: ${t.message ?: t}")
+                }
+            }
+        }
+        return res.put("hash_check", out)
+    }
+
+    /** The client binds "pqc-public-id:<id>" into the signature's Contact field. */
+    private fun publicIdFrom(res: JSONObject): String {
+        val sigs = res.optJSONArray("signatures") ?: return ""
+        for (i in 0 until sigs.length()) {
+            val contact = sigs.optJSONObject(i)?.optString("contact") ?: continue
+            if (contact.startsWith(PUBLIC_ID_PREFIX)) return contact.removePrefix(PUBLIC_ID_PREFIX)
+        }
+        return ""
     }
 
     /** Public verifier on the server — no account needed. */
     fun verifyPublic(serverUrl: String, uri: Uri): String {
         val pdf = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
-        return ApiClient(serverUrl, true).verifyPublic(pdf).toString(2)
+        return ApiClient(serverUrl, false).verifyPublic(pdf).toString(2)
     }
 
     /** Hash-only verify: the document is read and digested on this device and
@@ -360,7 +408,7 @@ class AppCore(private val context: Context, val state: AppState) {
         val id = publicId.trim()
         require(id.isNotEmpty()) { "ID verifikasi belum diisi" }
         val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
-        return ApiClient(serverUrl, true).verifyHash(id, sha512Hex(bytes))
+        return ApiClient(serverUrl, false).verifyHash(id, sha512Hex(bytes))
     }
 
     /** Resolve a scanned QR (a bare ID, or a URL whose path ends /v/<id> or
@@ -371,7 +419,7 @@ class AppCore(private val context: Context, val state: AppState) {
             .substringAfterLast("/v/").substringAfterLast("/s/").substringAfterLast('/')
         val id = Regex("[^A-Za-z0-9_-]").replace(raw, "")
         require(id.isNotEmpty()) { "QR tidak berisi ID verifikasi yang bisa dibaca" }
-        return ApiClient(serverUrl, true).publicRecord(id).toString(2)
+        return ApiClient(serverUrl, false).publicRecord(id).toString(2)
     }
 
     // ---- 6. History ----

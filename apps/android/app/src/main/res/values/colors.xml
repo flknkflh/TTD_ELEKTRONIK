@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- LIGHT: "Arctic Quantum Glass"
+     Assets/PALET-WARNA-PQC-PDF-SIGN-LIQUID-GLASS.txt -->
 <resources>
-    <color name="brand">#4F46E5</color>
+    <color name="brand">#169BFF</color>
     <color name="brand_on">#FFFFFF</color>
-    <color name="brand_container">#E4E5FD</color>
-    <color name="brand_on_container">#20206B</color>
+    <color name="brand_container">#DFF1FF</color>
+    <color name="brand_on_container">#0B3F70</color>
 
-    <color name="ok">#15803D</color>
-    <color name="ok_container">#DCFCE7</color>
-    <color name="bad">#B91C1C</color>
-    <color name="bad_container">#FEE2E2</color>
+    <color name="cyan">#35D9F5</color>
+    <color name="quantum">#7B55E7</color>
+
+    <color name="surface">#F7FBFF</color>
+    <color name="on_surface">#102A43</color>
+    <color name="on_surface_variant">#486581</color>
+    <color name="outline_variant">#C4D9EA</color>
+
+    <color name="ok">#12B886</color>
+    <color name="ok_container">#DFF8EF</color>
+    <color name="bad">#E5484D</color>
+    <color name="bad_container">#FFE8E8</color>
 </resources>

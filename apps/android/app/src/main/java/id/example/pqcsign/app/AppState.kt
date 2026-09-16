@@ -7,7 +7,7 @@ class AppState(context: Context) {
     private val sp = context.applicationContext.getSharedPreferences("pqc_state", Context.MODE_PRIVATE)
 
     companion object {
-        const val DEFAULT_SERVER_URL = "http://136.244.116.132:8099"
+        const val DEFAULT_SERVER_URL = "https://136.244.116.132"
         private val LOOPBACK = Regex("localhost|127\\.0\\.0\\.1|10\\.0\\.2\\.2|0\\.0\\.0\\.0", RegexOption.IGNORE_CASE)
     }
 
@@ -16,13 +16,14 @@ class AppState(context: Context) {
         // stale so upgraded installs migrate to the current default.
         get() {
             val v = sp.getString("server_url", null)
-            return if (v.isNullOrBlank() || LOOPBACK.containsMatchIn(v)) DEFAULT_SERVER_URL else v
+            return if (v.isNullOrBlank() || LOOPBACK.containsMatchIn(v) ||
+                Regex("https?://136\\.244\\.116\\.132:(8098|8099)/?").matches(v)) DEFAULT_SERVER_URL else v
         }
         set(v) = sp.edit().putString("server_url", v.trim().trimEnd('/'))
             .apply()
 
     var insecureTls: Boolean
-        get() = sp.getBoolean("insecure_tls", true)
+        get() = if (serverUrl == DEFAULT_SERVER_URL) false else sp.getBoolean("insecure_tls", false)
         set(v) = sp.edit().putBoolean("insecure_tls", v).apply()
 
     var accountEmail: String?

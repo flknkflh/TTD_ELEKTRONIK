@@ -1,12 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- DARK - "Midnight Quantum Glass". -->
     <style name="Theme.PqcSign" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">#A5B4FC</item>
-        <item name="colorOnPrimary">#101114</item>
-        <item name="colorPrimaryContainer">#2C2C55</item>
-        <item name="colorOnPrimaryContainer">#DDDEFF</item>
-        <item name="colorSecondary">#A5B4FC</item>
-        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="colorPrimary">#0A9FFF</item>
+        <item name="colorOnPrimary">#07111E</item>
+        <item name="colorPrimaryContainer">#102945</item>
+        <item name="colorOnPrimaryContainer">#D8F2FF</item>
+        <item name="colorSecondary">#1CDFF5</item>
+        <item name="colorTertiary">#9566FF</item>
+
+        <item name="colorSurface">#050B18</item>
+        <item name="colorOnSurface">#F3F9FF</item>
+        <item name="colorOnSurfaceVariant">#C4D7E8</item>
+        <item name="colorOutlineVariant">#28506E</item>
+
+        <item name="android:windowBackground">#050B18</item>
+        <item name="android:statusBarColor">#050B18</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

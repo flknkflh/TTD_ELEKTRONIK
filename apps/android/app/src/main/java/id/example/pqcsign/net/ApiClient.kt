@@ -159,10 +159,21 @@ class ApiClient(baseUrl: String, insecureTls: Boolean = false) {
      *  placement (Rencana RB-2c), ready to sign on-device. Page count
      *  unchanged. Placements go as a JSON `stamps` param; a single placement
      *  also sends page/x/y/w for older servers. */
-    fun stamp(publicId: String, pdf: ByteArray, places: List<StampPlacement>, reason: String, issuedPlace: String = ""): ByteArray {
+    fun stamp(
+        publicId: String,
+        pdf: ByteArray,
+        places: List<StampPlacement>,
+        reason: String,
+        issuedPlace: String = "",
+        letterNo: String = "",
+        letterSubject: String = "",
+    ): ByteArray {
         val q = StringBuilder("?")
         if (reason.isNotEmpty()) q.append("reason=").append(java.net.URLEncoder.encode(reason, "UTF-8")).append('&')
         if (issuedPlace.isNotEmpty()) q.append("issued_place=").append(java.net.URLEncoder.encode(issuedPlace, "UTF-8")).append('&')
+        // per-signature letter details -> "Nomor:" / "Perihal:" in the caption
+        if (letterNo.isNotEmpty()) q.append("letter_no=").append(java.net.URLEncoder.encode(letterNo, "UTF-8")).append('&')
+        if (letterSubject.isNotEmpty()) q.append("letter_subject=").append(java.net.URLEncoder.encode(letterSubject, "UTF-8")).append('&')
         val arr = org.json.JSONArray()
         for (p in places) arr.put(JSONObject().apply {
             put("page", p.page); put("x", p.x); put("y", p.y); put("w", p.w)

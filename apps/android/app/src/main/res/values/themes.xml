@@ -1,12 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- LIGHT - "Arctic Quantum Glass".
+         The window background stays transparent so LiquidBackgroundView
+         (ui/Glass.kt) is what the user actually sees behind the glass. -->
     <style name="Theme.PqcSign" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand</item>
         <item name="colorOnPrimary">@color/brand_on</item>
         <item name="colorPrimaryContainer">@color/brand_container</item>
         <item name="colorOnPrimaryContainer">@color/brand_on_container</item>
-        <item name="colorSecondary">@color/brand</item>
-        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="colorSecondary">@color/cyan</item>
+        <item name="colorTertiary">@color/quantum</item>
+
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorOutlineVariant">@color/outline_variant</item>
+
+        <!-- opaque: LiquidBackgroundView paints over this immediately, and a
+             transparent window would flash black while the activity starts -->
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:statusBarColor">@color/surface</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>
