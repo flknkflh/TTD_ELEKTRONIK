@@ -1,0 +1,534 @@
+=========================================================
+PALET WARNA — PQC PDF Sign
+Tema: LIQUID GLASS
+Mode: LIGHT + DARK
+=========================================================
+
+CATATAN UMUM
+------------
+Konsep visual:
+- Liquid Glass
+- Post-Quantum Security
+- Secure Document
+- QR Verification
+- Root CA Trusted
+- Client-Side Signing
+
+Karakter utama:
+- Light Mode  : putih es, biru muda, cyan lembut, sedikit lavender
+- Dark Mode   : midnight navy, deep blue, electric cyan, violet
+- Accent      : cyan + blue + violet
+- Glass       : transparan, blur tinggi, border tipis bercahaya
+- Hindari penggunaan warna neon secara berlebihan pada area konten utama
+
+
+=========================================================
+1. LIGHT MODE — "ARCTIC QUANTUM GLASS"
+=========================================================
+
+--- BACKGROUND ---
+--bg-primary            #F7FBFF
+--bg-secondary          #EEF7FF
+--bg-tertiary           #E5F1FB
+--bg-snow               #FCFEFF
+--bg-ice                #EAF6FF
+
+--- SURFACE ---
+--surface-primary       #FFFFFF
+--surface-secondary     #F6FAFF
+--surface-muted         #EDF5FC
+--surface-elevated      #FFFFFF
+
+--- LIQUID GLASS ---
+--glass-bg              rgba(255, 255, 255, 0.52)
+--glass-bg-strong       rgba(255, 255, 255, 0.72)
+--glass-bg-soft         rgba(236, 247, 255, 0.38)
+--glass-border          rgba(255, 255, 255, 0.78)
+--glass-border-blue     rgba(110, 190, 255, 0.42)
+--glass-highlight       rgba(255, 255, 255, 0.92)
+--glass-shadow          rgba(44, 112, 170, 0.16)
+
+--- PRIMARY BLUE ---
+--blue-50               #F0F8FF
+--blue-100              #DFF1FF
+--blue-200              #B9E2FF
+--blue-300              #85CEFF
+--blue-400              #4DB8FF
+--blue-500              #169BFF
+--blue-600              #087BDD
+--blue-700              #0761B4
+--blue-800              #0A4F8D
+--blue-900              #0B3F70
+
+--- CYAN ---
+--cyan-100              #DDFBFF
+--cyan-200              #B8F4FF
+--cyan-300              #7AEAFF
+--cyan-400              #35D9F5
+--cyan-500              #08BEDF
+--cyan-600              #0798B8
+
+--- VIOLET / QUANTUM ACCENT ---
+--violet-100            #F0EAFF
+--violet-200            #DED1FF
+--violet-300            #C3A8FF
+--violet-400            #9E78FF
+--violet-500            #7B55E7
+
+--- TEXT ---
+--text-primary          #102A43
+--text-secondary        #486581
+--text-muted            #829AB1
+--text-inverse          #FFFFFF
+--text-link             #087BDD
+
+--- BORDER ---
+--border-soft           #DCEAF5
+--border-medium         #C4D9EA
+--border-active         #59BFFF
+
+--- STATUS ---
+--success               #12B886
+--success-soft          #DFF8EF
+
+--warning               #F5A524
+--warning-soft          #FFF3D6
+
+--danger                #E5484D
+--danger-soft           #FFE8E8
+
+--info                  #169BFF
+--info-soft             #E0F2FF
+
+--- SECURITY / TRUST ---
+--secure                #0EA5E9
+--verified              #18B6A4
+--trusted               #2563EB
+--quantum               #7C5CFC
+
+--- QR VERIFY ---
+--qr-primary            #0B8FFF
+--qr-secondary          #20D6E5
+--qr-glow               rgba(32, 214, 229, 0.38)
+
+--- SHADOW ---
+--shadow-sm             rgba(30, 80, 120, 0.08)
+--shadow-md             rgba(30, 80, 120, 0.14)
+--shadow-lg             rgba(30, 80, 120, 0.20)
+
+--- GLOW ---
+--glow-blue             rgba(22, 155, 255, 0.30)
+--glow-cyan             rgba(53, 217, 245, 0.28)
+--glow-violet           rgba(158, 120, 255, 0.20)
+
+
+=========================================================
+2. DARK MODE — "MIDNIGHT QUANTUM GLASS"
+=========================================================
+
+--- BACKGROUND ---
+--bg-primary            #050B18
+--bg-secondary          #081225
+--bg-tertiary           #0B1930
+--bg-midnight           #030814
+--bg-deep-blue          #07172B
+
+--- SURFACE ---
+--surface-primary       #0A1830
+--surface-secondary     #0D203A
+--surface-muted         #102945
+--surface-elevated      #132D4B
+
+--- LIQUID GLASS ---
+--glass-bg              rgba(9, 25, 48, 0.58)
+--glass-bg-strong       rgba(10, 28, 54, 0.78)
+--glass-bg-soft         rgba(18, 43, 75, 0.34)
+--glass-border          rgba(147, 214, 255, 0.20)
+--glass-border-cyan     rgba(45, 212, 255, 0.42)
+--glass-highlight       rgba(190, 233, 255, 0.38)
+--glass-shadow          rgba(0, 0, 0, 0.45)
+
+--- ELECTRIC BLUE ---
+--blue-100              #D8F2FF
+--blue-200              #A7E1FF
+--blue-300              #6ECDFF
+--blue-400              #39B8FF
+--blue-500              #0A9FFF
+--blue-600              #087EDF
+--blue-700              #0865B5
+
+--- ELECTRIC CYAN ---
+--cyan-100              #D5FCFF
+--cyan-200              #9AF7FF
+--cyan-300              #55ECFF
+--cyan-400              #1CDFF5
+--cyan-500              #00C5DC
+--cyan-600              #0698AD
+
+--- VIOLET / QUANTUM ACCENT ---
+--violet-100            #EEE8FF
+--violet-200            #D8CAFF
+--violet-300            #B99CFF
+--violet-400            #9566FF
+--violet-500            #783CF0
+--violet-600            #5E27C7
+
+--- TEXT ---
+--text-primary          #F3F9FF
+--text-secondary        #C4D7E8
+--text-muted            #7F9DB8
+--text-inverse          #07111E
+--text-link             #51C8FF
+
+--- BORDER ---
+--border-soft           #193A57
+--border-medium         #28506E
+--border-active         #2BD7FF
+
+--- STATUS ---
+--success               #2AD6A0
+--success-soft          rgba(42, 214, 160, 0.14)
+
+--warning               #FFB84D
+--warning-soft          rgba(255, 184, 77, 0.14)
+
+--danger                #FF6470
+--danger-soft           rgba(255, 100, 112, 0.14)
+
+--info                  #38BDF8
+--info-soft             rgba(56, 189, 248, 0.14)
+
+--- SECURITY / TRUST ---
+--secure                #22D3EE
+--verified              #2DD4BF
+--trusted               #4F8CFF
+--quantum               #9B6CFF
+
+--- QR VERIFY ---
+--qr-primary            #20C8FF
+--qr-secondary          #8B5CFF
+--qr-glow               rgba(32, 200, 255, 0.42)
+
+--- SHADOW ---
+--shadow-sm             rgba(0, 0, 0, 0.24)
+--shadow-md             rgba(0, 0, 0, 0.36)
+--shadow-lg             rgba(0, 0, 0, 0.52)
+
+--- GLOW ---
+--glow-blue             rgba(30, 144, 255, 0.42)
+--glow-cyan             rgba(0, 220, 255, 0.38)
+--glow-violet           rgba(139, 92, 246, 0.36)
+
+
+=========================================================
+3. GRADIENT UTAMA
+=========================================================
+
+--- LIGHT MODE ---
+
+--gradient-primary
+linear-gradient(
+    135deg,
+    #169BFF 0%,
+    #35D9F5 52%,
+    #9E78FF 100%
+)
+
+--gradient-soft
+linear-gradient(
+    135deg,
+    #F7FBFF 0%,
+    #E9F6FF 50%,
+    #F0EAFF 100%
+)
+
+--gradient-glass
+linear-gradient(
+    135deg,
+    rgba(255,255,255,0.78) 0%,
+    rgba(202,235,255,0.42) 55%,
+    rgba(222,209,255,0.34) 100%
+)
+
+--gradient-hero-overlay
+linear-gradient(
+    90deg,
+    rgba(247,251,255,0.94) 0%,
+    rgba(247,251,255,0.72) 42%,
+    rgba(247,251,255,0.18) 100%
+)
+
+
+--- DARK MODE ---
+
+--gradient-primary
+linear-gradient(
+    135deg,
+    #0A9FFF 0%,
+    #1CDFF5 45%,
+    #9566FF 100%
+)
+
+--gradient-dark
+linear-gradient(
+    135deg,
+    #030814 0%,
+    #07172B 52%,
+    #160E34 100%
+)
+
+--gradient-glass
+linear-gradient(
+    135deg,
+    rgba(21,55,91,0.62) 0%,
+    rgba(9,28,53,0.48) 50%,
+    rgba(64,37,112,0.38) 100%
+)
+
+--gradient-hero-overlay
+linear-gradient(
+    90deg,
+    rgba(3,8,20,0.96) 0%,
+    rgba(5,14,30,0.78) 44%,
+    rgba(5,14,30,0.20) 100%
+)
+
+
+=========================================================
+4. REKOMENDASI WARNA BERDASARKAN KOMPONEN
+=========================================================
+
+LIGHT MODE
+----------
+
+Navbar Background:
+rgba(255,255,255,0.58)
+
+Navbar Border:
+rgba(255,255,255,0.80)
+
+Primary Button:
+#169BFF
+
+Primary Button Hover:
+#087BDD
+
+Secondary Glass Button:
+rgba(255,255,255,0.46)
+
+Card:
+rgba(255,255,255,0.50)
+
+Card Hover:
+rgba(255,255,255,0.72)
+
+Document Icon:
+#169BFF
+
+Security Shield:
+#08BEDF
+
+Verified Icon:
+#12B886
+
+Root CA:
+#2563EB
+
+Quantum / PQC Accent:
+#7B55E7
+
+
+DARK MODE
+---------
+
+Navbar Background:
+rgba(5,14,30,0.60)
+
+Navbar Border:
+rgba(97,194,255,0.18)
+
+Primary Button:
+#0A9FFF
+
+Primary Button Hover:
+#35C8FF
+
+Secondary Glass Button:
+rgba(18,43,75,0.42)
+
+Card:
+rgba(9,25,48,0.56)
+
+Card Hover:
+rgba(16,42,75,0.74)
+
+Document Icon:
+#38BDF8
+
+Security Shield:
+#22D3EE
+
+Verified Icon:
+#2DD4BF
+
+Root CA:
+#4F8CFF
+
+Quantum / PQC Accent:
+#9566FF
+
+
+=========================================================
+5. BACKGROUND GAMBAR GUNUNG
+=========================================================
+
+LIGHT MODE
+----------
+Snow / Highlight       #FFFFFF
+Snow Blue              #EAF5FF
+Ice Blue               #D7EBFA
+Sky                    #BFDFFF
+Sky Highlight          #EAF7FF
+Mountain Shadow        #A8C4DB
+Distant Mountain       #DDEBF6
+
+Gunakan overlay:
+rgba(247,251,255,0.30)
+
+atau untuk area teks:
+linear-gradient(
+    90deg,
+    rgba(247,251,255,0.96),
+    rgba(247,251,255,0.68),
+    rgba(247,251,255,0.12)
+)
+
+
+DARK MODE
+---------
+Night Sky              #020817
+Midnight Blue          #07152B
+Mountain               #0A1730
+Mountain Highlight     #17385A
+Moonlight              #BBD8F6
+Lake Reflection        #0B2846
+Night Violet           #241450
+
+Gunakan overlay:
+rgba(2,8,23,0.38)
+
+atau untuk area teks:
+linear-gradient(
+    90deg,
+    rgba(2,8,23,0.96),
+    rgba(4,13,31,0.78),
+    rgba(4,13,31,0.14)
+)
+
+
+=========================================================
+6. EFEK LIQUID GLASS YANG DIREKOMENDASIKAN
+=========================================================
+
+LIGHT MODE
+----------
+backdrop-filter: blur(24px) saturate(145%);
+-webkit-backdrop-filter: blur(24px) saturate(145%);
+
+border:
+1px solid rgba(255,255,255,0.72);
+
+box-shadow:
+0 12px 40px rgba(38,99,142,0.14),
+inset 0 1px 0 rgba(255,255,255,0.82);
+
+
+DARK MODE
+---------
+backdrop-filter: blur(24px) saturate(135%);
+-webkit-backdrop-filter: blur(24px) saturate(135%);
+
+border:
+1px solid rgba(110,205,255,0.20);
+
+box-shadow:
+0 14px 48px rgba(0,0,0,0.42),
+0 0 30px rgba(10,159,255,0.08),
+inset 0 1px 0 rgba(188,231,255,0.16);
+
+
+=========================================================
+7. COLOR PAIR — LIGHT ↔ DARK
+=========================================================
+
+LIGHT                  DARK
+---------------------------------------------------------
+#F7FBFF                 #050B18
+#EEF7FF                 #081225
+#FFFFFF                 #0A1830
+#169BFF                 #0A9FFF
+#35D9F5                 #1CDFF5
+#7B55E7                 #9566FF
+#102A43                 #F3F9FF
+#486581                 #C4D7E8
+#829AB1                 #7F9DB8
+#12B886                 #2DD4BF
+#E5484D                 #FF6470
+
+
+=========================================================
+8. PALET INTI — JIKA HANYA MEMAKAI 8 WARNA
+=========================================================
+
+LIGHT MODE
+----------
+1. #F7FBFF   Background
+2. #FFFFFF   Surface
+3. #DFF1FF   Ice
+4. #169BFF   Primary
+5. #35D9F5   Cyan
+6. #7B55E7   Quantum
+7. #102A43   Main Text
+8. #12B886   Verified
+
+
+DARK MODE
+---------
+1. #050B18   Background
+2. #0A1830   Surface
+3. #17385A   Glass Depth
+4. #0A9FFF   Primary
+5. #1CDFF5   Cyan
+6. #9566FF   Quantum
+7. #F3F9FF   Main Text
+8. #2DD4BF   Verified
+
+
+=========================================================
+9. REKOMENDASI PROPORSI WARNA
+=========================================================
+
+LIGHT MODE
+----------
+65%  White / Snow / Ice
+20%  Soft Blue
+8%   Primary Blue
+4%   Cyan
+2%   Violet
+1%   Status Colors
+
+
+DARK MODE
+---------
+60%  Midnight / Navy
+22%  Deep Blue Surface
+8%   Electric Blue
+5%   Cyan
+4%   Violet
+1%   Status Colors
+
+
+=========================================================
+END OF PALETTE
+PQC PDF Sign — Liquid Glass Visual System
+=========================================================
